@@ -710,6 +710,51 @@ button { font-family: inherit; cursor: pointer; }
   background: linear-gradient(160deg, var(--q-blunder), color-mix(in oklab, var(--q-blunder) 78%, #000));
 }
 
+/* Variation move classification header in engine panel */
+.engine-var-classif {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; margin-bottom: 8px;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--accent) 14%, var(--panel-2));
+  border: 1px solid color-mix(in oklab, var(--accent) 30%, var(--line));
+  font-family: var(--font-ui);
+}
+.engine-var-classif .evc-label {
+  font-size: 12px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: .05em;
+}
+.engine-var-classif .evc-badge {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 10px; border-radius: 7px;
+  font-size: 12.5px; font-weight: 700; color: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.engine-var-classif .evc-badge .qb.icon { width: 18px; height: 18px; flex-shrink: 0; }
+.engine-var-classif .evc-name { text-transform: capitalize; }
+
+/* Variation move list in review panel */
+.variation-move-list {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 8px 0; margin: 4px 0;
+  font-family: var(--font-mono);
+}
+.var-move {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: 6px;
+  background: color-mix(in oklab, var(--panel-2) 80%, transparent);
+  border: 1px solid var(--line-soft);
+  font-size: 12px; white-space: nowrap;
+  transition: background .1s, border-color .1s;
+}
+.var-move.current {
+  background: color-mix(in oklab, var(--accent) 18%, var(--panel-2));
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 30%, transparent);
+}
+.var-move .vm-move { font-weight: 600; color: var(--ink); }
+.var-move .qb.icon { width: 16px; height: 16px; flex-shrink: 0; }
+.var-move .qb.dot { width: 7px; height: 7px; }
+.var-move .qb.label { font-size: 8px; padding: 1px 5px; }
+
 /* ---------- EVAL GRAPH ---------- */
 .evalgraph { position: relative; }
 .evalgraph svg { display: block; width: 100%; height: 120px; }

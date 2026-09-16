@@ -227,6 +227,9 @@ const DEFAULT_SETTINGS = {
   bestArrow: true, arrowOpacity: 0.65, arrowShaft: 0.2, arrowHead: 0.4,
   // "Show the threat": a yellow arrow with the opponent's best move as if it were their turn.
   showThreat: false,
+  // "Show move classification on board": display classification badges on destination squares
+  // (Chess.com style). Works for both mainline and variation moves.
+  showMoveClassif: true,
   // Move animation (sliding piece on single-step navigation). 1 = slow, 10 = fast.
   moveAnim: true, animSpeed: 7,
   // Loading animation while the analysis runs (selectable style).
@@ -1019,6 +1022,99 @@ function catAcc(cls) {
     default: return null;
   }
 }
+// Classify a user move in a variation (analysis mode).
+// parentPos: the position BEFORE the move (has .eval, .best from engine)
+// pos: the position AFTER the move (has .eval, .best, .san, .from, .to, .color)
+// Returns classification string like "best", "excellent", "inacc", "mistake", "blunder", "book"
+function classifyVariationMove(parentPos, pos, variation, vIdx) {
+  if (!parentPos || !pos) return null;
+
+  const mover = pos.color;
+  const parentEval = parentPos.eval;
+  const currentEval = pos.eval;
+  if (parentEval == null || currentEval == null) return null;
+
+  // Is it a book move?
+  const book = bookLookup(pos.fen);
+  if (book) return "book";
+
+  // Was it the engine's top choice? Compare the move played with parentPos.best.bestmove
+  let isTop = false;
+  if (parentPos.best && parentPos.best.bestmove) {
+    const bestUci = parentPos.best.bestmove;
+    const playedUci = pos.from + pos.to + (pos.promotion || "");
+    isTop = bestUci === playedUci;
+  }
+  if (isTop) return "best";
+
+  // Forced move (only one legal) -> best
+  if (new Chess(parentPos.fen).moves().length === 1) return "best";
+
+  // Check for sacrifice
+  let sac = false;
+  if (!pos.promotion) {
+    sac = isSacrifice({ before: parentPos.fen, after: pos.fen, color: pos.color, captured: pos.captured, from: pos.from });
+  }
+
+  // Eval loss from mover's POV (positive = worse for mover)
+  const evalBefore = mover === "w" ? parentEval.cp : -parentEval.cp;
+  const evalAfter = mover === "w" ? currentEval.cp : -currentEval.cp;
+  const loss = evalBefore - evalAfter; // positive = eval dropped (bad)
+
+  // Mate handling
+  const mateBefore = parentEval.mate;
+  const mateAfter = currentEval.mate;
+  const mateBeforeMover = mateBefore != null ? (mateBefore > 0 ? 1 : -1) * (mover === "w" ? 1 : -1) : null;
+  const mateAfterMover = mateAfter != null ? (mateAfter > 0 ? 1 : -1) * (mover === "w" ? 1 : -1) : null;
+
+  // Settings thresholds (pawns)
+  const CA = S.settings.clsClearAdv;
+  const ML = S.settings.clsMistakeLoss;
+  const MT = S.settings.clsMissTol;
+  const inaccThresh = S.settings.clsInacc;
+  const blunderThresh = S.settings.clsBlunder;
+  const goodThresh = S.settings.clsGood;
+
+  // Win% drop (for calibrated classification)
+  const wpBefore = moverWin(parentEval, mover);
+  const wpAfter = moverWin(currentEval, mover);
+  const wpDrop = wpBefore - wpAfter;
+
+  const winningNow = evalAfter > 0;
+  const wasWinning = evalBefore > 0;
+
+  // Classification logic (adapted from classifyMove for variation context)
+  // Brilliant: sound sacrifice that punishes opponent's mistake
+  if (sac && wpDrop < 0 && evalAfter > evalBefore) return "brilliant";
+  if (sac && mateAfterMover != null && mateAfterMover < 0) return "brilliant"; // sac delivering mate
+
+  // Mate-related classifications
+  if (mateBeforeMover == null && mateAfterMover != null && mateAfterMover < 0 && winningNow) return "excellent"; // starts a mate
+  if (mateBeforeMover != null && mateAfterMover != null && mateAfterMover < 0 && mateAfterMover <= mateBeforeMover && winningNow) return "excellent"; // keeps the mate
+  if (mateBeforeMover != null && mateAfterMover != null && mateAfterMover < 0 && mateAfterMover > mateBeforeMover && winningNow) return "good"; // delays own mate
+  if (mateBeforeMover != null && mateAfterMover == null && wasWinning) return "miss"; // threw away a forced mate
+
+  // Mistake: lost a clear advantage (was winning by CA+ pawns, now not)
+  if (wasWinning && evalBefore >= CA * 100 && evalAfter < CA * 100 && loss >= ML * 100) return "mistake";
+  // Mistake: handed opponent a clear advantage
+  if (!wasWinning && evalBefore >= -CA * 100 && evalAfter < -CA * 100 && loss >= ML * 100) return "mistake";
+  // Mistake: walked into mate (wasn't already lost)
+  if (mateBeforeMover == null && mateAfterMover != null && mateAfterMover > 0 && evalBefore > -CA * 100) return "mistake";
+  if (mateBeforeMover == null && mateAfterMover != null && mateAfterMover > 0) return "blunder"; // walked into mate
+
+  // Excellent: very small loss (< goodThresh pawns)
+  if (loss <= goodThresh * 100) return "excellent";
+
+  // Good: small loss (< inaccThresh pawns)
+  if (loss <= inaccThresh * 100) return "good";
+
+  // Inaccuracy: moderate loss
+  if (loss <= blunderThresh * 100) return "inacc";
+
+  // Blunder: large loss
+  return "blunder";
+}
+
 // Sacrifice/forced are functions of the board only (not the eval), so they're cached per ply for
 // the whole analysis — computeDerived runs many times while the batch fills in, and isSacrifice is
 // the one non-trivial cost here. Caches are reset whenever a new game's positions are built.
@@ -1516,24 +1612,39 @@ function paintBoard() {
   const solvePly = S.practice ? S.practice.spots[S.practice.i] - 1 : -1;
   const clean = !!S.practice && S.idx === solvePly;
   const showCat = !S.practice || S.idx === solvePly + 1;
-  const hl = clean ? new Set() : new Set([pos.from, pos.to].filter(Boolean));
-  // Variation moves aren't classified either.
-  const cls = (S.analysisMode || !showCat) ? null : S.classif[S.idx];
+
+  // For mainline: classify the move at S.idx (the move that led to current position)
+  // For variation: classify the move at v.idx (the move that led to current variation position)
+  let cls = null;
+  let hlFrom = pos.from;
+  let hlTo = pos.to;
+  if (S.analysisMode && S.variation && S.variation.idx > 0) {
+    // Variation mode: show classification for the current variation move
+    cls = pos.classif;
+    hlFrom = S.variation.positions[S.variation.idx - 1]?.from || pos.from;
+    hlTo = pos.to;
+  } else {
+    cls = (!showCat) ? null : S.classif[S.idx];
+  }
+
+  const hl = clean ? new Set() : new Set([hlFrom, hlTo].filter(Boolean));
   // The from/to squares are tinted with the classification color (chess.com style) at 0.5 alpha;
   // without a classification we fall back to the neutral yellow highlight.
   const tint = cls && QUALITY[cls]
     ? `color-mix(in srgb, ${QUALITY[cls].color} 50%, transparent)`
     : null;
+  // Respect "Show move classification on board" setting
+  const showBadges = S.settings.showMoveClassif && cls && QUALITY[cls];
   for (const [name, sq] of Object.entries(sqByName)) {
     sq.querySelectorAll(".piece, .piece-svg, .piece-img, .sq-badge").forEach((n) => n.remove());
     const isHl = hl.has(name);
     sq.classList.toggle("hl", isHl);
-    sq.classList.toggle("has-badge", name === pos.to && !!(cls && QUALITY[cls]));
+    sq.classList.toggle("has-badge", name === hlTo && showBadges);
     if (isHl && tint) sq.style.setProperty("--hl-color", tint);
     else sq.style.removeProperty("--hl-color");
     const ch = occ[name];
     if (ch) sq.append(makePiece(ch.toUpperCase(), ch === ch.toUpperCase() ? "w" : "b"));
-    if (name === pos.to && cls && QUALITY[cls]) {
+    if (name === hlTo && showBadges) {
       sq.append(el("img", { class: "sq-badge", src: qIcon(cls), alt: QUALITY[cls].name, draggable: "false" }));
     }
   }
@@ -1946,7 +2057,7 @@ function applyUserMove(from, to, animate = true) {
   let c, mv;
   try { c = new Chess(fen); mv = c.move({ from, to, promotion: "q" }); } catch { mv = null; }
   if (!mv) { S.selectedSq = null; renderSelection(); return; }
-  const node = { fen: c.fen(), san: mv.san, from: mv.from, to: mv.to, color: mv.color, eval: null, best: null };
+  const node = { fen: c.fen(), san: mv.san, from: mv.from, to: mv.to, color: mv.color, captured: mv.captured, promotion: mv.promotion, eval: null, best: null };
   if (!S.analysisMode) {
     // On the mainline (and only if the position is analyzed): if the move matches the next
     // mainline move, just stay on the mainline.
@@ -1989,7 +2100,7 @@ function playLine(pv) {
   for (const u of ucis) {
     let mv; try { mv = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.slice(4, 5) || "q" }); } catch { mv = null; }
     if (!mv) break;
-    v.positions.push({ fen: c.fen(), san: mv.san, from: mv.from, to: mv.to, color: mv.color, eval: null, best: null });
+    v.positions.push({ fen: c.fen(), san: mv.san, from: mv.from, to: mv.to, color: mv.color, captured: mv.captured, promotion: mv.promotion, eval: null, best: null });
   }
   // Start just one move into the line (not at the end) — the rest plays out automatically.
   v.idx = Math.min(startIdx + 1, v.positions.length - 1);
@@ -2081,7 +2192,7 @@ async function playBestMoves() {
     let c, mv;
     try { c = new Chess(pos.fen); mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.slice(4, 5) || "q" }); } catch { mv = null; }
     if (!mv) break;
-    v.positions.push({ fen: c.fen(), san: mv.san, from: mv.from, to: mv.to, color: mv.color, eval: null, best: null });
+    v.positions.push({ fen: c.fen(), san: mv.san, from: mv.from, to: mv.to, color: mv.color, captured: mv.captured, promotion: mv.promotion, eval: null, best: null });
     v.idx = v.positions.length - 1;
     playSanSound(mv.san);
     paintBoard(); renderEvalBar(); renderPlayers(); renderControls(); renderReview(); renderEngineCurrent();
@@ -2092,21 +2203,42 @@ async function playBestMoves() {
 async function requestLiveEval() {
   if (!S.analysisMode || !S.variation) return;
   const pos = activePos();
-  if (pos.best) { renderEvalBar(); renderBestArrow(); renderEngineCurrent(); return; } // already computed
+  const needsAnalysis = !pos.best;
+  const needsClassification = pos.best && !pos.classif;
+  if (!needsAnalysis && !needsClassification) { renderEvalBar(); renderBestArrow(); renderEngineCurrent(); return; }
   const token = ++S.liveToken;
   if (!S.liveEngine) {
     S.liveEngine = await createEngine({ Hash: S.settings.engineHash, "Skill Level": S.settings.engineSkill });
     if (token !== S.liveToken) return;
   }
-  S.liveEngine.stop();
-  const fen = pos.fen;
-  let res;
-  try { res = await S.liveEngine.analyse(fen, S.settings.engineDepth, S.settings.engineLines); }
-  catch { return; }
-  if (token !== S.liveToken || !S.analysisMode) return;
-  pos.eval = terminalScore(fen) || whiteRel(res.score, fen);
-  pos.best = res;
-  renderEvalBar(); renderBestArrow(); renderEngineCurrent();
+  if (needsAnalysis) {
+    S.liveEngine.stop();
+    const fen = pos.fen;
+    let res;
+    try { res = await S.liveEngine.analyse(fen, S.settings.engineDepth, S.settings.engineLines); }
+    catch { return; }
+    if (token !== S.liveToken || !S.analysisMode) return;
+    pos.eval = terminalScore(fen) || whiteRel(res.score, fen);
+    pos.best = res;
+  }
+  // Classify the user's move that led to this position (if not already classified)
+  if (!pos.classif) {
+    const v = S.variation;
+    const vIdx = v.idx;
+    let parentPos = null;
+    if (vIdx === 1) {
+      // First move in variation: parent is on mainline
+      parentPos = { fen: S.positions[v.branchIdx].fen, eval: S.evals[v.branchIdx], best: S.bests[v.branchIdx] };
+    } else if (vIdx > 1) {
+      // Subsequent move: parent is previous variation position
+      parentPos = v.positions[vIdx - 1];
+    }
+    if (parentPos && parentPos.eval && pos.eval) {
+      pos.classif = classifyVariationMove(parentPos, pos, v, vIdx);
+    }
+  }
+
+  renderEvalBar(); renderBestArrow(); renderEngineCurrent(); paintBoard();
 }
 // Exit analysis mode. With mainIdx: jump to that mainline position; otherwise stay put.
 // (Analysis mode is indicated/closed via the Exit button in the controls bar.)
@@ -2739,13 +2871,25 @@ function renderReview() {
 
   if (S.analysisMode && S.variation) {
     _ipSig = null;
-    // Exploring an engine sideline is not part of the played game, so the coach stays quiet here —
-    // we show a plain, neutral note instead of a coach line (the eval still updates live below).
-    // Mirror a move comment's layout exactly (empty .ip-head for the same top spacing + the note in
-    // .ip-text) so the font, colour and vertical position match the mainline commentary.
+    const v = S.variation;
+    // Show variation moves with classification badges
     const body = el("div", { class: "ip-body" });
     body.append(el("div", { class: "ip-head" }));
-    body.append(el("div", { class: "ip-text" }, "Exploring a variation."));
+    const varMoves = el("div", { class: "variation-move-list" });
+    
+    // Show moves from the branch point (skip the initial null-san position at index 0)
+    for (let i = 1; i < v.positions.length; i++) {
+      const pos = v.positions[i];
+      const cls = pos.classif;
+      const cfg = cls && QUALITY[cls];
+      const isCurrent = i === v.idx;
+      varMoves.append(el("div", { class: "var-move" + (isCurrent ? " current" : "") },
+        el("span", { class: "vm-move" }, pos.san),
+        cfg ? qBadge(cls) : null
+      ));
+    }
+    body.append(varMoves);
+    body.append(el("div", { class: "ip-text" }, v.idx >= v.positions.length - 1 ? "End of variation." : "Exploring a variation."));
     panel.append(body);
     UI.review.replaceChildren(panel);
     return;
@@ -3280,10 +3424,27 @@ function renderEngine(lines, padFromCache = false) {
     class: "engine-bestwalk" + (S.bestWalking ? " on" : ""),
     onclick: () => { if (S.bestWalking) { stopBestWalk(); renderControls(); renderEngineCurrent(); } else playBestMoves(); },
   }, S.bestWalking ? "■ Stop" : "▶ Play best moves from here");
+
+  // In analysis mode, show the classification of the user's move that led to this position
+  let varClassifHeader = null;
+  if (S.analysisMode && S.variation && S.variation.idx > 0) {
+    const cls = activePos().classif;
+    if (cls) {
+      const cfg = QUALITY[cls];
+      varClassifHeader = el("div", { class: "engine-var-classif" },
+        el("span", { class: "evc-label" }, "Your move: "),
+        el("span", { class: "evc-badge", style: { background: cfg.color } },
+          el("img", { class: "qb icon", src: qIcon(cls), alt: cfg.name, title: cfg.name, draggable: "false" }),
+          el("span", { class: "evc-name" }, cfg.name)
+        )
+      );
+    }
+  }
+
   UI.engine.replaceChildren(el("div", { class: "panel" },
     el("div", { class: "panel-head" }, el("h3", {}, "Engine"),
       el("span", { class: "count" }, `${activeEngineName()} · depth ${S.settings.engineDepth}`)),
-    el("div", { class: "panel-body engine-body" }, body, bestWalkBtn),
+    el("div", { class: "panel-body engine-body" }, varClassifHeader, body, bestWalkBtn),
   ));
 }
 
@@ -3661,6 +3822,7 @@ function visualSettings() {
     section("Best-move arrow",
       toggleRow("Show arrow", "bestArrow"),
       toggleRow("Show the threat", "showThreat", setSetting, "Draws a yellow arrow with the opponent's best move as if it were their turn — i.e. the threat against the move you just played. Helps answer \"why was that bad / what am I missing?\""),
+      toggleRow("Show move classification on board", "showMoveClassif", setSetting, "Display classification badges (Brilliant, Blunder, etc.) on the destination squares of moves — both mainline and variation moves. Like Chess.com's \"Show Move Classification On Board\"."),
       slider("Opacity", "arrowOpacity", 0.3, 1, 0.02, { onChange: refreshArrows }),
       slider("Shaft width", "arrowShaft", 0.14, 0.42, 0.01, { onChange: refreshArrows }),
       slider("Head size", "arrowHead", 0.22, 0.55, 0.01, { onChange: refreshArrows }),
@@ -3948,6 +4110,7 @@ async function setSetting(key, value) {
   if (key === "evalView" || key === "graphStyle" || key === "barStyle") { renderEvalBar(); renderGraph(); }
   if (key === "bestArrow") renderBestArrow();
   if (key === "showThreat") renderThreatArrow();
+  if (key === "showMoveClassif") paintBoard();
   if (key === "loaderStyle") { renderReview(); renderStats(); }
   if (UI.settings && !UI.settings.hidden) renderSettings();
 }
