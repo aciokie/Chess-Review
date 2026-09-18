@@ -108,6 +108,10 @@ $("saveUser").addEventListener("click", async () => {
 
 $("analyzeCurrent").addEventListener("click", runCurrentAnalysis);
 
+$("exploreBtn").addEventListener("click", async () => {
+  await openAnalysisTab({ pgn: "*", meta: {}, source: "explore" });
+});
+
 $("analyzeManual").addEventListener("click", async () => {
   const btn = $("analyzeManual");
   const raw = $("manualInput").value.trim();

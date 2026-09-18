@@ -4994,6 +4994,15 @@ async function applyGame(payload) {
   if (!S.qbreakExpanded) reflowAccuracy(false);
   renderLibrary();             // refresh the "currently open" highlight in the sidebar
   requestAnimationFrame(alignPlayers);
+  if (payload.source === "explore") {
+    S.exploreMode = true;
+    S.analysisMode = true;
+    S.variation = { branchIdx: 0, positions: [{ fen: S.positions[0].fen, san: null }], idx: 0 };
+    renderAll();
+    if (!restored) startAnalysis();
+    return;
+  }
+  S.exploreMode = false;
   if (!restored) startAnalysis();
 }
 
