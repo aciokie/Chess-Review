@@ -224,7 +224,7 @@ const DEFAULT_SETTINGS = {
   // piece/board image. The other cc* fields are dead (kept null for back-compat with old saves).
   ccPieceSet: null, ccPieceUrlTemplate: null, ccPieceUrlMap: null, ccBoardTheme: null, ccBoardUrl: null,
   // Best-move arrow (the engine's recommendation in the current position)
-  bestArrow: true, arrowOpacity: 0.65, arrowShaft: 0.2, arrowHead: 0.4,
+  bestArrow: true, showEngineArrows: true, arrowOpacity: 0.65, arrowShaft: 0.2, arrowHead: 0.4,
   // "Show the threat": a yellow arrow with the opponent's best move as if it were their turn.
   showThreat: false,
   // "Show move classification on board": display classification badges on destination squares
@@ -1649,6 +1649,7 @@ function paintBoard() {
     }
   }
   renderBestArrow();
+  renderEngineArrows();
   renderUserArrows();
   renderThreatArrow();
   renderUserMarks();
@@ -1786,7 +1787,7 @@ function renderUserArrows(preview) {
       + `<polygon points="${head.map(arrowFmt).join(" ")}" stroke="none"/></g>`;
   }).join("");
 }
-function refreshArrows() { renderBestArrow(); renderUserArrows(); renderThreatArrow(); }
+function refreshArrows() { renderBestArrow(); renderEngineArrows(); renderUserArrows(); renderThreatArrow(); }
 // Create a ready Engine, trying the user's chosen build first and then falling back DOWN the
 // strength chain (nnue → wasm → asm) if it can't load. Every build is bundled, so a fallback never
 // needs the network. The build that actually started is recorded in S.activeEngineBuild so the
@@ -1893,6 +1894,59 @@ async function renderThreatArrow() {
     + `stroke-width="${S.settings.arrowShaft}" stroke-linejoin="round" stroke-linecap="butt"/>`
     + `<polygon points="${head.map(arrowFmt).join(" ")}" stroke="none"/></g>`;
 }
+
+/* ---------------- Engine line arrows (Lichess-style) ----------------
+   Draws one arrow per engine line on the board. Line 1 (best) is the
+   thickest; subsequent lines are progressively thinner and more transparent.
+   The user toggles this via showEngineArrows. */
+function currentEngineLines() {
+  if (S.analysisMode) return (activePos().best || {}).lines || null;
+  return (S._panelCache && S._panelCache.idx === S.idx && S._panelCache.lines)
+    || (S.bests[S.idx] || {}).lines || null;
+}
+function renderEngineArrows() {
+  const board = UI.boardWrap.querySelector(".board");
+  if (!board) return;
+  let svg = board.querySelector("svg.engine-arrows");
+  if (!S.settings.showEngineArrows || S.lineWalking || S.practice) { if (svg) svg.remove(); return; }
+  const lines = currentEngineLines();
+  if (!lines || !lines.length) { if (svg) svg.remove(); return; }
+  if (!svg) {
+    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "engine-arrows");
+    svg.setAttribute("viewBox", "0 0 8 8");
+    svg.setAttribute("preserveAspectRatio", "none");
+    board.append(svg);
+  }
+  const baseShaft = S.settings.arrowShaft;
+  const headLen = S.settings.arrowHead;
+  const headHalf = headLen * 0.70;
+  const baseOpacity = S.settings.arrowOpacity;
+  const max = Math.min(lines.length, S.settings.engineLines || 1);
+  const parts = [];
+  for (let rank = 0; rank < max; rank++) {
+    const l = lines[rank];
+    if (!l || !l.pv) continue;
+    const uci = l.pv.split(/\s+/)[0];
+    if (!uci || uci.length < 4) continue;
+    const a = arrowXY(uci.slice(0, 2)), b = arrowXY(uci.slice(2, 4));
+    if (!a || !b) continue;
+    const { shaft, head } = arrowBuild(arrowWaypoints(a, b), headLen, headHalf);
+    // Line 1 = thickest, line 2 = 60%, line 3 = 40%, line 4 = 25%
+    const scale = rank === 0 ? 1 : rank === 1 ? 0.60 : rank === 2 ? 0.40 : 0.25;
+    const sw = baseShaft * scale;
+    const op = rank === 0 ? baseOpacity : Math.max(0.18, baseOpacity * scale);
+    const color = rank === 0 ? ARROW_COLOR : "#6B8CFF";
+    parts.push(
+      `<g fill="${color}" opacity="${op}">`
+      + `<polyline points="${shaft.map(arrowFmt).join(" ")}" fill="none" stroke="${color}" `
+      + `stroke-width="${sw}" stroke-linejoin="round" stroke-linecap="butt"/>`
+      + `<polygon points="${head.map(arrowFmt).join(" ")}" stroke="none"/></g>`
+    );
+  }
+  svg.innerHTML = parts.join("");
+}
+
 // Single-square marking (red tint). Toggles on repeated right-click on the same square.
 function toggleMark(sq) {
   if (!sq) return;
@@ -3333,6 +3387,7 @@ function renderEngineCurrent() {
   if (S.analysisMode && S.variation) {
     const b = activePos().best;
     renderEngine(b ? b.lines : null);
+    renderEngineArrows();
   } else {
     const b = S.bests[S.idx];
     let lines = b ? b.lines : null;
@@ -3344,6 +3399,7 @@ function renderEngineCurrent() {
     // lines on screen so the panel doesn't shrink to one line then grow back on every move.
     const padFromCache = S.settings.engineLines > 1 && !panelReady && !!lines && lines.length < S.settings.engineLines;
     renderEngine(lines, padFromCache);
+    renderEngineArrows();
     requestPanelLines();
   }
 }
@@ -3822,6 +3878,7 @@ function visualSettings() {
     ),
     section("Best-move arrow",
       toggleRow("Show arrow", "bestArrow"),
+      toggleRow("Show engine line arrows", "showEngineArrows", setSetting, "Draws one arrow per engine line on the board (like Lichess). Best move is thickest; alternate lines are thinner and blue."),
       toggleRow("Show the threat", "showThreat", setSetting, "Draws a yellow arrow with the opponent's best move as if it were their turn — i.e. the threat against the move you just played. Helps answer \"why was that bad / what am I missing?\""),
       toggleRow("Show move classification on board", "showMoveClassif", setSetting, "Display classification badges (Brilliant, Blunder, etc.) on the destination squares of moves — both mainline and variation moves. Like Chess.com's \"Show Move Classification On Board\"."),
       slider("Opacity", "arrowOpacity", 0.3, 1, 0.02, { onChange: refreshArrows }),
