@@ -27,12 +27,11 @@ async function loadBook() {
   return BOOK;
 }
 
-/* ---------------- Lichess Opening Explorer (book move detection) ----------------
- * Queries the Lichess masters database to determine if a move is genuine opening theory.
- * A move is "book" only if it has been played frequently enough in master games,
- * NOT just because the resulting position exists in an opening name database. */
-const EXPLORER_CACHE = new Map(); // fen → { moves: Map<uci, {white,draws,black}>, total, opening }
-const BOOK_MIN_GAMES = 5;        // minimum games in masters DB for a move to count as "book"
+/* ---------------- Lichess Opening Explorer (opening names) ----------------
+ * Queries the Lichess masters database to get opening names for positions.
+ * Book move classification now uses local book.json (curated from lichess-org/chess-openings)
+ * with Chess.com-style criteria: first 8 moves, low-loss, in curated book. */
+const EXPLORER_CACHE = new Map(); // fen → { moves: Map<uci, ...>, total, opening }
 const EXPLORER_TIMEOUT = 4000;    // ms per request
 // Converts a full FEN to the format the explorer API expects (full FEN is fine).
 async function fetchExplorer(fen) {
@@ -61,14 +60,6 @@ async function fetchExplorer(fen) {
     EXPLORER_CACHE.set(epd, null);
     return null;
   }
-}
-/** Is this a genuine book move? The played move (uci) must have enough games in the masters DB. */
-function explorerIsBook(fen, uci) {
-  const epd = epdOf(fen);
-  const cached = EXPLORER_CACHE.get(epd);
-  if (!cached || !cached.moves) return false;
-  const m = cached.moves.get(uci);
-  return m ? m.sum >= BOOK_MIN_GAMES : false;
 }
 /** Get the opening name from the Lichess explorer for a given position. */
 function explorerOpening(fen) {
@@ -1098,17 +1089,21 @@ function classifyVariationMove(parentPos, pos, variation, vIdx) {
   const currentEval = pos.eval;
   if (parentEval == null || currentEval == null) return null;
 
-  // Is it a book move? Use the Lichess opening explorer (masters database) to check if the
-  // move has been played frequently enough in master games. Fall back to book.json if
-  // explorer data isn't available yet.
-  const playedUci = pos.from + pos.to + (pos.promotion || "");
-  const explorerBook = explorerIsBook(parentPos.fen, playedUci);
-  const cachedEntry = EXPLORER_CACHE.get(epdOf(parentPos.fen));
-  const fallbackBook = bookLookup(pos.fen) !== undefined && (!cachedEntry || !cachedEntry.moves);
-  if (explorerBook || fallbackBook) return "book";
+  // Is it a book move? Chess.com style: only in first 8 moves (16 plies), low-loss, in curated book.
+  // For variations, we approximate move number from the variation position index.
+  const vIdx = variation && variation.positions ? variation.positions.indexOf(pos) : 0;
+  const plyNumber = vIdx + 1;
+  let isBook = false;
+  if (plyNumber <= 16) {
+    const bk = bookLookup(pos.fen);
+    const isTop = parentPos.best && parentPos.best.bestmove === playedUci;
+    const evalLoss = Math.abs((parentEval.cp || 0) - (currentEval.cp || 0));
+    const isLowLoss = isTop || evalLoss < 20; // ~Excellent threshold in cp
+    if (isLowLoss && bk !== undefined) isBook = true;
+  }
+  if (isBook) return "book";
 
-  // Was it the engine's top choice? Compare the move played with parentPos.best.bestmove
-  let isTop = false;
+  // Was it the engine's top choice?
   if (parentPos.best && parentPos.best.bestmove) {
     const bestUci = parentPos.best.bestmove;
     const playedUci = pos.from + pos.to + (pos.promotion || "");
@@ -1250,22 +1245,25 @@ function computeDerived() {
   const isTop = new Array(N + 1).fill(false);
   const bookAt = new Array(N + 1).fill(false);
 
-  // Book detection: uses the Lichess opening explorer (masters database) to determine if a
-  // move is genuine opening theory. Falls back to book.json when explorer data is unavailable.
+  // Book detection (Chess.com style): "Low-loss move in the still-contiguous opening
+  // prefix, up to move 8". Only first 16 plies; move must be low-loss (best/excellent);
+  // must be in curated opening book (book.json from lichess-org/chess-openings).
   S.bookCount = 0;
   let bookOpening = null;
   for (let i = 1; i <= N; i++) {
     const bk = bookLookup(S.positions[i].fen);
     if (Array.isArray(bk)) bookOpening = { eco: bk[0], name: bk[1] };
 
-    // Explorer-based: a move is "book" if it has been played frequently in master games.
-    const playedUci = (S.positions[i].from || "") + (S.positions[i].to || "") + (S.positions[i].promotion || "");
-    const prevFen = S.positions[i - 1].fen;
-    const explorerBook = explorerIsBook(prevFen, playedUci);
-    // Fallback: if explorer data hasn't loaded yet, use the old book.json check.
-    const cachedEntry = EXPLORER_CACHE.get(epdOf(prevFen));
-    const fallbackBook = bk !== undefined && (!cachedEntry || !cachedEntry.moves);
-    bookAt[i] = explorerBook || fallbackBook;
+    // Chess.com: Book only in first 8 moves (16 plies), low-loss, in curated book
+    let bookAtI = false;
+    if (i <= 16) {
+      const playedUci = (S.positions[i].from || "") + (S.positions[i].to || "") + (S.positions[i].promotion || "");
+      const isLowLoss = isTop[i] || (wpDrop[i] != null && wpDrop[i] < 0.02); // Excellent or better
+      if (isLowLoss && bk !== undefined) {
+        bookAtI = true;
+      }
+    }
+    bookAt[i] = bookAtI;
 
     const mover = S.positions[i].color;
     const bestSearch = S.bests[i - 1];
@@ -5335,3 +5333,5 @@ function fitTabZoom() {
     console.error(err);
   }
 })();
+
+
