@@ -37,7 +37,8 @@ const EXPLORER_TIMEOUT = 4000;    // ms per request
 // Converts a full FEN to the format the explorer API expects (full FEN is fine).
 async function fetchExplorer(fen) {
   const epd = epdOf(fen);
-  if (EXPLORER_CACHE.has(epd)) return EXPLORER_CACHE.get(epd);
+  const cached = EXPLORER_CACHE.get(epd);
+  if (cached) return cached;   // only return real results, not null (failed) entries
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), EXPLORER_TIMEOUT);
@@ -1295,13 +1296,15 @@ function computeDerived() {
     S.classif[i] = classifyMove(i, S.positions[i].color, isTop[i], false, sac, std, loss, wpDrop);
   }
   // Opening name: prefer explorer (Lichess masters DB) > book.json > PGN headers.
-  // The explorer gives the most accurate name for the deepest position reached.
-  let explorerOp = null;
-  for (let i = N; i >= 1; i--) {
-    const eo = explorerOpening(S.positions[i].fen);
-    if (eo && eo.name) { explorerOp = eo; break; }
+  // In explore mode, preserve the opening already fetched from the explorer (don't wipe it).
+  if (!S.exploreMode) {
+    let explorerOp = null;
+    for (let i = N; i >= 1; i--) {
+      const eo = explorerOpening(S.positions[i].fen);
+      if (eo && eo.name) { explorerOp = eo; break; }
+    }
+    S.opening = explorerOp || bookOpening || S.openingHeader;
   }
-  S.opening = explorerOp || bookOpening || S.openingHeader;
   const eloAccs = sideAccuracies();   // win%-based accuracy → Elo (unchanged)
   for (const side of ["w", "b"]) {
     const counts = {}; QUALITY_ORDER.forEach((k) => (counts[k] = 0));
@@ -5171,11 +5174,13 @@ async function applyGame(payload) {
     S.exploreMode = true;
     S.analysisMode = true;
     S.variation = { branchIdx: 0, positions: [{ fen: S.positions[0].fen, san: null }], idx: 0 };
-    // Fetch explorer data for the starting position to get the opening name.
-    fetchExplorer(S.positions[0].fen).then(() => {
+    // Fetch explorer data for the starting position to get the opening name BEFORE rendering.
+    try {
+      const data = await fetchExplorer(S.positions[0].fen);
       const eo = explorerOpening(S.positions[0].fen);
-      if (eo && eo.name) { S.opening = eo; renderReview(); }
-    }).catch(() => {});
+      console.log("[Chess Review] Explore opening:", eo);
+      if (eo && eo.name) S.opening = eo;
+    } catch (e) { console.error("[Chess Review] Explore fetchExplorer failed:", e); }
     renderAll();
     if (!restored) startAnalysis();
     return;
