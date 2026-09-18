@@ -1103,7 +1103,8 @@ function classifyVariationMove(parentPos, pos, variation, vIdx) {
   // explorer data isn't available yet.
   const playedUci = pos.from + pos.to + (pos.promotion || "");
   const explorerBook = explorerIsBook(parentPos.fen, playedUci);
-  const fallbackBook = bookLookup(pos.fen) !== undefined && !EXPLORER_CACHE.has(epdOf(parentPos.fen));
+  const cachedEntry = EXPLORER_CACHE.get(epdOf(parentPos.fen));
+  const fallbackBook = bookLookup(pos.fen) !== undefined && (!cachedEntry || !cachedEntry.moves);
   if (explorerBook || fallbackBook) return "book";
 
   // Was it the engine's top choice? Compare the move played with parentPos.best.bestmove
@@ -1262,8 +1263,9 @@ function computeDerived() {
     const prevFen = S.positions[i - 1].fen;
     const explorerBook = explorerIsBook(prevFen, playedUci);
     // Fallback: if explorer data hasn't loaded yet, use the old book.json check.
-    const fallbackBook = bk !== undefined && !EXPLORER_CACHE.has(epdOf(prevFen));
-    bookAt[i] = explorerBook || (fallbackBook && bk !== undefined);
+    const cachedEntry = EXPLORER_CACHE.get(epdOf(prevFen));
+    const fallbackBook = bk !== undefined && (!cachedEntry || !cachedEntry.moves);
+    bookAt[i] = explorerBook || fallbackBook;
 
     const mover = S.positions[i].color;
     const bestSearch = S.bests[i - 1];
