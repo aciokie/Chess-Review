@@ -8,6 +8,11 @@
 // analysis would silently stall. On timeout the handshake REJECTS, which lets the caller
 // fall back to the next build (see createEngine() in analysis.js).
 const HANDSHAKE_TIMEOUT_MS = 10000;
+// If a single position takes longer than this the engine is probably stuck.
+// Send "stop" so bestmove is returned (with whatever depth it reached) and
+// the caller can move on.  Without this cap a stalled engine blocks the
+// worker loop forever and the analysis appears frozen.
+const SEARCH_TIMEOUT_MS = 60000;
 
 export class Engine {
   constructor(scriptPath = "engine/stockfish.js", wasmPath = scriptPath.replace(/\.js$/, ".wasm")) {
@@ -130,6 +135,7 @@ export class Engine {
       const best = line.split(/\s+/)[1] || null;
       const job = this.current;
       this.current = null;
+      if (job._timer) clearTimeout(job._timer);
       const lines = Object.keys(job.lines)
         .sort((a, b) => +a - +b)
         .map((k) => job.lines[k]);
@@ -172,7 +178,17 @@ export class Engine {
     await this._ready;
     if (this.dead) throw new Error("engine is no longer running");
     return new Promise((resolve, reject) => {
-      this.queue.push({ fen, depth, multipv, resolve, reject, lastScore: null, lastPv: "", lines: {} });
+      const job = { fen, depth, multipv, resolve, reject, lastScore: null, lastPv: "", lines: {}, _timer: null };
+      // Safety net: if bestmove never arrives (engine stuck / silent crash), don't
+      // block the worker loop forever.  Send "stop" and let the engine return its
+      // current best so the batch can continue.
+      job._timer = setTimeout(() => {
+        if (this.current === job) {
+          console.warn(`[Chess Review] search timeout after ${SEARCH_TIMEOUT_MS}ms for fen ${fen.slice(0, 30)}… — sending stop`);
+          this._send("stop");
+        }
+      }, SEARCH_TIMEOUT_MS);
+      this.queue.push(job);
       this._pump();
     });
   }
@@ -181,5 +197,9 @@ export class Engine {
     this.dead = true;
     try { this._send("quit"); } catch {}
     try { this.worker?.terminate(); } catch {}
+    // Reject any pending jobs so callers (Promise.all) don't hang forever.
+    const err = new Error("engine terminated");
+    if (this.current) { try { this.current.reject(err); } catch {} this.current = null; }
+    while (this.queue.length) { const j = this.queue.shift(); try { j.reject(err); } catch {} }
   }
 }

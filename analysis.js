@@ -2208,7 +2208,8 @@ async function requestLiveEval() {
   if (!needsAnalysis && !needsClassification) { renderEvalBar(); renderBestArrow(); renderEngineCurrent(); return; }
   const token = ++S.liveToken;
   if (!S.liveEngine) {
-    S.liveEngine = await createEngine({ Hash: S.settings.engineHash, "Skill Level": S.settings.engineSkill });
+    try { S.liveEngine = await createEngine({ Hash: S.settings.engineHash, "Skill Level": S.settings.engineSkill }); }
+    catch (err) { console.warn("[Chess Review] live engine creation failed:", err?.message || err); return; }
     if (token !== S.liveToken) return;
   }
   if (needsAnalysis) {
@@ -4819,17 +4820,29 @@ async function startAnalysis() {
     while (gen === S.batchGen) {
       const i = nextIdx++;
       if (i > S.total) return;
-      const res = await eng.analyse(S.positions[i].fen, S.settings.engineDepth, multipv);
-      if (gen !== S.batchGen) return;
-      S.bests[i] = res;
-      // Terminal positions (mate/stalemate) are decided from the board — not from the engine's "mate 0".
-      S.evals[i] = terminalScore(S.positions[i].fen) || whiteRel(res.score, S.positions[i].fen);
-      while (contig + 1 <= S.total && S.bests[contig + 1]) contig++;
-      S.progress = Math.max(0, contig);
-      requestProgress(gen);
+      try {
+        const res = await eng.analyse(S.positions[i].fen, S.settings.engineDepth, multipv);
+        if (gen !== S.batchGen) return;
+        S.bests[i] = res;
+        // Terminal positions (mate/stalemate) are decided from the board — not from the engine's "mate 0".
+        S.evals[i] = terminalScore(S.positions[i].fen) || whiteRel(res.score, S.positions[i].fen);
+        while (contig + 1 <= S.total && S.bests[contig + 1]) contig++;
+        S.progress = Math.max(0, contig);
+        requestProgress(gen);
+      } catch (err) {
+        // A single bad position shouldn't kill the entire batch — skip it and
+        // keep the worker alive for the remaining positions.
+        console.warn(`[Chess Review] position ${i} failed (${S.positions[i]?.fen?.slice(0, 30) || "?"}…): ${err?.message || err}`);
+        S.bests[i] = null;
+        S.evals[i] = null;
+      }
     }
   }
-  await Promise.all(engines.map((e) => worker(e)));
+  try {
+    await Promise.all(engines.map((e) => worker(e)));
+  } catch (err) {
+    console.error("[Chess Review] analysis batch error:", err);
+  }
   if (gen !== S.batchGen) return;            // a newer analysis took over
   terminateEngines();
   S.analyzing = false;
