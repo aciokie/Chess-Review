@@ -27,6 +27,49 @@ async function loadBook() {
   return BOOK;
 }
 
+/* ---------------- Lichess Opening Explorer (book move detection) ----------------
+ * Queries the Lichess masters database to determine if a move is genuine opening theory.
+ * A move is "book" only if it has been played frequently enough in master games,
+ * NOT just because the resulting position exists in an opening name database. */
+const EXPLORER_CACHE = new Map(); // fen → { moves: Map<uci, {white,draws,black}>, total, opening }
+const BOOK_MIN_GAMES = 5;        // minimum games in masters DB for a move to count as "book"
+const EXPLORER_TIMEOUT = 4000;    // ms per request
+// Converts a full FEN to the format the explorer API expects (full FEN is fine).
+async function fetchExplorer(fen) {
+  const epd = epdOf(fen);
+  if (EXPLORER_CACHE.has(epd)) return EXPLORER_CACHE.get(epd);
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), EXPLORER_TIMEOUT);
+    const url = `https://explorer.lichess.org/masters?fen=${encodeURIComponent(fen)}&topGames=0&recentGames=0`;
+    const res = await fetch(url, { signal: ctrl.signal, cache: "default" });
+    clearTimeout(t);
+    if (!res.ok) { EXPLORER_CACHE.set(epd, null); return null; }
+    const data = await res.json();
+    const moves = new Map();
+    let total = 0;
+    for (const m of (data.moves || [])) {
+      const w = m.white || 0, d = m.draws || 0, b = m.black || 0;
+      moves.set(m.uci, { white: w, draws: d, black: b, sum: w + d + b, san: m.san });
+      total += w + d + b;
+    }
+    const result = { moves, total, opening: data.opening || null };
+    EXPLORER_CACHE.set(epd, result);
+    return result;
+  } catch {
+    EXPLORER_CACHE.set(epd, null);
+    return null;
+  }
+}
+/** Is this a genuine book move? The played move (uci) must have enough games in the masters DB. */
+function explorerIsBook(fen, uci) {
+  const epd = epdOf(fen);
+  const cached = EXPLORER_CACHE.get(epd);
+  if (!cached || !cached.moves) return false;
+  const m = cached.moves.get(uci);
+  return m ? m.sum >= BOOK_MIN_GAMES : false;
+}
+
 /* ---------------- Calibration (tuned scoring params) ----------------
  * data/calibration.json, produced by tools/dataset/export-calibration.mjs (the big-compute tuner).
  * When present with display:"winpct", the SHOWN accuracy switches from the crude category-average
@@ -1034,9 +1077,13 @@ function classifyVariationMove(parentPos, pos, variation, vIdx) {
   const currentEval = pos.eval;
   if (parentEval == null || currentEval == null) return null;
 
-  // Is it a book move?
-  const book = bookLookup(pos.fen);
-  if (book) return "book";
+  // Is it a book move? Use the Lichess opening explorer (masters database) to check if the
+  // move has been played frequently enough in master games. Fall back to book.json if
+  // explorer data isn't available yet.
+  const playedUci = pos.from + pos.to + (pos.promotion || "");
+  const explorerBook = explorerIsBook(parentPos.fen, playedUci);
+  const fallbackBook = bookLookup(pos.fen) !== undefined && !EXPLORER_CACHE.has(epdOf(parentPos.fen));
+  if (explorerBook || fallbackBook) return "book";
 
   // Was it the engine's top choice? Compare the move played with parentPos.best.bestmove
   let isTop = false;
@@ -1181,14 +1228,21 @@ function computeDerived() {
   const isTop = new Array(N + 1).fill(false);
   const bookAt = new Array(N + 1).fill(false);
 
-  // True book detection: a move is "book" if the position it leads to is in the opening book
-  // (data/book.json). Alongside, the deepest named theory position gives the opening name.
+  // Book detection: uses the Lichess opening explorer (masters database) to determine if a
+  // move is genuine opening theory. Falls back to book.json when explorer data is unavailable.
   S.bookCount = 0;
   let bookOpening = null;
   for (let i = 1; i <= N; i++) {
     const bk = bookLookup(S.positions[i].fen);
     if (Array.isArray(bk)) bookOpening = { eco: bk[0], name: bk[1] };
-    bookAt[i] = bk !== undefined;
+
+    // Explorer-based: a move is "book" if it has been played frequently in master games.
+    const playedUci = (S.positions[i].from || "") + (S.positions[i].to || "") + (S.positions[i].promotion || "");
+    const prevFen = S.positions[i - 1].fen;
+    const explorerBook = explorerIsBook(prevFen, playedUci);
+    // Fallback: if explorer data hasn't loaded yet, use the old book.json check.
+    const fallbackBook = bk !== undefined && !EXPLORER_CACHE.has(epdOf(prevFen));
+    bookAt[i] = explorerBook || (fallbackBook && bk !== undefined);
 
     const mover = S.positions[i].color;
     const bestSearch = S.bests[i - 1];
@@ -1242,6 +1296,23 @@ function computeDerived() {
     S.counts[side] = counts;
   }
   buildVerdict();
+}
+// Pre-fetch Lichess opening explorer data for all positions in the game.
+// Returns a promise that resolves when all positions have been queried.
+// After this resolves, computeDerived() should be re-run to update classifications.
+async function fetchGameExplorer() {
+  const N = S.total;
+  if (N <= 0) return;
+  const promises = [];
+  for (let i = 0; i <= N; i++) {
+    promises.push(fetchExplorer(S.positions[i].fen));
+  }
+  await Promise.allSettled(promises);
+}
+// Re-classify all moves using the now-cached explorer data.
+function reclassifyWithExplorer() {
+  computeDerived();
+  renderAll();
 }
 function buildVerdict() {
   const me = S.acc[S.meSide];
@@ -4989,6 +5060,12 @@ async function applyGame(payload) {
   document.title = `${players.w.name} vs ${players.b.name} — Chess Review`;
   computeDerived();
   renderAll();
+  // Fetch Lichess opening explorer data in the background. When it arrives, re-classify
+  // moves so that book classifications use real master-game statistics instead of just
+  // the static opening name database.
+  fetchGameExplorer().then(() => {
+    if (S.total > 0) reclassifyWithExplorer();
+  }).catch(() => {});
   // The saved layout baseline is sized for the EXPANDED breakdown; since it now starts collapsed,
   // pull the modules below the Accuracy panel up to close the gap (same as clicking collapse).
   if (!S.qbreakExpanded) reflowAccuracy(false);
