@@ -76,6 +76,19 @@ function explorerOpening(fen) {
   if (cached && cached.opening) return { eco: cached.opening.eco || "", name: cached.opening.name || "" };
   return null;
 }
+// In explore mode, fetch and update the opening name for the current variation position (live, like Lichess).
+async function updateExploreOpening() {
+  if (!S.exploreMode || !S.variation) return;
+  const pos = S.variation.positions[S.variation.idx];
+  if (!pos || !pos.fen) return;
+  const epd = epdOf(pos.fen);
+  // Try the explorer cache first; if not cached, fetch from Lichess API.
+  let op = explorerOpening(pos.fen);
+  if (!op) {
+    try { await fetchExplorer(pos.fen); op = explorerOpening(pos.fen); } catch {}
+  }
+  if (op && op.name) { S.opening = op; renderReview(); }
+}
 
 /* ---------------- Calibration (tuned scoring params) ----------------
  * data/calibration.json, produced by tools/dataset/export-calibration.mjs (the big-compute tuner).
@@ -2219,6 +2232,7 @@ function applyUserMove(from, to, animate = true) {
   // (otherwise it "jumps" back to the start square and slides forward again).
   if (animate && S.settings.moveAnim) animateMove(from, to);
   renderEvalBar(); renderPlayers(); renderControls(); renderReview(); renderEngineCurrent();
+  if (S.exploreMode) updateExploreOpening();
   requestLiveEval();
 }
 // Click an engine line → play the whole PV out as a variation from the shown position.
@@ -3017,7 +3031,8 @@ function renderReview() {
 
   if (S.practice) { _ipSig = null; panel.append(renderPracticeCoach()); UI.review.replaceChildren(panel); return; }
 
-  if (S.analysisMode && S.variation) {
+  // In explore mode, skip the variation panel — moves are shown as mainline in the moves list.
+  if (S.analysisMode && S.variation && !S.exploreMode) {
     _ipSig = null;
     const v = S.variation;
     // Show variation moves with classification badges
@@ -3434,7 +3449,65 @@ function highlightCurrentMove() {
   }
 }
 let _movesSig = null;
+// Explore mode: render a move cell from variation positions (like Lichess analysis board).
+function exploreMoveCell(v, ply) {
+  if (ply < 1 || ply >= v.positions.length) return el("span");
+  const pos = v.positions[ply];
+  if (!pos || !pos.san) return el("span");
+  const cls = pos.classif;
+  const showBadge = cls && (NOTEWORTHY.has(cls) || S.settings.badgeStyle === "dot");
+  const glyph = GLYPH[pos.san && /^[KQRBN]/.test(pos.san) ? pos.san[0] : "P"];
+  const isCurrent = ply === v.idx;
+  return el("span", { class: "ml-move" + (isCurrent ? " current" : ""), "data-ply": ply,
+    onclick: () => { v.idx = ply; S.selectedSq = null; paintBoard(); renderAll(); } },
+    el("span", { class: "pc", style: { color: pos.color === "w" ? "var(--ink)" : "var(--ink-2)" } }, glyph),
+    el("span", {}, pos.san),
+    showBadge ? qBadge(cls) : null,
+  );
+}
+function highlightExploreMove() {
+  if (!S.variation) return;
+  const prev = UI.movesBody.querySelector(".ml-move.current");
+  if (prev) prev.classList.remove("current");
+  const cur = UI.movesBody.querySelector('.ml-move[data-ply="' + S.variation.idx + '"]');
+  if (cur) {
+    cur.classList.add("current");
+    const cr = cur.getBoundingClientRect(), sr = UI.movesBody.getBoundingClientRect();
+    UI.movesBody.scrollTop += (cr.top - sr.top) - (UI.movesBody.clientHeight - cr.height - 14);
+  }
+}
 function renderMoves() {
+  // In explore mode, show the variation moves as the mainline (like Lichess analysis board).
+  if (S.exploreMode && S.variation && S.variation.positions.length > 1) {
+    const v = S.variation;
+    const ml = S.settings.mlStyle;
+    const totalMoves = v.positions.length - 1; // skip the initial null-san position
+    const nMoves = Math.ceil(totalMoves / 2);
+    const sig = "explore|" + ml + "|" + S.settings.badgeStyle + "|" + totalMoves + "|" + v.idx;
+    if (sig === _movesSig && UI.movesBody.firstChild) { highlightExploreMove(); return; }
+    _movesSig = sig;
+    let list;
+    if (ml === "compact") {
+      list = el("div", { class: "movelist ml-compact ml-scroll" });
+      for (let n = 1; n <= nMoves; n++) {
+        list.append(el("span", { class: "ml-num" }, n + "."),
+          exploreMoveCell(v, n * 2 - 1), exploreMoveCell(v, n * 2));
+      }
+    } else {
+      list = el("div", { class: "movelist " + (ml === "cards" ? "ml-cards" : "ml-rows") + " ml-scroll" });
+      for (let n = 1; n <= nMoves; n++) {
+        list.append(el("div", { class: "ml-pair" }, el("span", { class: "ml-num" }, n),
+          exploreMoveCell(v, n * 2 - 1), exploreMoveCell(v, n * 2)));
+      }
+    }
+    UI.movesBody.style.padding = ml === "rows" ? "0" : "var(--pad)";
+    UI.movesBody.replaceChildren(list);
+    UI.movesCount.textContent = "";
+    UI.movesFoot.hidden = true;
+    highlightExploreMove();
+    return;
+  }
+  // Normal mainline rendering.
   const nMoves = Math.ceil(S.total / 2);
   const ml = S.settings.mlStyle;
   // The list's CONTENT only changes with the game, the layout/badge style, or the classifications
@@ -4869,6 +4942,7 @@ function variationStep(delta) {
     else if (delta < 0) { const m = v.positions[v.idx + 1]; if (m && m.from && m.to) animateMove(m.to, m.from); }
   }
   renderEvalBar(); renderPlayers(); renderControls(); renderReview(); renderEngineCurrent();
+  if (S.exploreMode) updateExploreOpening();
   requestLiveEval();
 }
 function toggleFlip() { S.flipped = !S.flipped; buildBoard(); renderPlayers(); renderEvalBar(); }
