@@ -69,6 +69,13 @@ function explorerIsBook(fen, uci) {
   const m = cached.moves.get(uci);
   return m ? m.sum >= BOOK_MIN_GAMES : false;
 }
+/** Get the opening name from the Lichess explorer for a given position. */
+function explorerOpening(fen) {
+  const epd = epdOf(fen);
+  const cached = EXPLORER_CACHE.get(epd);
+  if (cached && cached.opening) return { eco: cached.opening.eco || "", name: cached.opening.name || "" };
+  return null;
+}
 
 /* ---------------- Calibration (tuned scoring params) ----------------
  * data/calibration.json, produced by tools/dataset/export-calibration.mjs (the big-compute tuner).
@@ -1274,8 +1281,14 @@ function computeDerived() {
     if (S.evals[i] == null || S.evals[i - 1] == null) { S.classif[i] = null; continue; }
     S.classif[i] = classifyMove(i, S.positions[i].color, isTop[i], false, sac, std, loss, wpDrop);
   }
-  // Opening name: prefer the book's clean name over the chess.com header's ECOUrl slug.
-  S.opening = bookOpening || S.openingHeader;
+  // Opening name: prefer explorer (Lichess masters DB) > book.json > PGN headers.
+  // The explorer gives the most accurate name for the deepest position reached.
+  let explorerOp = null;
+  for (let i = N; i >= 1; i--) {
+    const eo = explorerOpening(S.positions[i].fen);
+    if (eo && eo.name) { explorerOp = eo; break; }
+  }
+  S.opening = explorerOp || bookOpening || S.openingHeader;
   const eloAccs = sideAccuracies();   // win%-based accuracy → Elo (unchanged)
   for (const side of ["w", "b"]) {
     const counts = {}; QUALITY_ORDER.forEach((k) => (counts[k] = 0));
@@ -2569,7 +2582,16 @@ function renderControls() {
     const atEnd = v.idx >= v.positions.length - 1;
     // Same layout as the normal controls — the central green Play slot becomes a red Exit button.
     const atStart = v.idx <= 0;
-    const gotoVar = (i) => { stopLineWalk(); v.idx = Math.max(0, Math.min(v.positions.length - 1, i)); paintBoard(); renderEvalBar(); renderPlayers(); renderControls(); renderReview(); renderEngineCurrent(); requestLiveEval(); };
+    const gotoVar = (i) => { stopLineWalk(); v.idx = Math.max(0, Math.min(v.positions.length - 1, i)); paintBoard();   renderEvalBar(); renderPlayers(); renderControls(); renderReview(); renderEngineCurrent();
+  requestLiveEval();
+  // In explore mode, fetch the opening name for the new position from the Lichess explorer.
+  if (S.exploreMode) {
+    fetchExplorer(c.fen).then(() => {
+      const eo = explorerOpening(c.fen);
+      if (eo && eo.name) { S.opening = eo; renderReview(); }
+    }).catch(() => {});
+  }
+};
     UI.controls.replaceChildren(
       el("button", { "aria-label": "Variation start", disabled: atStart, onclick: () => gotoVar(0) }, icon("first")),
       el("button", { "aria-label": "Previous move", onclick: navPrev }, icon("prev")),
@@ -5075,6 +5097,11 @@ async function applyGame(payload) {
     S.exploreMode = true;
     S.analysisMode = true;
     S.variation = { branchIdx: 0, positions: [{ fen: S.positions[0].fen, san: null }], idx: 0 };
+    // Fetch explorer data for the starting position to get the opening name.
+    fetchExplorer(S.positions[0].fen).then(() => {
+      const eo = explorerOpening(S.positions[0].fen);
+      if (eo && eo.name) { S.opening = eo; renderReview(); }
+    }).catch(() => {});
     renderAll();
     if (!restored) startAnalysis();
     return;
