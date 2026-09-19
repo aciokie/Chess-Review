@@ -112,17 +112,23 @@ export async function analyzeActiveTab(username) {
     throw e;
   }
 
-  // Try each candidate's archive; the first one that actually contains the game wins. A bad handle
-  // (404) or transient network error on one candidate just falls through to the next. findGameById is
-  // cache-first (a previously fetched game costs no request) then fast-then-deep: the current/prev
-  // month in parallel resolves a just-finished game in ~one hop, and only an older game opened from a
-  // review URL falls through to the serial page-back.
+  // Try each candidate's archive with retry/backoff — a just-finished game can take a few seconds
+  // to appear in the public API. We poll the current month (which is live) up to 3 times.
   let game = null;
-  for (const user of candidates) {
-    try {
-      const hit = await findGameById(user, gameId);
-      if (hit && hit.pgn) { game = hit; break; }
-    } catch { /* invalid user / network error for this candidate → try the next */ }
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 1500; // 1.5s, 3s, 4.5s
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    for (const user of candidates) {
+      try {
+        const hit = await findGameById(user, gameId);
+        if (hit && hit.pgn) { game = hit; break; }
+      } catch { /* invalid user / network error for this candidate → try the next */ }
+    }
+    if (game && game.pgn) break;
+    if (attempt < MAX_RETRIES) {
+      console.log(`[Chess Review] Game not found yet, retrying in ${RETRY_DELAY_MS * (attempt + 1)}ms... (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
+    }
   }
   if (!game || !game.pgn) {
     throw new Error(
