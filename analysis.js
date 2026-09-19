@@ -1060,9 +1060,9 @@ function classifyVariationMove(parentPos, pos, variation, vIdx) {
 
   const playedUci = pos.from + pos.to + (pos.promotion || "");
 
-  // Book: Chess.com V2 — both before AND after positions in opening book (EPD key), first 16 plies
+  // Book: Chess.com V2 — both before AND after positions in opening book (EPD key), first 8 plies
   let isBook = false;
-  if (vIdx <= 15) {
+  if (vIdx <= 7) {
     const bkBefore = bookLookup(parentPos.fen);
     const bkAfter = bookLookup(pos.fen);
     if (bkBefore !== undefined && bkAfter !== undefined) isBook = true;
@@ -1160,7 +1160,7 @@ function computeDerived() {
   const bookAt = new Array(N + 1).fill(false);
 
   // Book detection (Chess.com V2): both before AND after positions in opening book
-  // (EPD key = first 4 FEN fields). Only first 16 plies (8 moves).
+  // (EPD key = first 4 FEN fields). Only first 8 plies (4 moves).
   S.bookCount = 0;
   let bookOpening = null;
   for (let i = 1; i <= N; i++) {
@@ -1168,9 +1168,9 @@ function computeDerived() {
     const bkBefore = bookLookup(S.positions[i - 1].fen);
     if (Array.isArray(bkAfter)) bookOpening = { eco: bkAfter[0], name: bkAfter[1] };
 
-    // Chess.com V2: Book if BOTH before and after positions in book, first 16 plies
+    // Chess.com V2: Book if BOTH before and after positions in book, first 8 plies
     let bookAtI = false;
-    if (i <= 16 && bkBefore !== undefined && bkAfter !== undefined) {
+    if (i <= 8 && bkBefore !== undefined && bkAfter !== undefined) {
       bookAtI = true;
     }
     bookAt[i] = bookAtI;
