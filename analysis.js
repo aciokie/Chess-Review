@@ -993,74 +993,43 @@ function getStandardRating(wp) {
   if (wp >= t.blunder) r = "blunder";
   return r;
 }
-// Per-ply move category, ported from getMoveRating(). `mover` made move i; `isTop` = it was the
-// engine's #1; `book` = the resulting position is theory; arrays sac/std/loss are indexed by ply.
+// Chess.com V2 Expected Points Model: classify move by win% loss (wpDrop in percent, 0-100).
+// book: both before/after positions in opening book (EPD key).
+// isTop: move matches engine's #1 choice.
+// onlyMove: second-best line is >=10% worse in win% (mover POV).
+// isSac: the move is a sound piece sacrifice (SEE >= 2 pawns).
+// moverBefore/moverAfter: mover's win% before/after the move.
+function classifyV2({ winLoss, isBook, isTop, onlyMove, isSac, moverBefore, moverAfter }) {
+  if (isBook) return "book";
+  if (winLoss < 2 && isSac && moverBefore < 97 && moverAfter >= 45) return "brilliant";
+  if (winLoss < 2 && onlyMove) return "great";
+  if (winLoss >= 10 && moverBefore >= 60 && onlyMove) return "miss";
+  if (winLoss < 2) return isTop ? "best" : "excellent";
+  if (winLoss < 5) return "good";
+  if (winLoss < 10) return "inacc";
+  if (winLoss < 20) return "mistake";
+  return "blunder";
+}
+// Per-ply move category, ported from getMoveRating().
 function classifyMove(i, mover, isTop, book, sac, std, loss, wpDrop) {
-  if (book) return "book";
-  // "Forced": only one legal move in the position before — we have no separate icon, so it reads
-  // as Best (you couldn't have done better).
-  if (_forcedAt(i)) return "best";   // only one legal move — you couldn't have done better
-
-  // User-tunable thresholds (Engine settings → Move classification), all in pawns of eval.
-  const CA = S.settings.clsClearAdv, ML = S.settings.clsMistakeLoss, MT = S.settings.clsMissTol;
-  const mate = _isMateEval, evalFor = (k) => _evalPawns(k, mover);
-  const winningNow = (evalFor(i) ?? 0) > 0;
-  const prevWinning = (evalFor(i - 1) ?? 0) > 0;
-  const notMateRel = !mate(i) && !mate(i - 1);
-  const wasNotMateRel = (n) => i - 2 - n >= 0 && !mate(i - 1 - n) && !mate(i - 2 - n);
-  const pStd = (n) => (i - 1 - n >= 1 ? std[i - 1 - n] : null);
-  const pLoss = (n) => (i - 1 - n >= 1 ? loss[i - 1 - n] : null);
-  // mover-POV "lost a clear advantage" / "fell into a clear disadvantage" (CA pawns) for move k.
-  const losingAdvAt = (k) => { const m = S.positions[k].color; const a = _evalPawns(k - 1, m), b = _evalPawns(k, m); return a != null && b != null && a >= CA && b < CA; };
-  const givingAdvAt = (k) => { const m = S.positions[k].color; const a = _evalPawns(k - 1, m), b = _evalPawns(k, m); return a != null && b != null && a >= -CA && b < -CA; };
-  const keepMating = (k) => { const c = _mateFor(k, S.positions[k].color), p = _mateFor(k - 1, S.positions[k].color); return c != null && p != null && c > 0 && p > 0 && c <= p; };
-  const advanceMate = (k) => { const c = _mateFor(k, S.positions[k].color), p = _mateFor(k - 1, S.positions[k].color); return c != null && p != null && c < 0 && p < 0 && c > p; };
-
-  const previousMistake = wasNotMateRel(0) && pStd(0) === "inacc" && pLoss(0) >= ML && (losingAdvAt(i - 1) || givingAdvAt(i - 1));
-  const previousPreviousMistake = wasNotMateRel(1) && pStd(1) === "inacc" && pLoss(1) >= ML && (losingAdvAt(i - 2) || givingAdvAt(i - 2));
-  const previousMiss = wasNotMateRel(0) && (previousPreviousMistake || pStd(1) === "blunder")
-    && (pStd(0) === "blunder" || pStd(0) === "inacc") && (pLoss(0) != null && pLoss(1) != null && pLoss(0) <= pLoss(1) + MT);
-
-  // Brilliant — a sound sacrifice that punishes the opponent's slip.
-  const previousBrilliant = wasNotMateRel(0) && sac[i - 1] && pStd(0) === "excellent";
-  if (!previousBrilliant && notMateRel && std[i] === "excellent" && sac[i]
-    && (pStd(0) === "inacc" || pStd(0) === "blunder"
-      || (!(pStd(1) === "inacc" || pStd(1) === "blunder") && (pStd(2) === "inacc" || pStd(2) === "blunder")))) return "brilliant";
-  if (sac[i] && !mate(i - 1) && mate(i) && winningNow) return "brilliant";                                   // sac that starts a mate
-  if (sac[i] && mate(i - 1) && mate(i) && keepMating(i) && winningNow) return "brilliant";                   // sac that keeps the mate
-
-  // Great — an only-good move that capitalises on the opponent's mistake/blunder.
-  if (!previousMiss && wasNotMateRel(0) && notMateRel && std[i] === "excellent"
-    && (previousMistake || pStd(0) === "blunder")) return "great";
-
-  if (isTop && _isCheckmate(i)) return "best";
-  if (isTop) return "best";
-
-  if (_isCheckmate(i)) return "excellent";
-  if (!mate(i - 1) && mate(i) && winningNow) return "excellent";                                             // starts a mate
-  if (mate(i - 1) && mate(i) && keepMating(i) && winningNow) return "excellent";                             // keeps the mate
-  if (mate(i - 1) && mate(i) && !keepMating(i) && winningNow) return "good";                                 // delays own mate
-  if (mate(i - 1) && mate(i) && advanceMate(i) && !winningNow) return "good";                                // being mated, unavoidable
-
-  if (mate(i - 1) && !mate(i) && prevWinning) return "miss";                                                 // threw away a forced mate
-  if (!previousMiss && notMateRel && (previousMistake || pStd(0) === "blunder")
-    && (std[i] === "blunder" || std[i] === "inacc")
-    && (loss[i] != null && pLoss(0) != null && loss[i] <= pLoss(0) + MT)) return "miss";                     // failed to punish
-
-  if (notMateRel && std[i] === "inacc" && loss[i] >= ML && losingAdvAt(i)) return "mistake";                 // lost a clear advantage
-  if (notMateRel && std[i] === "inacc" && loss[i] >= ML && givingAdvAt(i)) return "mistake";                 // handed over a clear advantage
-  if (!mate(i - 1) && mate(i) && !winningNow && (evalFor(i - 1) ?? 0) > -CA) return "mistake";               // walked into a mate (wasn't already lost)
-  if (!mate(i - 1) && mate(i) && !winningNow) return "blunder";                                              // walked into a mate
-  if (mate(i - 1) && mate(i) && !winningNow && prevWinning) return "blunder";                                // threw a win straight into a mate
-
-  // Split the medium-error band the way the expected-points model does: a 10–20% win-drop
-  // is a Mistake, 5–10% an Inaccuracy. (Done only here, at the plain-move fallback, so the relational
-  // great/miss chains above are untouched.) Threshold from calibration.json.
-  if (std[i] === "inacc" && wpDrop && wpDrop[i] != null) {
-    const mistWp = (typeof CALIB !== "undefined" && CALIB?.clsWp?.mistake) || 10;
-    if (wpDrop[i] >= mistWp) return "mistake";
+  // For mainline classification, we need to compute winLoss, onlyMove, moverBefore, moverAfter
+  // These are already computed in computeDerived - pass them via wpDrop array
+  // wpDrop[i] holds the win% loss for this ply
+  const winLoss = wpDrop[i] != null ? wpDrop[i] : 0;
+  // Compute onlyMove from second-best eval
+  let onlyMove = false;
+  if (S.bests[i - 1]?.lines?.[1] && S.evals[i - 1]) {
+    const sideWhite = S.positions[i].color === "w";
+    const beforeWhiteCp = scoreToCp(S.evals[i - 1]);
+    const secondWhiteCp = scoreToCp(S.bests[i - 1].lines[1].score);
+    const moverBefore = sideWhite ? winPct(beforeWhiteCp) : 100 - winPct(beforeWhiteCp);
+    const secondMover = sideWhite ? winPct(secondWhiteCp) : 100 - winPct(secondWhiteCp);
+    onlyMove = moverBefore - secondMover >= 10;
   }
-  return std[i];   // plain excellent / good / inaccuracy / blunder
+  const isBook = bookAt[i] ?? false;
+  const moverBefore = moverWin(S.evals[i - 1], mover);
+  const moverAfter = moverWin(S.evals[i], mover);
+  return classifyV2({ winLoss, isBook, isTop, onlyMove, isSac: sac[i], moverBefore, moverAfter });
 }
 // Displayed (category-based) per-move accuracy from the category — the basis of the shown game
 // accuracy. Best/Brilliant/Great/Book are always 100; the rest are tunable (Engine settings →
@@ -1089,94 +1058,39 @@ function classifyVariationMove(parentPos, pos, variation, vIdx) {
   const currentEval = pos.eval;
   if (parentEval == null || currentEval == null) return null;
 
-  // Is it a book move? Chess.com style: only in first 8 moves (16 plies), low-loss, in curated book.
-  // For variations, we approximate move number from the variation position index.
-  const vIdx = variation && variation.positions ? variation.positions.indexOf(pos) : 0;
-  const plyNumber = vIdx + 1;
+  const playedUci = pos.from + pos.to + (pos.promotion || "");
+
+  // Book: Chess.com V2 — both before AND after positions in opening book (EPD key), first 16 plies
   let isBook = false;
-  if (plyNumber <= 16) {
-    const bk = bookLookup(pos.fen);
-    const isTop = parentPos.best && parentPos.best.bestmove === playedUci;
-    const evalLoss = Math.abs((parentEval.cp || 0) - (currentEval.cp || 0));
-    const isLowLoss = isTop || evalLoss < 20; // ~Excellent threshold in cp
-    if (isLowLoss && bk !== undefined) isBook = true;
+  if (vIdx <= 15) {
+    const bkBefore = bookLookup(parentPos.fen);
+    const bkAfter = bookLookup(pos.fen);
+    if (bkBefore !== undefined && bkAfter !== undefined) isBook = true;
   }
-  if (isBook) return "book";
 
-  // Was it the engine's top choice?
-  if (parentPos.best && parentPos.best.bestmove) {
-    const bestUci = parentPos.best.bestmove;
-    const playedUci = pos.from + pos.to + (pos.promotion || "");
-    isTop = bestUci === playedUci;
+  // isTop: matches engine's #1 choice
+  const isTop = parentPos.best && parentPos.best.bestmove === playedUci;
+
+  // Win% for mover
+  const moverBefore = moverWin(parentEval, mover);
+  const moverAfter = moverWin(currentEval, mover);
+  const winLoss = Math.max(0, moverBefore - moverAfter);
+
+  // onlyMove: second-best line >=10% worse in win%
+  let onlyMove = false;
+  if (parentPos.best && parentPos.best.secondWhiteCp != null) {
+    const sideWhite = mover === "w";
+    const secondMover = sideWhite ? winPct(parentPos.best.secondWhiteCp) : 100 - winPct(parentPos.best.secondWhiteCp);
+    onlyMove = moverBefore - secondMover >= 10;
   }
-  if (isTop) return "best";
 
-  // Forced move (only one legal) -> best
-  if (new Chess(parentPos.fen).moves().length === 1) return "best";
-
-  // Check for sacrifice
-  let sac = false;
+  // isSac: sound sacrifice (SEE >= 2 pawns)
+  let isSac = false;
   if (!pos.promotion) {
-    sac = isSacrifice({ before: parentPos.fen, after: pos.fen, color: pos.color, captured: pos.captured, from: pos.from });
+    isSac = isSacrifice({ before: parentPos.fen, after: pos.fen, color: pos.color, captured: pos.captured, from: pos.from });
   }
 
-  // Eval loss from mover's POV (positive = worse for mover)
-  const evalBefore = mover === "w" ? parentEval.cp : -parentEval.cp;
-  const evalAfter = mover === "w" ? currentEval.cp : -currentEval.cp;
-  const loss = evalBefore - evalAfter; // positive = eval dropped (bad)
-
-  // Mate handling
-  const mateBefore = parentEval.mate;
-  const mateAfter = currentEval.mate;
-  const mateBeforeMover = mateBefore != null ? (mateBefore > 0 ? 1 : -1) * (mover === "w" ? 1 : -1) : null;
-  const mateAfterMover = mateAfter != null ? (mateAfter > 0 ? 1 : -1) * (mover === "w" ? 1 : -1) : null;
-
-  // Settings thresholds (pawns)
-  const CA = S.settings.clsClearAdv;
-  const ML = S.settings.clsMistakeLoss;
-  const MT = S.settings.clsMissTol;
-  const inaccThresh = S.settings.clsInacc;
-  const blunderThresh = S.settings.clsBlunder;
-  const goodThresh = S.settings.clsGood;
-
-  // Win% drop (for calibrated classification)
-  const wpBefore = moverWin(parentEval, mover);
-  const wpAfter = moverWin(currentEval, mover);
-  const wpDrop = wpBefore - wpAfter;
-
-  const winningNow = evalAfter > 0;
-  const wasWinning = evalBefore > 0;
-
-  // Classification logic (adapted from classifyMove for variation context)
-  // Brilliant: sound sacrifice that punishes opponent's mistake
-  if (sac && wpDrop < 0 && evalAfter > evalBefore) return "brilliant";
-  if (sac && mateAfterMover != null && mateAfterMover < 0) return "brilliant"; // sac delivering mate
-
-  // Mate-related classifications
-  if (mateBeforeMover == null && mateAfterMover != null && mateAfterMover < 0 && winningNow) return "excellent"; // starts a mate
-  if (mateBeforeMover != null && mateAfterMover != null && mateAfterMover < 0 && mateAfterMover <= mateBeforeMover && winningNow) return "excellent"; // keeps the mate
-  if (mateBeforeMover != null && mateAfterMover != null && mateAfterMover < 0 && mateAfterMover > mateBeforeMover && winningNow) return "good"; // delays own mate
-  if (mateBeforeMover != null && mateAfterMover == null && wasWinning) return "miss"; // threw away a forced mate
-
-  // Mistake: lost a clear advantage (was winning by CA+ pawns, now not)
-  if (wasWinning && evalBefore >= CA * 100 && evalAfter < CA * 100 && loss >= ML * 100) return "mistake";
-  // Mistake: handed opponent a clear advantage
-  if (!wasWinning && evalBefore >= -CA * 100 && evalAfter < -CA * 100 && loss >= ML * 100) return "mistake";
-  // Mistake: walked into mate (wasn't already lost)
-  if (mateBeforeMover == null && mateAfterMover != null && mateAfterMover > 0 && evalBefore > -CA * 100) return "mistake";
-  if (mateBeforeMover == null && mateAfterMover != null && mateAfterMover > 0) return "blunder"; // walked into mate
-
-  // Excellent: very small loss (< goodThresh pawns)
-  if (loss <= goodThresh * 100) return "excellent";
-
-  // Good: small loss (< inaccThresh pawns)
-  if (loss <= inaccThresh * 100) return "good";
-
-  // Inaccuracy: moderate loss
-  if (loss <= blunderThresh * 100) return "inacc";
-
-  // Blunder: large loss
-  return "blunder";
+  return classifyV2({ winLoss, isBook, isTop, onlyMove, isSac, moverBefore, moverAfter });
 }
 
 // Sacrifice/forced are functions of the board only (not the eval), so they're cached per ply for
@@ -1245,23 +1159,19 @@ function computeDerived() {
   const isTop = new Array(N + 1).fill(false);
   const bookAt = new Array(N + 1).fill(false);
 
-  // Book detection (Chess.com style): "Low-loss move in the still-contiguous opening
-  // prefix, up to move 8". Only first 16 plies; move must be low-loss (best/excellent);
-  // must be in curated opening book (book.json from lichess-org/chess-openings).
+  // Book detection (Chess.com V2): both before AND after positions in opening book
+  // (EPD key = first 4 FEN fields). Only first 16 plies (8 moves).
   S.bookCount = 0;
   let bookOpening = null;
   for (let i = 1; i <= N; i++) {
-    const bk = bookLookup(S.positions[i].fen);
-    if (Array.isArray(bk)) bookOpening = { eco: bk[0], name: bk[1] };
+    const bkAfter = bookLookup(S.positions[i].fen);
+    const bkBefore = bookLookup(S.positions[i - 1].fen);
+    if (Array.isArray(bkAfter)) bookOpening = { eco: bkAfter[0], name: bkAfter[1] };
 
-    // Chess.com: Book only in first 8 moves (16 plies), low-loss, in curated book
+    // Chess.com V2: Book if BOTH before and after positions in book, first 16 plies
     let bookAtI = false;
-    if (i <= 16) {
-      const playedUci = (S.positions[i].from || "") + (S.positions[i].to || "") + (S.positions[i].promotion || "");
-      const isLowLoss = isTop[i] || (wpDrop[i] != null && wpDrop[i] < 0.02); // Excellent or better
-      if (isLowLoss && bk !== undefined) {
-        bookAtI = true;
-      }
+    if (i <= 16 && bkBefore !== undefined && bkAfter !== undefined) {
+      bookAtI = true;
     }
     bookAt[i] = bookAtI;
 
