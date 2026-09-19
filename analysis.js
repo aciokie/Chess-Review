@@ -1001,10 +1001,13 @@ function getStandardRating(wp) {
 // moverBefore/moverAfter: mover's win% before/after the move.
 function classifyV2({ winLoss, isBook, isTop, onlyMove, isSac, moverBefore, moverAfter }) {
   if (isBook) return "book";
-  if (winLoss < 2 && isSac && moverBefore < 97 && moverAfter >= 45) return "brilliant";
-  if (winLoss < 2 && onlyMove) return "great";
+  if (winLoss < 2) {
+    if (isSac && moverBefore < 97 && moverAfter >= 45) return "brilliant";
+    if (isTop) return "best";
+    if (onlyMove) return "great";
+    return "excellent";
+  }
   if (winLoss >= 10 && moverBefore >= 60 && onlyMove) return "miss";
-  if (winLoss < 2) return isTop ? "best" : "excellent";
   if (winLoss < 5) return "good";
   if (winLoss < 10) return "inacc";
   if (winLoss < 20) return "mistake";
