@@ -300,11 +300,10 @@ const DEFAULT_SETTINGS = {
   // depth/lines), so results are unchanged — only the wall-clock is parallelized. Default ≈
   // (CPU cores − 1), capped at 4.
   engineWorkers: Math.max(1, Math.min(4, ((typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4) - 1)),
-  // Lines searched per position during the analysis batch. 1 = fastest (~2x faster than 2) and, per
-  // the mpv1-vs-mpv2 study, tracks the reference values as well or better — so
-  // the calibration is (re)built on MultiPV-1 evals to match. The runtime MultiPV MUST equal the mpv
-  // the calibration was built on, or accuracy drifts. Changing it re-analyzes the game.
-  classifyLines: 1,
+  // Lines searched per position during the analysis batch. 2 = needed for "onlyMove"
+  // (Great/Miss) detection — second-best line must exist. 1 is ~2x faster but
+  // loses onlyMove info. Calibration was built on MultiPV-1 but onlyMove needs ≥2.
+  classifyLines: 2,
   // Fast analysis: kept for backwards compatibility, but now a no-op for line count — the batch
   // already searches a single line, so there are no extra lines to drop.
   fastAnalysis: false, fastLines: 3,
