@@ -1011,7 +1011,7 @@ function classifyV2({ winLoss, isBook, isTop, onlyMove, isSac, moverBefore, move
   return "blunder";
 }
 // Per-ply move category, ported from getMoveRating().
-function classifyMove(i, mover, isTop, book, sac, std, loss, wpDrop) {
+function classifyMove(i, mover, isTop, bookAt, sac, std, loss, wpDrop) {
   // For mainline classification, we need to compute winLoss, onlyMove, moverBefore, moverAfter
   // These are already computed in computeDerived - pass them via wpDrop array
   // wpDrop[i] holds the win% loss for this ply
@@ -1203,7 +1203,7 @@ function computeDerived() {
   for (let i = 1; i <= N; i++) {
     if (bookAt[i]) { S.classif[i] = "book"; S.bookCount++; continue; }
     if (S.evals[i] == null || S.evals[i - 1] == null) { S.classif[i] = null; continue; }
-    S.classif[i] = classifyMove(i, S.positions[i].color, isTop[i], false, sac, std, loss, wpDrop);
+    S.classif[i] = classifyMove(i, S.positions[i].color, isTop[i], bookAt, sac, std, loss, wpDrop);
   }
   // Opening name: prefer explorer (Lichess masters DB) > book.json > PGN headers.
   // In explore mode, preserve the opening already fetched from the explorer (don't wipe it).
