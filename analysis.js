@@ -659,6 +659,9 @@ let statsRefs = null;
    otherwise from the mainline's caches. The renderers use these accessors, so they
    work the same in both modes. */
 function activePos() {
+  if (S.playCoach) {
+    return { fen: S.playCoach.fen, san: null };
+  }
   return S.analysisMode && S.variation ? S.variation.positions[S.variation.idx] : S.positions[S.idx];
 }
 function activeEval() {
