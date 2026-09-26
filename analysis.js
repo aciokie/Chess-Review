@@ -5387,27 +5387,35 @@ function renderPlayCoachSetup() {
 async function triggerCoachEngineMoveIfNeeded() {
   if (!S.playCoach || S.playCoach.isUserTurn || S.playCoach.status !== "playing") return;
 
-  const engine = new Engine();
-  const config = COACH_STRENGTHS[S.playCoach.strength] || COACH_STRENGTHS.intermediate;
+  renderAll(); // Update UI to show "Coach Thinking..."
 
+  // Yield to browser event loop before spawning worker
+  await new Promise((r) => setTimeout(r, 100));
+
+  let engine = null;
   try {
+    engine = new Engine();
+    const config = COACH_STRENGTHS[S.playCoach.strength] || COACH_STRENGTHS.intermediate;
     const analysis = await engine.analyse(S.playCoach.fen, config.depth, config.multipv);
     const coachMoveUci = S.playCoach.selectCoachMove(analysis);
 
-    if (coachMoveUci) {
+    if (coachMoveUci && S.playCoach && !S.playCoach.isUserTurn) {
       const prevFen = S.playCoach.fen;
-      S.playCoach.makeCoachMove(coachMoveUci);
+      const moveData = S.playCoach.makeCoachMove(coachMoveUci);
+      if (moveData && moveData.san) playSanSound(moveData.san);
       S.playCoach.detectThreats(prevFen, S.playCoach.fen);
 
-      // Sync chess.js board positions for review panel rendering
+      // Sync positions
       S.positions = buildPositions(S.playCoach.pgn);
       S.total = S.positions.length - 1;
       S.idx = S.total;
     }
   } catch (err) {
-    console.error("Coach move analysis error:", err);
+    console.error("Coach move error:", err);
   } finally {
-    engine.terminate();
+    if (engine) {
+      try { engine.terminate(); } catch {}
+    }
     renderAll();
   }
 }
