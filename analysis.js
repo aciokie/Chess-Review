@@ -2576,6 +2576,13 @@ async function requestLiveEval() {
   
   // Update opening detection for explore mode
   const isExplore = S.meta?.explore === true;
+  if (payload.meta?.playCoach === true) {
+    S.analyzing = false;
+    S.analysisMode = true;
+    document.title = "Play Coach — Chess Review";
+    renderAll();
+    return;
+  }
   if (isExplore) {
     const bk = bookLookup(fen);
     if (Array.isArray(bk)) {
