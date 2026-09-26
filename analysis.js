@@ -5419,7 +5419,7 @@ async function triggerCoachEngineMoveIfNeeded() {
 
   let engine = null;
   try {
-    engine = new Engine();
+    engine = await createEngine();
     const config = COACH_STRENGTHS[S.playCoach.strength] || COACH_STRENGTHS.intermediate;
     const analysis = await engine.analyse(S.playCoach.fen, config.depth, config.multipv);
     const coachMoveUci = S.playCoach.selectCoachMove(analysis);
@@ -5513,7 +5513,7 @@ function renderPlayCoachReviewPanel() {
         style: "flex:1;",
         disabled: !pc.settings.enableHints || !pc.isUserTurn || isEnded,
         onclick: async () => {
-          const engine = new Engine();
+          const engine = await createEngine();
           try {
             const analysis = await engine.analyse(pc.fen, 8, 1);
             const hint = pc.getHint(analysis);
