@@ -17,6 +17,7 @@ rating. No account, no server, no manual PGN copying.
 - **Estimated rating** — a rough guide to the level each player performed at in the game.
 - **Opening detection** from an offline book, named even for PGNs without headers.
 - **Explore variations** directly on the board, with live engine evaluation.
+- **Play Coach mode** — Play interactive training games against an adaptive local engine coach (Beginner to Expert) with progressive hints, threat detection, takebacks, and commentary.
 - **Runs entirely on your machine** — your games never leave your computer.
 
 ## Usage

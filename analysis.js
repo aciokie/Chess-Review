@@ -1,3 +1,4 @@
+import { PlayCoachGame, COACH_STRENGTHS, COACH_PERSONALITIES } from "./play-coach.js";
 // analysis.js — Chess Review analysis page (vanilla port of "Design 2.0").
 // Parses the PGN, runs Stockfish through the game and fills every panel with real
 // data: eval bar/graph, accuracy, mistake classification, engine lines (MultiPV),
@@ -640,7 +641,7 @@ const S = {
   // Mistake-practice session (null when inactive). "Show the threat" helper engine + cache.
   practice: null, helperEngine: null, threatCache: new Map(),
   // Practice hint squares (the engine's best move) — shown after 3 failed attempts.
-  practiceHint: null,
+  practiceHint: null, playCoach: null,
   // Library (left hover-sidebar): the saved games + the active sort/filter selection.
   library: [], libSort: "history", libResult: "all", libType: "all",
   // Reorganize mode (drag/resize panels) — off by default each load; the layout itself persists.
@@ -676,6 +677,14 @@ async function loadJob() {
   if (!jobId) throw new Error("No analysis job specified.");
 
   // Explore mode: standalone Lichess-style analysis board
+  if (jobId === "play-coach") {
+    const startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    return {
+      pgn: `[SetUp "1"]\n[FEN "${startFen}"]\n\n*`,
+      meta: { playCoach: true },
+      source: "play-coach",
+    };
+  }
   if (jobId === "explore") {
     const startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     return {
@@ -3184,6 +3193,14 @@ function analysisProgressText() {
   return `Analyzing … ${done}/${S.total}`;
 }
 function renderReview() {
+  if (S.meta?.playCoach === true) {
+    if (!S.playCoach) {
+      renderPlayCoachSetup();
+      return;
+    }
+    renderPlayCoachReviewPanel();
+    return;
+  }
   // In-place progress text during analysis (so the loader animation doesn't restart each move).
   if (S.analyzing && revRefs) { revRefs.head.textContent = analysisProgressText(); return; }
 
@@ -5279,6 +5296,176 @@ async function startAnalysis() {
   renderStats();
   if (!S.analysisMode) renderEngineCurrent();
   saveToLibrary();   // the game is fully analyzed → keep it in the user's library
+}
+
+
+/* ---------------- Play Coach Mode UI ---------------- */
+function renderPlayCoachSetup() {
+  const isPlayCoach = S.meta?.playCoach === true;
+  if (!isPlayCoach || S.playCoach) return;
+
+  const card = el("div", { class: "panel insight-panel", style: "padding: 20px; max-width: 500px; margin: 0 auto;" },
+    el("h2", { style: "margin-top:0; color: var(--accent);" }, "♟ Play Coach Mode"),
+    el("p", { style: "color: var(--ink-2); font-size: 13px;" }, "Play an interactive practice game against an adaptive local engine coach with instant guidance and feedback."),
+
+    el("div", { style: "margin-top: 15px;" },
+      el("label", { style: "display:block; font-weight:700; margin-bottom:5px;" }, "Your Side:"),
+      el("select", { id: "pcColorSelect", style: "width:100%; padding:8px; border-radius:6px; background:var(--panel-2); color:var(--ink);" },
+        el("option", { value: "w" }, "White (First move)"),
+        el("option", { value: "b" }, "Black (Second move)"),
+        el("option", { value: "random" }, "Random")
+      )
+    ),
+
+    el("div", { style: "margin-top: 15px;" },
+      el("label", { style: "display:block; font-weight:700; margin-bottom:5px;" }, "Coach Strength:"),
+      el("select", { id: "pcStrengthSelect", style: "width:100%; padding:8px; border-radius:6px; background:var(--panel-2); color:var(--ink);" },
+        ...Object.entries(COACH_STRENGTHS).map(([key, info]) =>
+          el("option", { value: key, selected: key === "intermediate" ? true : undefined }, `${info.name} — ${info.description}`)
+        )
+      )
+    ),
+
+    el("div", { style: "margin-top: 15px;" },
+      el("label", { style: "display:block; font-weight:700; margin-bottom:5px;" }, "Coach Personality:"),
+      el("select", { id: "pcCoachSelect", style: "width:100%; padding:8px; border-radius:6px; background:var(--panel-2); color:var(--ink);" },
+        ...COACH_PERSONALITIES.map((p) =>
+          el("option", { value: p.id }, `${p.name} (${p.title})`)
+        )
+      )
+    ),
+
+    el("div", { style: "margin-top: 20px; display:flex; gap:10px;" },
+      el("button", {
+        class: "btn primary",
+        style: "flex:1; padding:10px; font-weight:700;",
+        onclick: () => {
+          const color = document.getElementById("pcColorSelect").value;
+          const strength = document.getElementById("pcStrengthSelect").value;
+          const coachId = document.getElementById("pcCoachSelect").value;
+
+          S.playCoach = new PlayCoachGame({
+            userColor: color,
+            strength: strength,
+            coachId: coachId,
+          });
+
+          S.flipped = S.playCoach.userColor === "b";
+          S.meSide = S.playCoach.userColor;
+
+          renderAll();
+          triggerCoachEngineMoveIfNeeded();
+        }
+      }, "Start Game")
+    )
+  );
+
+  UI.review.replaceChildren(card);
+}
+
+async function triggerCoachEngineMoveIfNeeded() {
+  if (!S.playCoach || S.playCoach.isUserTurn || S.playCoach.status !== "playing") return;
+
+  const engine = new Engine();
+  const config = COACH_STRENGTHS[S.playCoach.strength] || COACH_STRENGTHS.intermediate;
+
+  try {
+    const analysis = await engine.analyse(S.playCoach.fen, config.depth, config.multipv);
+    const coachMoveUci = S.playCoach.selectCoachMove(analysis);
+
+    if (coachMoveUci) {
+      const prevFen = S.playCoach.fen;
+      S.playCoach.makeCoachMove(coachMoveUci);
+      S.playCoach.detectThreats(prevFen, S.playCoach.fen);
+
+      // Sync chess.js board positions for review panel rendering
+      S.positions = buildPositions(S.playCoach.pgn);
+      S.total = S.positions.length - 1;
+      S.idx = S.total;
+    }
+  } catch (err) {
+    console.error("Coach move analysis error:", err);
+  } finally {
+    engine.terminate();
+    renderAll();
+  }
+}
+
+function renderPlayCoachReviewPanel() {
+  if (!S.playCoach) return;
+
+  const pc = S.playCoach;
+  const isEnded = pc.status === "ended";
+
+  const panel = el("div", { class: "panel insight-panel", style: "padding:16px;" },
+    el("div", { style: "display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;" },
+      el("span", { style: "font-weight:700; color:var(--accent);" }, `Play Coach (${COACH_STRENGTHS[pc.strength]?.name || "Coach"})`),
+      el("span", { style: "font-size:12px; color:var(--ink-3);" }, pc.isUserTurn ? "Your Turn" : "Coach Thinking...")
+    ),
+
+    pc.lastThreat ? el("div", { style: "background:rgba(220,53,69,0.15); border:1px solid #dc3545; color:#ff8b94; padding:8px 12px; border-radius:6px; margin-bottom:12px; font-size:12px;" },
+      el("strong", {}, "⚠️ Threat: "), pc.lastThreat
+    ) : null,
+
+    isEnded ? el("div", { style: "background:var(--panel-2); padding:12px; border-radius:8px; margin-bottom:12px; text-align:center;" },
+      el("h3", { style: "margin:0 0 6px 0; color:var(--accent);" }, pc.gameResult?.text || "Game Over"),
+      el("button", {
+        class: "btn secondary",
+        style: "margin-top:8px; padding:6px 12px;",
+        onclick: () => {
+          const stats = pc.getSummaryStats();
+          alert(`Game Summary:\nTotal Moves: ${stats.totalMoves}\nEstimated Accuracy: ${stats.estAccuracy}%`);
+        }
+      }, "View Summary")
+    ) : null,
+
+    el("div", { style: "display:flex; gap:8px; margin-top:12px;" },
+      el("button", {
+        class: "btn secondary",
+        style: "flex:1;",
+        disabled: !pc.settings.allowTakebacks || pc.undoStack.length <= 1,
+        onclick: () => {
+          if (pc.takeback()) {
+            S.positions = buildPositions(pc.pgn);
+            S.total = S.positions.length - 1;
+            S.idx = S.total;
+            renderAll();
+          }
+        }
+      }, "↺ Take Back"),
+
+      el("button", {
+        class: "btn secondary",
+        style: "flex:1;",
+        disabled: !pc.settings.enableHints || !pc.isUserTurn || isEnded,
+        onclick: async () => {
+          const engine = new Engine();
+          try {
+            const analysis = await engine.analyse(pc.fen, 8, 1);
+            const hint = pc.getHint(analysis);
+            if (hint) {
+              alert(`Hint (Level ${hint.level}/4):\n${hint.text}`);
+            }
+          } finally {
+            engine.terminate();
+          }
+        }
+      }, "💡 Hint"),
+
+      el("button", {
+        class: "btn ghost",
+        disabled: isEnded,
+        onclick: () => {
+          if (confirm("Are you sure you want to resign?")) {
+            pc.resign();
+            renderAll();
+          }
+        }
+      }, "🏳️ Resign")
+    )
+  );
+
+  UI.review.replaceChildren(panel);
 }
 
 /* ---------------- Render everything ---------------- */

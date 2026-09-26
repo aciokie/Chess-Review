@@ -170,3 +170,19 @@ $("analyzeManual").addEventListener("click", async () => {
 });
 
 init();
+
+$("playCoachMode")?.addEventListener("click", async () => {
+  const btn = $("playCoachMode");
+  btn.disabled = true;
+  setStatus("Opening Play Coach mode …");
+  try {
+    await browserAPI.tabs.create({
+      url: browserAPI.runtime.getURL("analysis.html#play-coach"),
+    });
+    window.close();
+  } catch (err) {
+    setStatus(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
