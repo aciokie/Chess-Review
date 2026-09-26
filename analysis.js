@@ -2315,6 +2315,24 @@ function playSanSound(san) {
 // Make a user move from the shown position. Starts/extends a variation (analysis mode),
 // unless the move on the mainline is simply the next mainline move.
 function applyUserMove(from, to, animate = true) {
+  if (S.playCoach) {
+    if (!S.playCoach.isUserTurn || S.playCoach.status !== "playing") return;
+    try {
+      const moveData = S.playCoach.makeUserMove({ from, to, promotion: "q" });
+      playSanSound(moveData.san);
+      S.positions = buildPositions(S.playCoach.pgn);
+      S.total = S.positions.length - 1;
+      S.idx = S.total;
+      S.selectedSq = null;
+      renderAll();
+      triggerCoachEngineMoveIfNeeded();
+    } catch (e) {
+      console.warn("Illegal user move in Play Coach mode:", e);
+      S.selectedSq = null;
+      renderSelection();
+    }
+    return;
+  }
   // During mistake practice a move is an answer attempt, not a variation — route it there.
   if (S.practice) { if (S.practice.solving && !S.practice.busy) practiceAttempt(from, to); return; }
   stopLineWalk();
