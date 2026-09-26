@@ -5414,36 +5414,56 @@ function renderPlayCoachReviewPanel() {
 
   const pc = S.playCoach;
   const isEnded = pc.status === "ended";
+  const lastMove = pc.history[pc.history.length - 1];
 
-  const panel = el("div", { class: "panel insight-panel", style: "padding:16px;" },
-    el("div", { style: "display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;" },
-      el("span", { style: "font-weight:700; color:var(--accent);" }, `Play Coach (${COACH_STRENGTHS[pc.strength]?.name || "Coach"})`),
-      el("span", { style: "font-size:12px; color:var(--ink-3);" }, pc.isUserTurn ? "Your Turn" : "Coach Thinking...")
+  let feedbackText = pc.isUserTurn
+    ? (lastMove && lastMove.color !== pc.userColor ? `Coach played ${lastMove.san}.` : "Your turn to move on the board.")
+    : "Coach is thinking...";
+
+  if (lastMove && lastMove.color === pc.userColor) {
+    feedbackText = `You played ${lastMove.san}.`;
+  }
+
+  const panel = el("div", { class: "panel insight-panel", style: "padding:16px; display:flex; flex-direction:column; gap:12px;" },
+    el("div", { style: "display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); padding-bottom:8px;" },
+      el("div", { style: "display:flex; align-items:center; gap:8px;" },
+        el("span", { style: "font-weight:800; font-size:14px; color:var(--accent);" }, "♟ Play Coach"),
+        el("span", { style: "font-size:11px; background:var(--panel-2); padding:2px 8px; border-radius:10px; color:var(--ink-2);" }, `${COACH_STRENGTHS[pc.strength]?.name || "Coach"}`)
+      ),
+      el("span", { style: "font-size:12px; font-weight:600; color:" + (pc.isUserTurn ? "var(--accent)" : "var(--ink-3)") + ";" }, pc.isUserTurn ? "Your Turn" : "Coach Thinking...")
     ),
 
-    pc.lastThreat ? el("div", { style: "background:rgba(220,53,69,0.15); border:1px solid #dc3545; color:#ff8b94; padding:8px 12px; border-radius:6px; margin-bottom:12px; font-size:12px;" },
-      el("strong", {}, "⚠️ Threat: "), pc.lastThreat
+    el("div", { style: "background:var(--panel-2); padding:12px; border-radius:8px; font-size:13px; line-height:1.4;" },
+      el("div", { style: "font-weight:600; color:var(--ink); margin-bottom:4px;" }, feedbackText),
+      pc.lastThreat ? el("div", { style: "color:#ff8b94; font-size:12px; margin-top:6px; display:flex; align-items:center; gap:4px;" }, "⚠️ ", pc.lastThreat) : null
+    ),
+
+    pc.currentHintText ? el("div", { style: "background:rgba(127,180,95,0.15); border:1px solid var(--accent); color:var(--ink); padding:10px 12px; border-radius:8px; font-size:12px;" },
+      el("strong", { style: "color:var(--accent); display:block; margin-bottom:2px;" }, `💡 Hint (Level ${pc.currentHintLevel}/4):`),
+      pc.currentHintText
     ) : null,
 
-    isEnded ? el("div", { style: "background:var(--panel-2); padding:12px; border-radius:8px; margin-bottom:12px; text-align:center;" },
-      el("h3", { style: "margin:0 0 6px 0; color:var(--accent);" }, pc.gameResult?.text || "Game Over"),
+    isEnded ? el("div", { style: "background:var(--panel-2); padding:14px; border-radius:8px; text-align:center; border:1px solid var(--line);" },
+      el("h3", { style: "margin:0 0 6px 0; color:var(--accent); font-size:16px;" }, pc.gameResult?.text || "Game Over"),
+      el("p", { style: "margin:0 0 12px 0; font-size:12px; color:var(--ink-2);" }, `Game finished in ${pc.history.length} moves.`),
       el("button", {
-        class: "btn secondary",
-        style: "margin-top:8px; padding:6px 12px;",
+        class: "btn primary",
+        style: "width:100%; padding:8px;",
         onclick: () => {
           const stats = pc.getSummaryStats();
-          alert(`Game Summary:\nTotal Moves: ${stats.totalMoves}\nEstimated Accuracy: ${stats.estAccuracy}%`);
+          alert(`Game Summary:\nTotal Moves: ${stats.totalMoves}\nEstimated Accuracy: ${stats.estAccuracy}%\nResult: ${pc.gameResult?.text || "Ended"}`);
         }
-      }, "View Summary")
+      }, "View Full Summary")
     ) : null,
 
-    el("div", { style: "display:flex; gap:8px; margin-top:12px;" },
+    el("div", { style: "display:flex; gap:8px; margin-top:auto;" },
       el("button", {
         class: "btn secondary",
         style: "flex:1;",
         disabled: !pc.settings.allowTakebacks || pc.undoStack.length <= 1,
         onclick: () => {
           if (pc.takeback()) {
+            pc.currentHintText = null;
             S.positions = buildPositions(pc.pgn);
             S.total = S.positions.length - 1;
             S.idx = S.total;
@@ -5462,7 +5482,8 @@ function renderPlayCoachReviewPanel() {
             const analysis = await engine.analyse(pc.fen, 8, 1);
             const hint = pc.getHint(analysis);
             if (hint) {
-              alert(`Hint (Level ${hint.level}/4):\n${hint.text}`);
+              pc.currentHintText = hint.text;
+              renderAll();
             }
           } finally {
             engine.terminate();
