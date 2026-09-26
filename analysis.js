@@ -2761,6 +2761,14 @@ function playerStrip(side) {
 }
 function renderPlayers() {
   const isExplore = S.meta?.explore === true;
+  const isPlayCoach = S.meta?.playCoach === true;
+  if (isPlayCoach) {
+    const topName = S.flipped ? "You (White)" : (COACH_STRENGTHS[S.playCoach?.strength]?.name || "Coach");
+    const botName = S.flipped ? (COACH_STRENGTHS[S.playCoach?.strength]?.name || "Coach") : "You (White)";
+    UI.playerTop.replaceChildren(el("span", { class: "p-name" }, topName));
+    UI.playerBot.replaceChildren(el("span", { class: "p-name" }, botName));
+    return;
+  }
   if (isExplore) {
     UI.playerTop.replaceChildren();
     UI.playerBot.replaceChildren();
@@ -3436,6 +3444,11 @@ function jumpToCategory(side, k) {
 }
 function renderStats() {
   const isExplore = S.meta?.explore === true;
+  const isPlayCoach = S.meta?.playCoach === true;
+  if (isPlayCoach) {
+    UI.stats.replaceChildren(el("div", { class: "panel-placeholder" }, "Play Coach Mode Active"));
+    return;
+  }
   if (isExplore) {
     // In explore mode, show a simple panel with current position info
     const pos = activePos();
@@ -3540,6 +3553,11 @@ function renderStats() {
 /* ---------------- Eval graph ---------------- */
 function renderGraph() {
   const isExplore = S.meta?.explore === true;
+  const isPlayCoach = S.meta?.playCoach === true;
+  if (isPlayCoach) {
+    UI.graph.replaceChildren(el("div", { class: "panel-placeholder" }, "Evaluation Graph"));
+    return;
+  }
   if (isExplore) {
     const mod = UI.graph.closest(".mod");
     if (mod) mod.hidden = true;
