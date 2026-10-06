@@ -8,6 +8,7 @@ import { Engine } from "./engine/uci.js";
 import { flagCodeForCountryId, countryNameForId } from "./flags.js";
 import { browserAPI } from "./browser-compat.js";
 import { canonicalGameId, analysisCacheKey } from "./gameid.js";
+import { renderGameBrowser } from "./gamebrowser.js";
 
 // Development-only diagnostics for game identity / cache routing. Silent in production; enable by
 // opening the page with ?debug (analysis.html?debug#<job>) or setting globalThis.CHESS_REVIEW_DEBUG.
@@ -1339,6 +1340,7 @@ function buildUI() {
   root.replaceChildren();
 
   const topbar = el("header", { class: "topbar" },
+    el("button", { class: "topbar-back-btn", title: "Back to Game Browser", onclick: showGameBrowserView }, "← Games"),
     el("div", { class: "brand" },
       el("div", { class: "brand-mark" }, el("img", { class: "brand-img", src: _url("pieces-img/cburnett/wN.svg"), alt: "" })),
       el("div", { class: "brand-name", html: 'Chess <span>/ Review</span>' }),
@@ -5779,6 +5781,73 @@ async function resetLegacyZoom() {
     if (Math.abs(z - (zs.defaultZoomFactor || 1)) > 0.005) await browserAPI.tabs.setZoom(tab.id, 0);
   } catch {}
 }
+function showGameBrowserView() {
+  terminateEngines();
+  if (S.helperEngine) { try { S.helperEngine.terminate(); } catch {} S.helperEngine = null; }
+  if (S.autoTimer) { clearInterval(S.autoTimer); S.autoTimer = null; }
+  stopLineWalk();
+  location.hash = "";
+  document.title = "Chess Review";
+  const root = document.getElementById("root");
+  root.replaceChildren();
+
+  const topbar = el("header", { class: "topbar" },
+    el("div", { class: "brand" },
+      el("div", { class: "brand-mark" }, el("img", { class: "brand-img", src: _url("pieces-img/cburnett/wN.svg"), alt: "" })),
+      el("div", { class: "brand-name", html: 'Chess <span>/ Review</span>' }),
+    ),
+    el("div", { class: "topbar-right" },
+      el("button", { class: "icon-btn", "aria-label": "Credits & attributions", onclick: openCredits }, icon("info")),
+      el("button", { class: "icon-btn", "aria-label": "Settings", onclick: toggleSettings }, icon("gear")),
+    )
+  );
+
+  const container = el("div", { class: "app" }, topbar, el("div", { id: "gbRoot" }));
+  const settings = el("div", { class: "settings-pop", id: "settings", hidden: true });
+  container.append(settings);
+  root.append(container);
+  UI.settings = settings;
+
+  renderGameBrowser(document.getElementById("gbRoot"), {
+    onSelectGame: (game) => {
+      const jobId = "game-" + Date.now();
+      const meta = { url: game.url, gameId: game.id, timeClass: game.timeClass, flip: game.mySide === "b" };
+      browserAPI.storage.local.set({ [`job:${jobId}`]: { pgn: game.pgn, meta } }).then(() => {
+        location.hash = jobId;
+        buildUI();
+        applyGame({ pgn: game.pgn, meta });
+      });
+    },
+    onPastePgn: () => {
+      const input = prompt("Paste Chess.com / Lichess URL, PGN, or FEN:");
+      if (!input || !input.trim()) return;
+      const val = input.trim();
+      let pgnToUse = val;
+      let metaToUse = {};
+      if (val.startsWith("https://") || val.startsWith("http://")) {
+        metaToUse.url = val;
+      }
+      const jobId = "pasted-" + Date.now();
+      browserAPI.storage.local.set({ [`job:${jobId}`]: { pgn: pgnToUse, meta: metaToUse } }).then(() => {
+        location.hash = jobId;
+        buildUI();
+        applyGame({ pgn: pgnToUse, meta: metaToUse });
+      });
+    },
+    onExplore: () => {
+      location.hash = "explore";
+      const startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+      const payload = {
+        pgn: `[SetUp "1"]\n[FEN "${startFen}"]\n\n*`,
+        meta: { explore: true },
+        source: "explore"
+      };
+      buildUI();
+      applyGame(payload);
+    }
+  });
+}
+
 (async function main() {
   try {
     // Only the job + stored prefs are needed to build and show the UI. The opening book (~690 KB)
@@ -5786,9 +5855,20 @@ async function resetLegacyZoom() {
     // them in parallel and don't block the first paint on them — buildUI() can run as soon as the
     // job and settings are in, while the book is still downloading.
     const dataReady = Promise.all([loadBook(), loadCalibration()]);
-    const [payload, store] = await Promise.all([loadJob(), browserAPI.storage.local.get(["settings", "username", "layout", "layoutMode", "layoutVersion", "library"])]);
+    let payload = null;
+    try {
+      payload = await loadJob();
+    } catch {
+      payload = null;
+    }
+    const store = await browserAPI.storage.local.get(["settings", "username", "layout", "layoutMode", "layoutVersion", "library"]);
     S.library = Array.isArray(store.library) ? store.library : [];
     S.settings = { ...DEFAULT_SETTINGS, ...(store.settings || {}) };
+
+    if (!payload) {
+      showGameBrowserView();
+      return;
+    }
     const visualAssetsMigrated = migrateVisualAssetSettings(S.settings);
     migrateEngineSettings(S.settings);
     if (visualAssetsMigrated || S.settings.enginePath !== store.settings?.enginePath) {

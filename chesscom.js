@@ -205,3 +205,101 @@ export function gameMeta(game) {
     black: { user: game.black?.username || "?", result: game.black?.result || "" },
   };
 }
+
+/**
+ * Determine game result outcome ('win' | 'loss' | 'draw') for a user.
+ */
+function getResultOutcome(game, username) {
+  const normUser = username.toLowerCase();
+  const isWhite = (game.white?.username || "").toLowerCase() === normUser;
+  const myRes = isWhite ? game.white?.result : game.black?.result;
+
+  if (myRes === "win") return "win";
+  const drawCodes = new Set(["agreed", "repetition", "stalemate", "insufficient", "timevsinsufficient", "50move"]);
+  if (drawCodes.has(myRes)) return "draw";
+  return "loss";
+}
+
+/**
+ * Fetch user games list from Chess.com with pagination and time class filtering.
+ * Returns { games, archiveState: { archives, archiveIndex, gameOffset }, hasMore }
+ */
+export async function fetchUserGamesList(username, { limit = 50, archiveState = null, timeClass = "all" } = {}) {
+  const normUser = username.toLowerCase();
+  let archives = archiveState?.archives || null;
+  let archiveIndex = archiveState?.archiveIndex || 0;
+  let gameOffset = archiveState?.gameOffset || 0;
+
+  if (!archives) {
+    const rawArchives = await fetchArchives(normUser);
+    // Reverse archives so newest months come first
+    archives = rawArchives.slice().reverse();
+  }
+
+  const resultGames = [];
+  const wantTimeClass = (timeClass || "all").toLowerCase();
+
+  while (archiveIndex < archives.length && resultGames.length < limit) {
+    const archiveUrl = archives[archiveIndex];
+    let monthGames = await getCachedMonth(archiveUrl);
+    if (monthGames == null) {
+      monthGames = await fetchMonthGames(archiveUrl);
+      if (monthGames.length) setCachedMonth(archiveUrl, monthGames);
+    }
+
+    // Sort games in month newest first by end_time
+    const gamesRev = monthGames.slice().reverse();
+
+    while (gameOffset < gamesRev.length && resultGames.length < limit) {
+      const g = gamesRev[gameOffset];
+      gameOffset++;
+
+      const gTimeClass = (g.time_class || "blitz").toLowerCase();
+      if (wantTimeClass !== "all") {
+        if (wantTimeClass === "daily" && gTimeClass !== "daily") continue;
+        if (wantTimeClass !== "daily" && gTimeClass !== wantTimeClass) continue;
+      }
+
+      const isWhite = (g.white?.username || "").toLowerCase() === normUser;
+      const parsedId = parseGameId(g.url)?.id || String(g.end_time || Math.random());
+
+      resultGames.push({
+        id: parsedId,
+        platform: "chesscom",
+        url: g.url || "",
+        pgn: g.pgn || "",
+        timeClass: gTimeClass,
+        timeControl: g.time_control || gTimeClass,
+        endTime: g.end_time ? g.end_time * 1000 : Date.now(),
+        white: {
+          username: g.white?.username || "White",
+          rating: g.white?.rating != null ? g.white.rating : null,
+          result: g.white?.result || ""
+        },
+        black: {
+          username: g.black?.username || "Black",
+          rating: g.black?.rating != null ? g.black.rating : null,
+          result: g.black?.result || ""
+        },
+        mySide: isWhite ? "w" : "b",
+        opponent: {
+          username: isWhite ? (g.black?.username || "Black") : (g.white?.username || "White"),
+          rating: isWhite ? g.black?.rating : g.white?.rating
+        },
+        result: getResultOutcome(g, normUser)
+      });
+    }
+
+    if (gameOffset >= gamesRev.length) {
+      archiveIndex++;
+      gameOffset = 0;
+    }
+  }
+
+  const hasMore = archiveIndex < archives.length;
+  return {
+    games: resultGames,
+    archiveState: { archives, archiveIndex, gameOffset },
+    hasMore
+  };
+}
