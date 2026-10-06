@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Chess Review",
+    "slug": "chess-review",
+    "version": "0.2.0",
+    "orientation": "portrait",
+    "icon": "./icons/icon128.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#14130f",
+    "splash": {
+      "image": "./icons/icon128.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#14130f"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./icons/icon128.png",
+        "backgroundColor": "#14130f"
+      },
+      "package": "com.chessreview.app"
+    },
+    "web": {
+      "favicon": "./icons/icon48.png"
+    }
+  }
+}
