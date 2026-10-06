@@ -67,3 +67,126 @@ export async function fetchGamePgn(gameId) {
   if (!/\[Result\s+"\*"\]/.test(pgn)) setCachedGame("lichess", id, pgn);
   return pgn;
 }
+
+/** Helper to parse PGN header tags into a key-value object */
+export function parsePgnHeaders(pgnText) {
+  const headers = {};
+  const re = /\[(\w+)\s+"([^"]*)"\]/g;
+  let m;
+  while ((m = re.exec(pgnText))) {
+    headers[m[1]] = m[2];
+  }
+  return headers;
+}
+
+/**
+ * Fetch user games list from Lichess with pagination and time class filtering.
+ * Returns { games, until, hasMore }
+ */
+export async function fetchLichessUserGamesList(username, { limit = 50, until = null, timeClass = "all" } = {}) {
+  const normUser = username.toLowerCase();
+  let perfType = "";
+  const tcLower = (timeClass || "all").toLowerCase();
+  if (tcLower === "bullet") perfType = "bullet";
+  else if (tcLower === "blitz") perfType = "blitz";
+  else if (tcLower === "rapid") perfType = "rapid";
+  else if (tcLower === "daily") perfType = "correspondence";
+
+  let url = `${SITE}/api/games/user/${encodeURIComponent(username)}?max=${limit}&opening=true&clocks=false&evals=false`;
+  if (until) url += `&until=${until}`;
+  if (perfType) url += `&perfType=${perfType}`;
+
+  const res = await fetch(url, { headers: { Accept: "application/x-chess-pgn" } });
+  if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error(`Lichess user '${username}' not found.`);
+    }
+    throw new Error(`Lichess returned HTTP ${res.status}`);
+  }
+
+  const rawPgnText = await res.text();
+  if (!rawPgnText || !rawPgnText.trim()) {
+    return { games: [], until: null, hasMore: false };
+  }
+
+  // Split multi-game PGN string into individual PGNs
+  const blocks = rawPgnText.split(/\n\n(?=\[Event )|\n(?=\[Event )/).filter((b) => b.trim().length > 0);
+  const games = [];
+  let oldestTimestamp = null;
+
+  for (const block of blocks) {
+    const pgn = block.trim();
+    if (!pgn) continue;
+
+    const headers = parsePgnHeaders(pgn);
+    const siteUrl = headers.Site || "";
+    const parsed = parseLichessGameId(siteUrl);
+    const gameId = parsed?.id || Math.random().toString(36).slice(2, 10);
+
+    const whiteUser = headers.White || "White";
+    const blackUser = headers.Black || "Black";
+    const isWhite = whiteUser.toLowerCase() === normUser;
+
+    const resHeader = headers.Result || "*";
+    let outcome = "loss";
+    if (resHeader === "1-0") outcome = isWhite ? "win" : "loss";
+    else if (resHeader === "0-1") outcome = !isWhite ? "win" : "loss";
+    else if (resHeader.includes("1/2")) outcome = "draw";
+
+    // Deduce time class
+    const eventName = (headers.Event || "").toLowerCase();
+    let gTimeClass = "blitz";
+    if (eventName.includes("bullet")) gTimeClass = "bullet";
+    else if (eventName.includes("rapid")) gTimeClass = "rapid";
+    else if (eventName.includes("classical")) gTimeClass = "classical";
+    else if (eventName.includes("correspondence") || eventName.includes("daily")) gTimeClass = "daily";
+
+    // Timestamp
+    let endTime = Date.now();
+    if (headers.UTCDate) {
+      const dateStr = headers.UTCDate.replace(/\./g, "-");
+      const timeStr = headers.UTCTime || "00:00:00";
+      const parsedTime = Date.parse(`${dateStr}T${timeStr}Z`);
+      if (!isNaN(parsedTime)) {
+        endTime = parsedTime;
+      }
+    }
+    oldestTimestamp = endTime;
+
+    games.push({
+      id: gameId,
+      platform: "lichess",
+      url: siteUrl || `${SITE}/${gameId}`,
+      pgn,
+      timeClass: gTimeClass,
+      timeControl: headers.TimeControl || gTimeClass,
+      endTime,
+      white: {
+        username: whiteUser,
+        rating: headers.WhiteElo ? parseInt(headers.WhiteElo, 10) : null,
+        result: resHeader === "1-0" ? "win" : resHeader === "0-1" ? "loss" : "draw"
+      },
+      black: {
+        username: blackUser,
+        rating: headers.BlackElo ? parseInt(headers.BlackElo, 10) : null,
+        result: resHeader === "0-1" ? "win" : resHeader === "1-0" ? "loss" : "draw"
+      },
+      mySide: isWhite ? "w" : "b",
+      opponent: {
+        username: isWhite ? blackUser : whiteUser,
+        rating: isWhite ? (headers.BlackElo ? parseInt(headers.BlackElo, 10) : null) : (headers.WhiteElo ? parseInt(headers.WhiteElo, 10) : null)
+      },
+      result: outcome
+    });
+  }
+
+  const hasMore = games.length === limit;
+  // If we have games, set until = oldestTimestamp - 1ms
+  const nextUntil = oldestTimestamp ? oldestTimestamp - 1 : null;
+
+  return {
+    games,
+    until: nextUntil,
+    hasMore
+  };
+}

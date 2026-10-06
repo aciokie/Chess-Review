@@ -1,0 +1,27 @@
+{
+  "name": "Chess Review",
+  "short_name": "Chess Review",
+  "description": "Free, open-source game review for your online chess games from Chess.com and Lichess.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#14130f",
+  "theme_color": "#14130f",
+  "icons": [
+    {
+      "src": "icons/icon128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon48.png",
+      "sizes": "48x48",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon16.png",
+      "sizes": "16x16",
+      "type": "image/png"
+    }
+  ]
+}
