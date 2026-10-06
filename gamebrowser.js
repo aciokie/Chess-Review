@@ -207,7 +207,12 @@ export function renderGameBrowser(container, { onSelectGame, onPastePgn, onExplo
       recentUsers.forEach((userItem) => {
         const chip = document.createElement("button");
         chip.className = "gb-chip";
-        chip.innerHTML = `${userItem.username} <span class="gb-chip-platform">(${userItem.platform === "chesscom" ? "chess.com" : "lichess"})</span>`;
+        chip.textContent = `${userItem.username} `;
+        const platSpan = document.createElement("span");
+        platSpan.className = "gb-chip-platform";
+        platSpan.textContent = `(${userItem.platform === "chesscom" ? "chess.com" : "lichess"})`;
+        chip.append(platSpan);
+
         chip.onclick = () => {
           username = userItem.username;
           platform = userItem.platform;
