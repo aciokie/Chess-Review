@@ -5159,7 +5159,7 @@ function canRestoreAnalysis(saved) {
    helper, which holds a single Web Lock across the whole read → mutate → write, and re-reads the
    latest persisted list inside the lock instead of trusting S.library. */
 const LIBRARY_LOCK = "chess-review-library";
-const LIBRARY_MAX = 300;                 // same cap as before: keep the newest N games
+const LIBRARY_MAX = 1000;                // keep the newest N games (raised from 300; unlimitedStorage is granted)
 let _libraryWriteQueue = Promise.resolve(); // fallback for environments without navigator.locks
 function updateLibrary(update, analysisWrites = {}) {
   const commit = async () => {

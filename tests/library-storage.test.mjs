@@ -114,15 +114,15 @@ test('5: two tabs saving the same game id keep exactly one record', async t => {
 
 test('6: eviction still holds under concurrent writes', async t => {
   const { tabs: [a, b], store } = sharedTabs(t);
-  store.library = Array.from({ length: 300 }, (_, i) => ({ id: String(i), savedAt: i }));
-  store[analysisCacheKey('299')] = { old: true };
+  store.library = Array.from({ length: 1000 }, (_, i) => ({ id: String(i), savedAt: i }));
+  store[analysisCacheKey('999')] = { old: true };
   store[analysisCacheKey('0')] = { retained: true };
   a.state.meta = { gameId: 'newA' };
   b.state.meta = { gameId: 'newB' };
   await Promise.all([a.call('saveToLibrary'), b.call('saveToLibrary')]);
-  assert.equal(store.library.length, 300);
+  assert.equal(store.library.length, 1000);
   assert.equal(store.library[0].id, 'newB');               // last queued is newest
   assert.ok(store.library.some((g) => g.id === 'newA'));
-  assert.equal(store[analysisCacheKey('299')], undefined); // evicted blob cleaned up
+  assert.equal(store[analysisCacheKey('999')], undefined); // evicted blob cleaned up
   assert.ok(store[analysisCacheKey('0')]);                 // untouched blob retained
 });
