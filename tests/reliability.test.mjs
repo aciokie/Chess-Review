@@ -126,7 +126,7 @@ for (const preferred of ['nnue', 'sf19lite']) {
     };
     a.replace('setActiveEngineBuild', () => {});
     const eng = await a.call('createEngine');
-    assert.equal(eng.buildKey, preferred === 'nnue' ? 'sf19lite' : 'nnue');
+    assert.equal(eng.buildKey, preferred === 'nnue' ? 'sf19full' : 'nnue');
     assert.equal(engines[0].dead, true);
     assert.equal(paths.length, 2);
     assert.notEqual(paths[0], paths[1]);

@@ -71,3 +71,42 @@ test('arrow settings remain attributes and cannot inject SVG markup', t => {
   assert.equal(node.querySelectorAll('polygon').length, 1);
   assert.equal(node.getAttribute('opacity'), a.state.settings.arrowOpacity);
 });
+
+test('renderBestArrow renders multiple candidate move arrows when engineLines > 1', t => {
+  const a = board(t);
+  a.state.settings.bestArrow = true;
+  a.state.settings.engineLines = 4;
+  a.state.analysisMode = true;
+  a.state.variation = {
+    branchIdx: 0,
+    positions: [{ fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', best: {
+      lines: [
+        { pv: 'e2e4 e7e5' },
+        { pv: 'd2d4 d7d5' },
+        { pv: 'c2c4 e7e6' },
+        { pv: 'g1f3 d7d5' }
+      ]
+    }}],
+    idx: 0
+  };
+
+  a.call('renderBestArrow');
+  const svg = a.dom.window.document.querySelector('.board svg.best-arrow');
+  assert.ok(svg);
+  const groups = svg.querySelectorAll('g');
+  assert.equal(groups.length, 4);
+
+  // SVG elements rendered in reverse rank order (4, 3, 2, 1) so Rank 1 (green) stays on top
+  const topRankNode = groups[3]; // Last element in DOM is on top
+  assert.equal(topRankNode.getAttribute('fill'), '#85ae4a');
+
+  const rank4Node = groups[0];
+  assert.equal(rank4Node.getAttribute('fill'), '#5a8bef');
+
+  const rank1Polyline = topRankNode.querySelector('polyline');
+  const rank4Polyline = rank4Node.querySelector('polyline');
+  const rank1Width = parseFloat(rank1Polyline.getAttribute('stroke-width'));
+  const rank4Width = parseFloat(rank4Polyline.getAttribute('stroke-width'));
+
+  assert.ok(rank1Width > rank4Width);
+});
