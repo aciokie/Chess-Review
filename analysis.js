@@ -974,44 +974,111 @@ function getAttackersDefenders(chess, color, to) {
     defenders: { squares: legalDefenders, pieces: legalDefenders.map((d) => chess.get(d)), length: legalDefenders.length },
   };
 }
-// Could the piece on `square` have stayed safe in this (pre-move) position? Either it wasn't
-// attacked and another move existed (so giving it up was a choice), or it had a flight square.
-function couldBeSaved(chess, square, color) {
-  if (!chess.attackers(square, color).length) {
-    for (const m of chess.moves({ verbose: true })) if (m.from !== square) return true;
-  } else {
-    for (const m of chess.moves({ verbose: true, square })) {
-      if (!new Chess(m.after).attackers(m.to, color).length) return true;
-    }
+// Material gain available to the side to move through captures on one square. Enumerating legal
+// moves handles pins, king safety, x-rays and promotion recaptures. This is bounded local exchange
+// evidence, not a tactical engine: checks/intermediate moves elsewhere belong to the engine eval.
+// A side can stop exchanging only when a legal move outside this capture sequence exists.
+function exchangeGain(chess, square, budget) {
+  const memo = budget.memo || (budget.memo = new Map());
+  const key = chess.fen().split(" ").slice(0, 4).join(" ") + ":" + square;
+  if (memo.has(key)) return memo.get(key);
+  if (++budget.nodes > budget.maxNodes) return null;
+  if (!chess.get(square) || !chess.attackers(square, chess.turn()).length) { memo.set(key, 0); return 0; }
+  const legal = chess.moves({ verbose: true });
+  const captures = legal.filter(m => m.to === square && m.captured);
+  if (!captures.length) { memo.set(key, 0); return 0; }
+  let best = legal.length > captures.length ? 0 : -Infinity;
+  for (const m of captures) {
+    const reply = exchangeGain(new Chess(m.after), square, budget);
+    if (reply == null) return null;
+    const promotion = m.promotion ? SAC_VAL[m.promotion] - SAC_VAL.p : 0;
+    best = Math.max(best, SAC_VAL[m.captured] + promotion - reply);
+  }
+  memo.set(key, best);
+  return best;
+}
+
+// An attacked piece is voluntary only if some legal move could avoid its material loss. This
+// includes moving it, removing the attacker, adding a defender, or an equal-value exchange.
+function couldBeSaved(chess, square, color, budget = { nodes: 0, maxNodes: 128 }) {
+  const piece = chess.get(square);
+  if (!piece || piece.color !== color) return false;
+  const legal = chess.moves({ verbose: true });
+  if (!chess.attackers(square, _opp(color)).length && legal.some(m => m.from !== square)) return true;
+  for (const m of legal.sort((a, b) => Number(a.from !== square) - Number(b.from !== square))) {
+    const after = new Chess(m.after), to = m.from === square ? m.to : square;
+    if (after.get(to)?.color !== color) continue;
+    const gain = exchangeGain(after, to, budget);
+    if (gain == null) return false;
+    if (gain <= (SAC_VAL[m.captured] || 0)) return true;
   }
   return false;
 }
-// True if the move voluntarily gives up material — a genuine sacrifice, not a trade/recapture.
-// `move` = { before, after, color, captured, from }.
+
+// A voluntary offer of a non-pawn piece with a strictly positive local material cost. Material
+// captured by the played move is credited first, so equal/profitable trades do not count. A rook
+// for a minor and pawn can still count (one pawn net); there is no fitted sacrifice-size threshold.
+// The opponent need not accept the offer in the game. Budget exhaustion withholds the annotation.
 function isSacrifice(move) {
-  let chess, chessBefore;
-  try { chess = new Chess(move.after); chessBefore = new Chess(move.before); } catch { return false; }
-  const sacrificing = [];
-  for (const row of chess.board()) {
-    for (const sq of row) {
-      if (!sq || sq.type === "p" || sq.color !== move.color) continue;
-      const { attackers, defenders } = getAttackersDefenders(chess, move.color, sq.square);
-      if (!defenders.length && attackers.length && (!move.captured || move.captured === "p")) { sacrificing.push(sq); continue; }
-      if ((sq.type === "n" || sq.type === "b") && !move.captured && attackers.pieces.findIndex((p) => p?.type === "p") !== -1) { sacrificing.push(sq); continue; }
-      if (sq.type === "r" && attackers.length && (move.captured !== "r" && move.captured !== "q")
-        && !(attackers.length === 1 && (attackers.pieces[0]?.type === "q" || attackers.pieces[0]?.type === "r") && defenders.length)
-        && !(defenders.length && (move.captured === "n" || move.captured === "b"))) { sacrificing.push(sq); continue; }
-      if (sq.type === "q" && attackers.length && move.captured !== "q"
-        && !(attackers.length === 1 && attackers.pieces[0]?.type === "q" && defenders.length)
-        && !(attackers.length === 1 && attackers.pieces[0]?.type === "r" && move.captured === "r" && defenders.length)) { sacrificing.push(sq); continue; }
+  let after, before;
+  try { after = new Chess(move.after); before = new Chess(move.before); } catch { return false; }
+  if (before.turn() !== move.color || after.turn() !== _opp(move.color)) return false;
+  const budget = { nodes: 0, maxNodes: 128 };
+  const captured = (SAC_VAL[move.captured] || 0) + (move.promotion ? SAC_VAL[move.promotion] - SAC_VAL.p : 0);
+  let priorThreats = null;
+  const targets = after.board().flat().filter(p => p && p.color === move.color
+    && ["n", "b", "r", "q"].includes(p.type) && after.attackers(p.square, _opp(move.color)).length);
+  for (const piece of targets) {
+    const square = piece.square;
+    const same = before.get(square)?.color === piece.color && before.get(square)?.type === piece.type;
+    const source = same ? square : move.from;
+    if (before.get(source)?.color !== piece.color || before.get(source)?.type !== piece.type) continue;
+    const gain = exchangeGain(after, square, budget);
+    if (gain == null) return false;
+    if (gain <= captured) continue;
+    if (same) {
+      if (!priorThreats) {
+        const fields = before.fen().split(" "); fields[1] = _opp(move.color); fields[3] = "-";
+        priorThreats = new Chess(fields.join(" "));
+      }
+      const previousGain = exchangeGain(priorThreats, square, budget);
+      if (previousGain == null) return false;
+      if (gain - captured <= previousGain && !after.isCheck()) {
+        let earlier;
+        try { if (move.prior) earlier = new Chess(move.prior); } catch {}
+        if (!earlier || earlier.turn() !== _opp(move.color)
+          || earlier.get(square)?.color !== piece.color || earlier.get(square)?.type !== piece.type) continue;
+        const earlierGain = exchangeGain(earlier, square, budget);
+        if (earlierGain == null) return false;
+        if (previousGain <= earlierGain) continue;
+      }
     }
-  }
-  for (const sq of sacrificing) {
-    const same = chessBefore.get(sq.square)?.color === chess.get(sq.square)?.color && chessBefore.get(sq.square)?.type === chess.get(sq.square)?.type;
-    const beforeSquare = same ? sq.square : move.from;
-    if (couldBeSaved(chessBefore, beforeSquare, _opp(move.color))) return true;
+    if (couldBeSaved(before, source, move.color, budget)) return true;
   }
   return false;
+}
+
+const BRILLIANT_POLICY = { minAfterPawns: -0.5, clearlyWinningPawns: 5 };
+function brilliantEligible(i, mover, std, wpDrop, state) {
+  if (std[i] !== "excellent" || !Number.isFinite(wpDrop?.[i])) return false;
+  const root = state.bests[i - 1], topLine = root?.lines?.[0];
+  const afterLine = state.bests[i]?.lines?.[0];
+  if ([topLine, ...(state.annotationEvidence?.[i]?.paired ? [] : [afterLine])].some(l => l?.bound && l.bound !== "exact")) return false;
+  const after = _evalPawns(i, mover, state), before = _evalPawns(i - 1, mover, state);
+  const mateAfter = _mateFor(i, mover, state), mateBefore = _mateFor(i - 1, mover, state);
+  if (!Number.isFinite(after) || !Number.isFinite(before)
+    || (mateAfter != null ? mateAfter <= 0 : after < BRILLIANT_POLICY.minAfterPawns)) return false;
+  if (!(mateBefore > 0) && before < BRILLIANT_POLICY.clearlyWinningPawns) return true;
+  const p = state.positions[i], played = (p.from || "") + (p.to || "") + (p.promotion || "");
+  const topMove = (topLine?.pv || "").split(" ")[0];
+  if (!topMove || topMove !== root?.bestmove || topLine?.multipv !== 1 || !topLine.depth) return false;
+  const rank = topMove === played ? 2 : 1;
+  const line = root.lines.find(l => l.multipv === rank);
+  if (!line || line.bound !== "exact" || line.depth !== topLine.depth) return false;
+  const alternative = line.score;
+  if (!alternative) return false;
+  if (alternative.mate != null) return alternative.mate < 0;
+  return Number.isFinite(alternative.cp) && alternative.cp / 100 < BRILLIANT_POLICY.clearlyWinningPawns;
 }
 // --- Eval readouts (all from our white-relative S.evals[]) ---
 function _evalPawnsWhite(k, state = S) { const e = state.evals[k]; return e ? scoreToCp(e) / 100 : null; }
@@ -1068,13 +1135,11 @@ function classifyMove(i, mover, isTop, book, sac, std, loss, wpDrop, state = S) 
   const previousMiss = wasNotMateRel(0) && (previousPreviousMistake || pStd(1) === "blunder")
     && (pStd(0) === "blunder" || pStd(0) === "inacc") && (pLoss(0) != null && pLoss(1) != null && pLoss(0) <= pLoss(1) + MT);
 
-  // Brilliant — a sound sacrifice that punishes the opponent's slip.
-  const previousBrilliant = wasNotMateRel(0) && sac[i - 1] && pStd(0) === "excellent";
-  if (!previousBrilliant && notMateRel && std[i] === "excellent" && sac[i]
-    && (pStd(0) === "inacc" || pStd(0) === "blunder"
-      || (!(pStd(1) === "inacc" || pStd(1) === "blunder") && (pStd(2) === "inacc" || pStd(2) === "blunder")))) return "brilliant";
-  if (sac[i] && !mate(i - 1) && mate(i) && winningNow) return "brilliant";                                   // sac that starts a mate
-  if (sac[i] && mate(i - 1) && mate(i) && keepMating(i) && winningNow) return "brilliant";                   // sac that keeps the mate
+  // Material offer and engine quality are separate: board evidence alone cannot prove soundness.
+  // Do not reward delays of a known mate or moves that merely remain best in a decided position.
+  const beforeMate = _mateFor(i - 1, mover, state), afterMate = _mateFor(i, mover, state);
+  const soundMate = !(beforeMate > 0) || (afterMate > 0 && keepMating(i));
+  if (sac[i] && soundMate && brilliantEligible(i, mover, std, wpDrop, state)) return "brilliant";
 
   // Great — an only-good move that capitalises on the opponent's mistake/blunder.
   if (!previousMiss && wasNotMateRel(0) && notMateRel && std[i] === "excellent"
@@ -1168,7 +1233,8 @@ function _sacAt(i, state = S) {
   if (state._sacCache[i] !== undefined) return state._sacCache[i];
   const p = state.positions[i];
   let v = false;
-  if (p && !p.promotion) v = isSacrifice({ before: state.positions[i - 1].fen, after: p.fen, color: p.color, captured: p.captured, from: p.from });
+  if (p) v = isSacrifice({ before: state.positions[i - 1].fen, after: p.fen,
+    prior: state.positions[i - 2]?.fen, color: p.color, captured: p.captured, from: p.from, promotion: p.promotion });
   state._sacCache[i] = v;
   return v;
 }

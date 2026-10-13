@@ -88,3 +88,34 @@ test('original PGN IDs remain stable and distinct', t => {
   // Known ID produced by the released implementation.
   assert.equal(a.call('simpleHash',''),'45h');
 });
+
+test('stricter brilliant rules: bounded exchange analysis, soundness floor, and MultiPV gate', t => {
+  const a = app(t);
+
+  // 1. Equal trade is not a sacrifice
+  const tradePgn = '1. e4 e5 2. Nf3 Nc6 3. Nxe5 Nxe5';
+  const tradeS = loadGame(a, tradePgn, [{cp:0},{cp:0},{cp:0},{cp:0},{cp:0},{cp:0}]);
+  a.call('computeDerived');
+  assert.notEqual(tradeS.classif[6], 'brilliant');
+
+  // 2. Pure pawn move is not a sacrifice
+  const pawnPgn = '1. e4 e5';
+  const pawnS = loadGame(a, pawnPgn, [{cp:0},{cp:0}]);
+  a.call('computeDerived');
+  assert.notEqual(pawnS.classif[2], 'brilliant');
+
+  // 3. Unsound sacrifice (after score below -0.5 pawns / -50 cp) fails brilliantEligible
+  const unsoundPgn = '1. e4 e5 2. Qh5 Nc6 3. Qxf7+ Kxf7';
+  // Move 3: White plays Qxf7+ (loses queen for pawn -> -800 cp)
+  const unsoundS = loadGame(a, unsoundPgn, [{cp:0},{cp:0},{cp:0},{cp:0},{cp:0},{cp:-800}]);
+  a.call('computeDerived');
+  assert.notEqual(unsoundS.classif[5], 'brilliant');
+
+  // 4. Already winning position (>= +5 pawns / +500 cp) with MultiPV=1 does not grant Brilliant
+  // (requires MultiPV > 1 with runner-up line falling below +5 pawns)
+  const winningPgn = '1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. Bxf7+ Kxf7';
+  const winningS = loadGame(a, winningPgn, [{cp:600},{cp:600},{cp:600},{cp:600},{cp:600},{cp:600},{cp:600},{cp:600}]);
+  winningS.bests[6] = { bestmove: 'b2b3', lines: [{ multipv: 1, score: { cp: 600 }, depth: 16, pv: 'b2b3' }] };
+  a.call('computeDerived');
+  assert.notEqual(winningS.classif[7], 'brilliant');
+});

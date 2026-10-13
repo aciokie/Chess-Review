@@ -46,36 +46,21 @@ Special categories are decided first; anything not claimed by a rule below falls
 
 ## Brilliant
 
-A Brilliant move is a real, voluntary sacrifice that is also sound. It needs `sac[i]` (see the
-sacrifice test) **and** one of:
+A Brilliant move is a sound, voluntary piece sacrifice evaluated using strict board and engine evidence (`isSacrifice` and `brilliantEligible`). It requires:
 
-- **Punishing a slip.** The move is in the Excellent bucket, no mate score is involved, and the
-  opponent's previous move was an Inaccuracy or Blunder. A slip two or three plies back also counts
-  when the plies in between were clean. It is suppressed if the previous move was itself a Brilliant
-  sacrifice (`previousBrilliant`), so back-to-back sacrifices don't both get the label.
-- **Starting a mate.** There was no mate before, the move creates a forced mate, and the mover is winning.
-- **Keeping a mate.** A mate existed before and still does, it is not slowed, and the mover is winning.
+- **Sound material offer.** The move must be in the `excellent` win%-drop bucket. The resulting position score must meet a soundness floor of at least -0.5 pawns (or a winning mate).
+- **Sound mate maintenance.** If a winning mate existed before, the move must maintain or accelerate a winning mate (`soundMate`).
+- **Already-winning gate / Real alternative.** In undecided positions (< +5 pawns), the sound sacrifice qualifies. In clearly winning positions (>= +5 pawns or pre-existing winning mate), it requires MultiPV > 1 with the top alternative line falling below +5 pawns and not retaining a winning mate.
 
-Promotions are never treated as sacrifices.
+Promotions credit captured material and promotion gains before requiring a strictly positive net material cost; pure pawn offers never qualify.
 
 ### Sacrifice test (`isSacrifice`)
 
-The board after the move is inspected for mover pieces (never pawns) that can be captured.
-A piece counts as sacrificed when:
+Sacrifices are evaluated via bounded legal exchange analysis (`exchangeGain`, capped at 128 nodes per candidate square) on non-pawn pieces:
 
-- It has no legal defenders, it is attacked, and the move itself did not capture a piece larger than a pawn.
-- It is a knight or bishop, the move captured nothing, and a pawn attacks it.
-- It is a rook that is attacked, unless the move captured a rook or queen, or the only attacker is a
-  queen or rook and the rook is defended, or the move captured a minor piece and the rook is defended.
-- It is a queen that is attacked, unless the move captured a queen, or the only attacker is a queen
-  (or a rook, when the move captured a rook) and the queen is defended.
-
-Attackers and defenders are legal ones, and defenders are counted after a hypothetical capture so x-ray
-recaptures are seen. Finally, the piece must have been **savable** in the position before the move
-(`couldBeSaved`): it was unattacked and some other move existed, or it had a safe flight square. This is
-what separates a sacrifice from a forced loss.
-
-An equal trade is therefore never Brilliant.
+- **Net material cost.** The local exchange gain on the attacked square must strictly exceed any material captured or gained via promotion on the played move. Equal or profitable trades do not qualify.
+- **Move attribution.** For unmoved hanging pieces, exchange gains before and after are compared (or prior threats / tempo sacrifices evaluated) to ensure the offer was created or increased by the move itself.
+- **Real choice (`couldBeSaved`).** The piece must have had a legal alternative move that avoided the material loss (moving, defending, attacking, or equal trading). Forced sole legal moves remain Best.
 
 ## Great
 
@@ -114,22 +99,11 @@ Miss is contextual: the opponent's earlier error is not charged to the mover.
 - Accuracy and the rating estimate are computed from the win%-based method, not from these labels
   (see `computeDerived`). The displayed accuracy is derived from categories; the Elo estimate is not.
 
-## How this differs from upstream
+## Stricter Brilliant Policy Alignment
 
-The upstream project (T-Julsgaard/Chess-Review) documents a stricter Brilliant policy in
-`tools/calibration/BRILLIANT_MOVES.md`. In summary it requires:
-
-- A bounded legal exchange analysis on one square (cap of 128 positions per candidate), with the net
-  material cost strictly positive. This fork uses the attacker/defender heuristic above instead.
-- The offer must be attributable to the move itself, not to unrelated hanging material.
-- A real alternative: a forced sole legal move stays Best, and pure pawn offers never qualify.
-- A soundness floor of about -0.5 pawns (or a winning mate) after the move.
-- A competitive-relevance gate: at +5 pawns or better, the best alternative must be below +5.
-  This needs MultiPV above 1; with MultiPV=1 the move keeps its ordinary category.
-- Exact, same-depth root scores, with bounded or incomplete lines withholding the label.
-- No requirement that the opponent erred on the previous move.
-
-Upstream's Great also gates on a runner-up gap, and its grading code is in `move-grades.js`. This fork
-does not have that file. This fork's rules derive from Brilliant-Chess (MIT, see `THIRD_PARTY_NOTICES.md`),
-which is why the two policies differ. Moving to the upstream policy would change which moves are labelled
-and would need its own tests. It is not part of this document.
+This fork aligns with the stricter Brilliant policy:
+- Uses bounded exchange analysis (`exchangeGain` with 128-node cap) to confirm strictly positive material loss.
+- Requires attribution to the move itself for unmoved pieces.
+- Enforces a soundness floor of -0.5 pawns or winning mate.
+- Gates already-winning positions (>= +5 pawns) by checking that the MultiPV > 1 runner-up line drops below +5 pawns.
+- Does not require a preceding opponent error.
