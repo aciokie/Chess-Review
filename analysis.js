@@ -1942,15 +1942,33 @@ function renderBestArrow() {
   // arrow isn't shown on the mainline for any of those classifications.
   const cls = (!S.analysisMode && S.idx > 0) ? S.classif[S.idx] : null;
   if (cls === "best" || cls === "great" || cls === "brilliant" || cls === "book") { if (svg) svg.remove(); return; }
-  // On the mainline: the best move in the position BEFORE the current one (the alternative to
-  // the played move). In analysis mode: the current position's best move (live). See activeBest().
+
+  if (!S.settings.bestArrow) { if (svg) svg.remove(); return; }
+
   const best = activeBest();
-  const uci = S.settings.bestArrow && best ? best.bestmove : null;
-  if (!uci || uci.length < 4) { if (svg) svg.remove(); return; }
-  const a = arrowXY(uci.slice(0, 2)), b = arrowXY(uci.slice(2, 4));
-  const headLen = S.settings.arrowHead;
-  const headHalf = headLen * 0.70;                     // full head width ≈ 1.4× the length
-  const { shaft, head } = arrowBuild(arrowWaypoints(a, b), headLen, headHalf);
+  if (!best) { if (svg) svg.remove(); return; }
+
+  const maxLines = Math.max(1, S.settings.engineLines || 1);
+  const rawMoves = [];
+  if (best.lines && best.lines.length) {
+    for (const l of best.lines) {
+      const mv = (l.pv || "").split(/\s+/)[0];
+      if (mv && mv.length >= 4) rawMoves.push(mv);
+    }
+  } else if (best.bestmove && best.bestmove.length >= 4) {
+    rawMoves.push(best.bestmove);
+  }
+
+  const moves = [];
+  for (const m of rawMoves) {
+    if (!moves.includes(m)) {
+      moves.push(m);
+      if (moves.length >= maxLines) break;
+    }
+  }
+
+  if (!moves.length) { if (svg) svg.remove(); return; }
+
   if (!svg) {
     svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "best-arrow");
@@ -1958,23 +1976,42 @@ function renderBestArrow() {
     svg.setAttribute("preserveAspectRatio", "none");
     board.append(svg);
   }
-  // Group opacity flattens shaft+head together BEFORE fading — no double-alpha seam.
-  const arrowColor = /^#[0-9a-f]{6}$/i.test(S.settings.bestArrowColor || "")
+
+  const bestColor = /^#[0-9a-f]{6}$/i.test(S.settings.bestArrowColor || "")
     ? S.settings.bestArrowColor : ARROW_COLOR;
-  svg.replaceChildren(arrowNode(shaft, head, arrowColor));
+  const candidateColor = "#5a8bef";
+
+  const arrowNodes = [];
+  // Render lower ranks first so Rank 1 (best move) is rendered last and stays on top in SVG
+  for (let i = moves.length - 1; i >= 0; i--) {
+    const uci = moves[i];
+    const rank = i + 1;
+    const color = rank === 1 ? bestColor : candidateColor;
+    const scale = rank === 1 ? 1.0 : Math.max(0.4, 1.0 - (rank - 1) * 0.16);
+
+    const a = arrowXY(uci.slice(0, 2)), b = arrowXY(uci.slice(2, 4));
+    const headLen = S.settings.arrowHead * scale;
+    const headHalf = headLen * 0.70;
+    const shaftWidth = S.settings.arrowShaft * scale;
+
+    const { shaft, head } = arrowBuild(arrowWaypoints(a, b), headLen, headHalf);
+    arrowNodes.push(arrowNode(shaft, head, color, shaftWidth));
+  }
+
+  svg.replaceChildren(...arrowNodes);
 }
 
 // Keep saved arrow settings in attributes, never interpolate them into markup.
-function arrowNode(shaft, head, color) {
+function arrowNode(shaft, head, color, shaftWidth = S.settings.arrowShaft, opacity = S.settings.arrowOpacity) {
   const node = (tag, attrs) => {
     const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
     for (const [key, value] of Object.entries(attrs)) n.setAttribute(key, String(value));
     return n;
   };
-  const group = node("g", { fill: color, opacity: S.settings.arrowOpacity });
+  const group = node("g", { fill: color, opacity });
   group.append(
     node("polyline", { points: shaft.map(arrowFmt).join(" "), fill: "none", stroke: color,
-      "stroke-width": S.settings.arrowShaft, "stroke-linejoin": "round", "stroke-linecap": "butt" }),
+      "stroke-width": shaftWidth, "stroke-linejoin": "round", "stroke-linecap": "butt" }),
     node("polygon", { points: head.map(arrowFmt).join(" "), stroke: "none" }),
   );
   return group;
