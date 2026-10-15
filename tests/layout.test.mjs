@@ -63,7 +63,8 @@ test('Stockfish 18 NNUE is selected by default and listed first', t => {
   const buttons=[...a.dom.window.document.querySelectorAll('#settings .set-seg button')];
   const first=buttons.findIndex(b=>b.textContent==='Stockfish 18 NNUE');
   assert.ok(first>=0); assert.equal(buttons[first].classList.contains('on'),true);
-  assert.equal(buttons[first+1].textContent,'Stockfish 19 Lite');
+  assert.equal(buttons[first+1].textContent,'Stockfish 19 Full');
+  assert.equal(buttons[first+2].textContent,'Stockfish 19 Lite');
 });
 
 test('Honeywood is the default board theme', t => {

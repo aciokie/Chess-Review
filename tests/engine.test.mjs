@@ -84,5 +84,5 @@ test('Stockfish 19 Lite fails cleanly if its startup is silent',async t=>{
   t.mock.timers.enable({apis:['setTimeout']});
   const eng=engine(t,{path:'engine/stockfish-19-lite-single.js',noReady:true});
   const failed=assert.rejects(eng.setOptions(),/timed out/);
-  t.mock.timers.tick(10001);await failed;assert.equal(eng.dead,true);
+  t.mock.timers.tick(60001);await failed;assert.equal(eng.dead,true);
 });

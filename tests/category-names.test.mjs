@@ -77,7 +77,7 @@ test('renaming refreshes badge labels, tooltips, and cached move commentary', t 
 test('aliases remain plain text and do not recurse through coach names or tokens', t => {
   const a = review(t);
   a.state.settings.categoryNames = { brilliant: 'Blunder', blunder: '<b>{move}</b>' };
-  assert.equal(a.call('coachFill', 'Masterstroke! Blunder. {label}', { label: 'Blunder' }), 'Blunder! <b>{move}</b>. Blunder');
+  assert.equal(a.call('coachFill', 'Brilliant! Blunder. {label}', { label: 'Blunder' }), 'Blunder! <b>{move}</b>. Blunder');
   a.call('renderStats');
   const label = a.dom.window.document.querySelector('[data-category="blunder"] .nm');
   assert.equal(label.textContent, '<b>{move}</b>');

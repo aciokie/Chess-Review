@@ -2825,16 +2825,16 @@ function renderControls() {
 
 // Natural phrasing for the move that led to the current position, keyed by classification.
 const COMMENT_PHRASE = {
-  brilliant: (m) => `${m} is a masterstroke.`,
-  great:     (m) => `${m} is a superb move.`,
-  best:      (m) => `${m} is the best move.`,
-  excellent: (m) => `${m} is near best.`,
-  good:      (m) => `${m} is a decent move.`,
-  book:      (m) => `${m} follows opening theory.`,
-  inacc:     (m) => `${m} is a minor misstep.`,
-  mistake:   (m) => `${m} is a major misstep.`,
-  miss:      (m) => `${m} is a missed chance.`,
-  blunder:   (m) => `${m} is a blunder.`,
+  brilliant: (m) => `${m} is ${categoryName("brilliant")}.`,
+  great:     (m) => `${m} is a ${categoryName("great").toLowerCase()} move.`,
+  best:      (m) => `${m} is the ${categoryName("best").toLowerCase()} move.`,
+  excellent: (m) => `${m} is ${categoryName("excellent").toLowerCase()}.`,
+  good:      (m) => `${m} is a ${categoryName("good").toLowerCase()} move.`,
+  book:      (m) => `${m} follows ${categoryName("book").toLowerCase()} theory.`,
+  inacc:     (m) => `${m} is an ${categoryName("inacc").toLowerCase()}.`,
+  mistake:   (m) => `${m} is a ${categoryName("mistake").toLowerCase()}.`,
+  miss:      (m) => `${m} is a ${categoryName("miss").toLowerCase()}.`,
+  blunder:   (m) => `${m} is a ${categoryName("blunder").toLowerCase()}.`,
 };
 // SAN of the engine's best move in the position BEFORE ply `idx` (the alternative to what was played).
 function bestSanBefore(idx) {
