@@ -1955,9 +1955,10 @@ function renderBestArrow() {
       const mv = (l.pv || "").split(/\s+/)[0];
       if (mv && mv.length >= 4) rawMoves.push(mv);
     }
-  } else if (best.bestmove && best.bestmove.length >= 4) {
-    rawMoves.push(best.bestmove);
   }
+  // Lines can be present but pv-less (older saved games, terminal-adjacent results); the single
+  // best move was always drawn before multi-PV arrows, so keep it as the fallback.
+  if (!rawMoves.length && best.bestmove && best.bestmove.length >= 4) rawMoves.push(best.bestmove);
 
   const moves = [];
   for (const m of rawMoves) {

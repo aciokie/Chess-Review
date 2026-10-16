@@ -17,14 +17,17 @@ const RESERVED = /^(training|analysis|practice|streamer|tournament|broadcast)$/i
 // /CZmytj0X, /CZmytj0X/black, /CZmytj0X/black/analysis, /CZmytj0XNUnq (live).
 function firstPathId() {
   const seg = location.pathname.replace(/^\/+/, "").split("/")[0] || "";
-  if (/^[A-Za-z0-9]{8,12}$/.test(seg) && !RESERVED.test(seg)) return seg.slice(0, 8);
+  // Exactly 8 chars, or 12 (8 + 4-char player token) — never 9–11, which are route names.
+  if (/^(?:[A-Za-z0-9]{8}|[A-Za-z0-9]{12})$/.test(seg) && !RESERVED.test(seg)) return seg.slice(0, 8);
   return null;
 }
 function detectGameId() {
   // 1) og:url is the most reliable on a game/analysis page: https://lichess.org/<id8>/<color>
   const og = document.querySelector('meta[property="og:url"]')?.getAttribute("content");
   const m = og && og.match(/lichess\.org\/([A-Za-z0-9]{8})\b/);
-  if (m) return m[1];
+  // og:url is also set on non-game pages (https://lichess.org/analysis, /training …), so an 8-letter
+  // route word must not be mistaken for a game id — it would become a shared cache key for every page.
+  if (m && !RESERVED.test(m[1])) return m[1];
   // 2) Otherwise only treat the URL as a game when a board is actually present (round/analysis view).
   if (document.querySelector(".round__app, main.round, main.analyse, .analyse__board, cg-container")) {
     const id = firstPathId();

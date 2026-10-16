@@ -9,7 +9,9 @@ import { browserAPI } from "../browser-compat.js";
   // change), the worker never replies — without this cap _ready would hang forever and every
   // analysis would silently stall. On timeout the handshake REJECTS, which lets the caller
   // fall back to the next build (see createEngine() in analysis.js).
-const HANDSHAKE_TIMEOUT_MS = 60000;
+const HANDSHAKE_TIMEOUT_MS = 10000;
+// The full Stockfish 19 build ships a ~99 MB wasm, which needs longer to load and compile.
+const LARGE_BUILD_HANDSHAKE_TIMEOUT_MS = 60000;
 // A silent worker must not leave review or Explore waiting forever. Reset on engine output
 // so a deep search that is still reporting progress is allowed to continue.
 const SEARCH_SILENCE_TIMEOUT_MS = 120000;
@@ -104,7 +106,7 @@ export class Engine {
       this._onFail = reject;
       this._handshakeTimer = setTimeout(
         () => this._failHandshake(new Error(`engine handshake timed out (${this.scriptPath})`)),
-        HANDSHAKE_TIMEOUT_MS,
+        /stockfish-19-single\.js$/.test(this.scriptPath) ? LARGE_BUILD_HANDSHAKE_TIMEOUT_MS : HANDSHAKE_TIMEOUT_MS,
       );
       this._send("uci");
     });
@@ -136,7 +138,12 @@ export class Engine {
         const mpv = parseInt((line.match(/ multipv (\d+)/) || [])[1] || "1", 10);
         const pvMatch = line.match(/ pv (.+)$/);
         const pv = pvMatch ? pvMatch[1].trim() : "";
-        this.current.lines[mpv] = { score, pv };
+        // depth/bound/multipv are consumed by the Brilliant gate (brilliantEligible in analysis.js),
+        // which compares the runner-up line against the top line at the same depth and requires
+        // exact (non-bound) scores. A bound is only reported when the engine says so.
+        const depth = parseInt((line.match(/ depth (\d+)/) || [])[1] || "0", 10);
+        const bound = (line.match(/\b(lowerbound|upperbound)\b/) || [])[1] || "exact";
+        this.current.lines[mpv] = { score, pv, depth, bound, multipv: mpv };
         if (mpv === 1) {
           this.current.lastScore = score;
           if (pv) this.current.lastPv = pv;
@@ -193,7 +200,7 @@ export class Engine {
 
   /**
    * Analyze one position.
-   * Returns { bestmove, score:{cp|mate}, pv, lines:[{score,pv}] }.
+   * Returns { bestmove, score:{cp|mate}, pv, lines:[{score,pv,depth,bound,multipv}] }.
    * lines are sorted best→worst (multipv 1..n), seen from the side to move.
    * `history` ({ initialFen, moves }) reproduces the game to this position so Stockfish detects
    * repetitions; pass it whenever the caller knows the moves, omit it for a bare FEN search.

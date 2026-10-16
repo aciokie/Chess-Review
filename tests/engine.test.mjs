@@ -86,3 +86,25 @@ test('Stockfish 19 Lite fails cleanly if its startup is silent',async t=>{
   const failed=assert.rejects(eng.setOptions(),/timed out/);
   t.mock.timers.tick(10001);await failed;assert.equal(eng.dead,true);
 });
+
+test('the large Stockfish 19 build gets a longer startup window than small builds',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const eng=engine(t,{path:'engine/stockfish-19-single.js',noReady:true});
+  const pending=eng.setOptions().then(()=>'ready',e=>e.message);
+  t.mock.timers.tick(10001);await Promise.resolve();
+  assert.equal(eng.dead,false);
+  t.mock.timers.tick(50000);
+  assert.match(await pending,/timed out/);assert.equal(eng.dead,true);
+});
+
+test('every line reports depth, bound and multipv for the Brilliant gate',async t=>{
+  const eng=engine(t);
+  const result=eng.analyse('fen',4,2);
+  await Promise.resolve();
+  eng.worker.line('info depth 4 seldepth 6 multipv 1 score cp 120 pv e2e4 e7e5');
+  eng.worker.line('info depth 4 seldepth 6 multipv 2 score cp 30 upperbound pv d2d4');
+  eng.worker.line('bestmove e2e4');
+  const {lines}=await result;
+  assert.deepEqual(lines.map(l=>[l.multipv,l.depth,l.bound,l.pv.split(' ')[0]]),
+    [[1,4,'exact','e2e4'],[2,4,'upperbound','d2d4']]);
+});

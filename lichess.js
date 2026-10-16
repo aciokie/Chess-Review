@@ -28,7 +28,8 @@ export function parseLichessGameId(urlOrPath) {
   }
   const seg = path.replace(/^\/+/, "").split(/[/?#]/)[0] || "";
   // Game ids are 8 chars; URLs sometimes append the 4-char player token (12 total).
-  if (!/^[A-Za-z0-9]{8,12}$/.test(seg)) return null;
+  // Exactly 8 chars, or 12 with the player token — 9–11 char segments are route names, not games.
+  if (!/^(?:[A-Za-z0-9]{8}|[A-Za-z0-9]{12})$/.test(seg)) return null;
   if (RESERVED.test(seg)) return null;
   return { id: seg.slice(0, 8) };
 }
