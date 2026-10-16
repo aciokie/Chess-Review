@@ -1,0 +1,28 @@
+{
+  "puzzles": [
+    {
+      "id": "p0001",
+      "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "moves": ["f3g5", "d7d5", "e4d5"],
+      "rating": 1200,
+      "theme": "fork",
+      "difficulty": "easy"
+    },
+    {
+      "id": "p0002",
+      "fen": "r1b1k2r/ppppqppp/2n5/4P3/2B5/2P2N2/P4PPP/R2QK2R b KQkq - 0 9",
+      "moves": ["c6e5", "f3e5", "e7e5"],
+      "rating": 1500,
+      "theme": "pin",
+      "difficulty": "medium"
+    },
+    {
+      "id": "p0003",
+      "fen": "2r2rk1/pp1b1ppp/1q2p3/3pP3/1b1P4/1P1B4/P2N1PPP/2RQ1RK1 w - - 0 15",
+      "moves": ["d3h7", "g8h7", "d1h5"],
+      "rating": 1800,
+      "theme": "sacrifice",
+      "difficulty": "hard"
+    }
+  ]
+}

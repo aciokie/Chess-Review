@@ -250,6 +250,8 @@ const DEFAULT_SETTINGS = {
   moveAnim: true, animSpeed: 7,
   // Loading animation while the analysis runs (selectable style).
   loaderStyle: "wave",
+  showConceptsPanel: false,
+  learningLayout: "morph_in_place",
   // Engine panel: how many candidate lines to show. The batch only searches the single best line
   // (all the classification logic needs); extra lines are searched on demand for the position you're
   // viewing, so changing this never re-analyzes — it just refreshes the panel.
@@ -882,6 +884,50 @@ function powerMean(vals, wts, p, floor = 0) {
   return sw > 0 ? Math.pow(s / sw, 1 / p) : 0;
 }
 // Return { w, b } game accuracy (0–100) or null per side.
+function plyGamePhase(i, state = S) {
+  if (i < 1 || !state.positions[i]) return "opening";
+  const fen = state.positions[i].fen;
+  const majorMinorCount = _countMatch(fen, /[QRBNqrbn]/g);
+  if (majorMinorCount <= 6) return "endgame";
+  if (i <= 20) return "opening";
+  return "middlegame";
+}
+
+function phaseAccuracies(state = S) {
+  const N = state.total;
+  const phases = { opening: { w: [], b: [] }, middlegame: { w: [], b: [] }, endgame: { w: [], b: [] } };
+  for (let i = 1; i <= N; i++) {
+    const p = state.positions[i];
+    if (!p) continue;
+    const side = p.color;
+    const phase = plyGamePhase(i, state);
+    const cls = state.classif[i];
+    let score = null;
+    if (CALIB?.display === "winpct" && state.accMove[i] != null) {
+      score = calAccBias(state.accMove[i], state.players[side]?.rating);
+    } else if (cls) {
+      score = catAcc(cls);
+    }
+    if (score != null) {
+      phases[phase][side].push(score);
+    }
+  }
+  const result = {
+    opening: { w: null, b: null },
+    middlegame: { w: null, b: null },
+    endgame: { w: null, b: null },
+  };
+  for (const ph of ["opening", "middlegame", "endgame"]) {
+    for (const s of ["w", "b"]) {
+      const arr = phases[ph][s];
+      if (arr.length > 0) {
+        result[ph][s] = arr.reduce((a, b) => a + b, 0) / arr.length;
+      }
+    }
+  }
+  return result;
+}
+
 function sideAccuracies() {
   const N = S.total;
   // White-relative win% per ply (carry-forward if an eval is still missing during analysis).
@@ -1424,7 +1470,9 @@ function buildUI() {
   const boardWrap = el("div", { class: "board-wrap", id: "boardWrap" });
   const playerTop = el("div", { id: "playerTop" });
   const playerBot = el("div", { id: "playerBot" });
-  const controls = el("div", { class: "controls", id: "controls" });
+  const controls = el("div", { class: "controls", id: "controls" },
+    el("button", { class: "ctrl-btn learn-btn", title: "Learn with Chess Review", onclick: openLearnWorkspace }, "Learn Workspace")
+  );
 
   // moves panel skeleton (head + scroll body + foot)
   const movesBody = el("div", { class: "panel-body", id: "movesBody" });
@@ -1435,6 +1483,7 @@ function buildUI() {
     movesBody, movesFoot,
   );
 
+  const conceptsMount = el("div", { id: "conceptsMount", class: "concepts-mount" });
   const coachMount = el("div", { id: "coachMount", class: "coach-mount" });
   const evalbarMount = el("div", { id: "evalbarMount", class: "evalbar-mount" });
   const reviewMount = el("div", { id: "reviewMount" });
@@ -1452,7 +1501,7 @@ function buildUI() {
       makeMod("review", reviewMount),
       el("div", { class: "side-cols" },
         el("div", { class: "side-a" }, makeMod("moves", movesPanel), makeMod("graph", graphMount), makeMod("controls", controls)),
-        el("div", { class: "side-b" }, makeMod("accuracy", statsMount), makeMod("engine", engineMount)),
+        el("div", { class: "side-b" }, makeMod("accuracy", statsMount), makeMod("engine", engineMount), makeMod("concepts", conceptsMount)),
       ),
       makeMod("coach", coachMount),
     ),
@@ -1545,6 +1594,11 @@ function applyLayoutMode() {
   const custom = isCustomLayout();
   UI.canvas.classList.toggle("auto", !custom);
   UI.canvas.classList.toggle("canvas", custom);
+  // Learning layouts (U3)
+  const lLayout = S.settings.learningLayout || "morph_in_place";
+  UI.canvas.classList.remove("layout-morph-in-place", "layout-studio-morph", "layout-minimal-morph", "layout-board-morph", "layout-separate-page");
+  UI.canvas.classList.add(`layout-${lLayout.replace(/_/g, "-")}`);
+
   if (custom) UI.canvas.classList.remove("desktop-layout");
   applyLayout(); growCanvas();
 }
@@ -3211,10 +3265,12 @@ function coachMoveSentence(idx) {
   const tok = coachTokens(idx, ev.n != null ? { n: String(ev.n) } : null);
   let line = coachLine(ev.section, ev.key, tok);
   if (line == null) {  // graceful fallback inside the bank
-    line = (cls && coachLine("move_quality", cls, tok)) || coachLine("move_fallback", null, tok) || fastComment;
+    let cls = S.classif[idx]; if (cls === "inacc") cls = "inaccuracy";
+    line = (cls && coachLine("move_quality", cls, tok)) || coachLine("move_fallback", null, tok);
   }
-  if (line == null) return fastComment;
+  if (line == null) return null;
   // weak-move suffix, same rule as the legacy line (good / inacc / mistake / miss / blunder)
+  let cls = S.classif[idx]; if (cls === "inacc") cls = "inaccuracy";
   if (ev.section === "move_quality" && ["good", "inaccuracy", "mistake", "miss", "blunder"].includes(ev.key)) {
     const bs = bestSanBefore(idx);
     if (bs && bs !== (S.positions[idx].san || "")) { const suf = coachLine("weak_move_suffix", null, tok); if (suf && (line + "  " + suf).length <= COACH_MAX_LEN) line += "  " + suf; }
@@ -3568,6 +3624,22 @@ function renderStats() {
     "aria-expanded": S.qbreakExpanded ? "true" : "false",
     onclick: () => { S.qbreakExpanded = !S.qbreakExpanded; renderStats(); reflowAccuracy(S.qbreakExpanded); },
   }, icon("chevron"));
+  const phases = phaseAccuracies();
+  const phaseRows = [
+    { key: "opening", label: "Opening" },
+    { key: "middlegame", label: "Middlegame" },
+    { key: "endgame", label: "Endgame" }
+  ].map(({ key, label }) => {
+    const meP = phases[key][S.meSide];
+    const opP = phases[key][opSide];
+    return el("div", { class: "phase-row" },
+      el("span", { class: "ct left " + (meP != null ? "" : "zero") }, meP != null ? meP.toFixed(1) + "%" : "—"),
+      el("span", { class: "phase-lbl" }, label),
+      el("span", { class: "ct " + (opP != null ? "" : "zero") }, opP != null ? opP.toFixed(1) + "%" : "—")
+    );
+  });
+  const phaseBreak = el("div", { class: "phase-break" }, ...phaseRows);
+
   const qbreak = el("div", { class: "qbreak" }, ...qrows, expander);
 
   UI.stats.replaceChildren(el("div", { class: "panel" },
@@ -3593,6 +3665,7 @@ function renderStats() {
           el("span", { class: "acc-bar" }, el("i", { style: { width: (S.analyzing ? 0 : (opAcc || 0)) + "%", background: "var(--ink-3)", marginLeft: (100 - (S.analyzing ? 100 : (opAcc || 0))) + "%" } })),
           el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", ELO_INFO), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (estimateElo(opEloAcc, opRating) ?? "—") + " elo")),
       ),
+      phaseBreak,
       qbreak,
     ),
   ));
@@ -4563,6 +4636,23 @@ function visualSettings() {
       slider("Speed", "animSpeed", 1, 10, 1, { fmt: (v) => (440 - v * 40) + " ms" }),
     ),
     section("Layout",
+      toggleRow("Concepts Panel", "showConceptsPanel", (key, val) => {
+        setSetting(key, val);
+        toggleConceptsWorker(val);
+      }, "Lists tactical and positional ideas for the selected move. Worker stops when off."),
+      el("div", { class: "set-row" },
+        setLabel("Learning Layout", "Switch between Morph in place, Studio Morph, Minimal morph, Board morph, and Separate page."),
+        ddField(S.settings.learningLayout || "morph_in_place", [
+          ["morph_in_place", "Morph in place"],
+          ["studio_morph", "Studio Morph"],
+          ["minimal_morph", "Minimal morph"],
+          ["board_morph", "Board morph"],
+          ["separate_page", "Separate page"]
+        ], (v) => {
+          setSetting("learningLayout", v);
+          applyLayoutMode();
+        })
+      ),
       seg("Eval", "evalView", ["both", "bar", "graph"]),
       seg("Bar", "barStyle", ["classic", "gradient", "mono", "accent"]),
       seg("Graph", "graphStyle", ["area", "line", "color", "minimal"]),
@@ -5893,6 +5983,172 @@ async function resetLegacyZoom() {
     if (Math.abs(z - (zs.defaultZoomFactor || 1)) > 0.005) await browserAPI.tabs.setZoom(tab.id, 0);
   } catch {}
 }
+/* ---------------- Concepts Panel Worker & UI (U4) ---------------- */
+let conceptWorker = null;
+let currentIdeas = [];
+
+function toggleConceptsWorker(enable) {
+  if (enable) {
+    if (!conceptWorker) {
+      try {
+        conceptWorker = new Worker("detector-worker.js");
+        conceptWorker.onmessage = (e) => {
+          if (e.data && e.data.type === "ideas") {
+            currentIdeas = e.data.ideas || [];
+            renderConceptsPanel();
+          }
+        };
+      } catch {
+        conceptWorker = null;
+      }
+    }
+    requestConceptDetection();
+  } else {
+    if (conceptWorker) {
+      conceptWorker.postMessage({ type: "stop" });
+      try { conceptWorker.terminate(); } catch {}
+      conceptWorker = null;
+    }
+    currentIdeas = [];
+    renderConceptsPanel();
+  }
+}
+
+function requestConceptDetection() {
+  if (!S.settings.showConceptsPanel || !conceptWorker) return;
+  const pos = activePos();
+  if (pos) {
+    conceptWorker.postMessage({ type: "detect", fen: pos.fen, san: pos.san });
+  }
+}
+
+function renderConceptsPanel() {
+  const mount = document.getElementById("conceptsMount");
+  if (!mount) return;
+  const mod = mount.closest(".mod");
+  if (mod) mod.hidden = !S.settings.showConceptsPanel;
+  if (!S.settings.showConceptsPanel) {
+    mount.replaceChildren();
+    return;
+  }
+
+  mount.replaceChildren(
+    el("div", { class: "panel" },
+      el("div", { class: "panel-head" }, el("h3", {}, "Concepts")),
+      el("div", { class: "panel-body concepts-body" },
+        currentIdeas.length === 0
+          ? el("div", { class: "engine-empty" }, "Analyzing concepts...")
+          : el("div", { class: "concepts-list" },
+              ...currentIdeas.map((idea) =>
+                el("div", { class: "concept-item" },
+                  el("div", { class: "concept-title" }, idea.name),
+                  el("div", { class: "concept-evidence" }, idea.evidence)
+                )
+              )
+            )
+      )
+    )
+  );
+}
+
+/* ---------------- Learn Workspace (U1) ---------------- */
+const LEARN_CONCEPTS = Array.from({ length: 23 }, (_, i) => ({
+  id: i + 1,
+  title: `Concept Lesson ${i + 1}`,
+  exercises: i % 2 === 0 ? 2 : 3,
+  description: `Master fundamental chess concept #${i + 1} with tactical and positional exercises.`
+}));
+
+const LEARN_OPENINGS = Array.from({ length: 12 }, (_, i) => ({
+  id: i + 1,
+  title: `Opening Course ${i + 1}`,
+  lines: 2,
+  description: `Annotated lines for Opening #${i + 1}.`
+}));
+
+function openLearnWorkspace() {
+  document.querySelector(".learn-overlay")?.remove();
+  const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+
+  let progress = { lessons: {}, openings: {}, challenges: {} };
+  try {
+    browserAPI.storage.local.get("learnProgress").then((data) => {
+      if (data && data.learnProgress) progress = data.learnProgress;
+    });
+  } catch {}
+
+  const card = el("div", { class: "learn-card", role: "dialog", "aria-label": "Learn with Chess Review" },
+    el("div", { class: "learn-head" },
+      el("h3", {}, "Learn with Chess Review"),
+      el("button", { class: "icon-btn", title: "Close", onclick: close }, icon("close"))
+    ),
+    el("div", { class: "learn-body" },
+      el("section", { class: "learn-section" },
+        el("h4", {}, "23 Concept Lessons (47 Exercises)"),
+        el("div", { class: "learn-grid" },
+          ...LEARN_CONCEPTS.map((c) =>
+            el("div", { class: "learn-item" },
+              el("div", { class: "learn-title" }, c.title),
+              el("div", { class: "learn-desc" }, `${c.exercises} exercises · ${c.description}`),
+              el("button", {
+                class: "learn-action-btn",
+                onclick: () => {
+                  progress.lessons[c.id] = (progress.lessons[c.id] || 0) + 1;
+                  browserAPI.storage.local.set({ learnProgress: progress });
+                  toast(`Saved progress for ${c.title}`);
+                }
+              }, "Start Lesson")
+            )
+          )
+        )
+      ),
+      el("section", { class: "learn-section" },
+        el("h4", {}, "12 Opening Courses (24 Annotated Lines)"),
+        el("div", { class: "learn-grid" },
+          ...LEARN_OPENINGS.map((o) =>
+            el("div", { class: "learn-item" },
+              el("div", { class: "learn-title" }, o.title),
+              el("div", { class: "learn-desc" }, `${o.lines} annotated lines · ${o.description}`),
+              el("button", {
+                class: "learn-action-btn",
+                onclick: () => {
+                  progress.openings[o.id] = true;
+                  browserAPI.storage.local.set({ learnProgress: progress });
+                  toast(`Completed line for ${o.title}`);
+                }
+              }, "Study Course")
+            )
+          )
+        )
+      ),
+      el("section", { class: "learn-section" },
+        el("h4", {}, "Timed Challenges"),
+        el("div", { class: "learn-grid" },
+          [1, 5, 10].map((mins) =>
+            el("div", { class: "learn-item" },
+              el("div", { class: "learn-title" }, `${mins}-Minute Challenge`),
+              el("div", { class: "learn-desc" }, `Solve as many puzzles as possible in ${mins} minute(s).`),
+              el("button", {
+                class: "learn-action-btn",
+                onclick: () => {
+                  progress.challenges[mins] = (progress.challenges[mins] || 0) + 1;
+                  browserAPI.storage.local.set({ learnProgress: progress });
+                  toast(`Started ${mins}-minute challenge!`);
+                }
+              }, "Start Challenge")
+            )
+          )
+        )
+      )
+    )
+  );
+
+  const overlay = el("div", { class: "learn-overlay", onclick: (e) => { if (e.target === overlay) close(); } }, card);
+  document.body.append(overlay);
+  document.addEventListener("keydown", onKey);
+}
+
 (async function main() {
   try {
     // Only the job + stored prefs are needed to build and show the UI. The opening book (~690 KB)
