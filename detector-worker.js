@@ -13,16 +13,19 @@ self.onmessage = function (e) {
 function detectIdeas(fen, san) {
   const ideas = [];
   if (san && san.includes("x")) {
-    ideas.push({ type: "tactical", name: "Material Capture", evidence: `Move ${san} captures material on the target square.` });
+    ideas.push({ type: "tactical", name: "Material Capture / Exchange", evidence: `Move ${san} removes enemy material from the target square.` });
   }
   if (san && san.includes("+")) {
-    ideas.push({ type: "tactical", name: "Check / King Attack", evidence: `Move ${san} delivers a direct check to the enemy king.` });
+    ideas.push({ type: "tactical", name: "Check / King Attack", evidence: `Move ${san} delivers a direct check against the king.` });
   }
-  if (san && (san.startsWith("N") || san.startsWith("B"))) {
-    ideas.push({ type: "positional", name: "Piece Development", evidence: `Move ${san} activates a minor piece into a stronger outpost.` });
+  if (san && (san.includes("N") || san.includes("B"))) {
+    ideas.push({ type: "positional", name: "Outpost / Minor Piece Activation", evidence: `Move ${san} improves minor piece scope and outpost presence.` });
+  }
+  if (san && (san.includes("R") || san.includes("Q"))) {
+    ideas.push({ type: "positional", name: "Open File & Heavy Piece Pressure", evidence: `Move ${san} exerts pressure along open corridors.` });
   }
   if (ideas.length === 0) {
-    ideas.push({ type: "positional", name: "Positional Consolidation", evidence: "Consolidates pawn structure and improves piece coordination." });
+    ideas.push({ type: "positional", name: "Positional Consolidation", evidence: "Solidifies pawn structure and harmonizes piece coordination." });
   }
   return ideas;
 }

@@ -10,7 +10,8 @@ test("analysis.js exports/includes game phase accuracy logic", () => {
   assert.ok(code.includes("Endgame"), "contains Endgame phase label");
 });
 
-test("phaseAccuracies calculates opening, middlegame, and endgame stats correctly", () => {
+test("phaseAccuracies calculates numerical phase accuracy correctly", () => {
   const code = readFileSync("analysis.js", "utf8");
   assert.ok(code.includes("plyGamePhase"), "contains plyGamePhase logic");
+  assert.ok(code.includes("hasQueens"), "contains queen presence criteria");
 });

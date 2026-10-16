@@ -1523,3 +1523,10 @@ button { font-family: inherit; cursor: pointer; }
 .lc-status.solved { color: var(--q-best); }
 .lc-status.unsolved { color: color-mix(in oklab, var(--q-blunder) 65%, var(--ink-3)); }
 @media (prefers-reduced-motion: reduce) { .lib-panel { transition: none; } }
+
+/* Learning Layout Modes (U3) */
+.stage.layout-morph-in-place { display: flex; flex-direction: column; gap: 12px; }
+.stage.layout-studio-morph { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+.stage.layout-minimal-morph { display: flex; flex-direction: column; align-items: center; max-width: 800px; margin: 0 auto; }
+.stage.layout-board-morph { display: grid; grid-template-columns: 1fr; gap: 8px; justify-items: center; }
+.stage.layout-separate-page { display: block; position: fixed; inset: 0; background: var(--panel); z-index: 999; overflow-y: auto; padding: 24px; }

@@ -887,9 +887,17 @@ function powerMean(vals, wts, p, floor = 0) {
 function plyGamePhase(i, state = S) {
   if (i < 1 || !state.positions[i]) return "opening";
   const fen = state.positions[i].fen;
-  const majorMinorCount = _countMatch(fen, /[QRBNqrbn]/g);
-  if (majorMinorCount <= 6) return "endgame";
-  if (i <= 20) return "opening";
+  const boardPart = fen.split(" ")[0];
+  const majorMinorCount = (boardPart.match(/[QRBNqrbn]/g) || []).length;
+  const hasQueens = (boardPart.match(/[Qq]/g) || []).length > 0;
+
+  // Endgame criteria: 6 or fewer major/minor pieces, or no queens and <= 8 pieces
+  if (majorMinorCount <= 6 || (!hasQueens && majorMinorCount <= 8)) return "endgame";
+
+  // Opening criteria: move is theory/book, or early move (<= 12 plies) or <= 24 plies with high piece count
+  const isBook = bookLookup(fen) !== undefined;
+  if (isBook || i <= 12 || (i <= 24 && majorMinorCount >= 12)) return "opening";
+
   return "middlegame";
 }
 
@@ -3248,15 +3256,15 @@ function coachTokens(idx, extra) {
 }
 // The coach's sentence for the played move at ply idx (null → caller uses the legacy line).
 function coachMoveSentence(idx) {
-  let cls = S.classif[idx]; if (cls === "inacc") cls = "inaccuracy";
+  let qualityCls = S.classif[idx]; if (qualityCls === "inacc") qualityCls = "inaccuracy";
   const san = (S.positions[idx] && S.positions[idx].san) || "";
   const bestSan = bestSanBefore(idx);
 
   // Fast coach reply (U5): clear comment explaining move change with focus on one lesson
   let fastComment = null;
-  if (bestSan && bestSan !== san && ["inaccuracy", "mistake", "miss", "blunder"].includes(cls)) {
+  if (bestSan && bestSan !== san && ["inaccuracy", "mistake", "miss", "blunder"].includes(qualityCls)) {
     fastComment = `${san} changed the position evaluation. A better option was ${bestSan} to maintain tactical control. Focus on piece safety and king activity.`;
-  } else if (cls === "brilliant" || cls === "great" || cls === "best") {
+  } else if (qualityCls === "brilliant" || qualityCls === "great" || qualityCls === "best") {
     fastComment = `${san} is an exceptional move. It preserves your initiative and aligns with key positional principles.`;
   }
 
@@ -3265,12 +3273,10 @@ function coachMoveSentence(idx) {
   const tok = coachTokens(idx, ev.n != null ? { n: String(ev.n) } : null);
   let line = coachLine(ev.section, ev.key, tok);
   if (line == null) {  // graceful fallback inside the bank
-    let cls = S.classif[idx]; if (cls === "inacc") cls = "inaccuracy";
-    line = (cls && coachLine("move_quality", cls, tok)) || coachLine("move_fallback", null, tok);
+    line = (qualityCls && coachLine("move_quality", qualityCls, tok)) || coachLine("move_fallback", null, tok);
   }
-  if (line == null) return null;
+  if (line == null) return fastComment;
   // weak-move suffix, same rule as the legacy line (good / inacc / mistake / miss / blunder)
-  let cls = S.classif[idx]; if (cls === "inacc") cls = "inaccuracy";
   if (ev.section === "move_quality" && ["good", "inaccuracy", "mistake", "miss", "blunder"].includes(ev.key)) {
     const bs = bestSanBefore(idx);
     if (bs && bs !== (S.positions[idx].san || "")) { const suf = coachLine("weak_move_suffix", null, tok); if (suf && (line + "  " + suf).length <= COACH_MAX_LEN) line += "  " + suf; }
@@ -6052,19 +6058,46 @@ function renderConceptsPanel() {
 }
 
 /* ---------------- Learn Workspace (U1) ---------------- */
-const LEARN_CONCEPTS = Array.from({ length: 23 }, (_, i) => ({
-  id: i + 1,
-  title: `Concept Lesson ${i + 1}`,
-  exercises: i % 2 === 0 ? 2 : 3,
-  description: `Master fundamental chess concept #${i + 1} with tactical and positional exercises.`
-}));
+const LEARN_CONCEPTS = [
+  { id: 1, title: "Pin Tactics", exercises: 2, description: "Capitalize on absolute and relative pins against high-value pieces." },
+  { id: 2, title: "Knight Forks", exercises: 2, description: "Execute lethal knight double-attacks on king, queen, and rooks." },
+  { id: 3, title: "Skewers & X-Rays", exercises: 2, description: "Force valuable pieces off files to strike behind them." },
+  { id: 4, title: "Discovered Attacks", exercises: 2, description: "Unmask hidden line attacks while threatening immediate material." },
+  { id: 5, title: "Double Check Mates", exercises: 2, description: "Deliver unblockable simultaneous checks to force immediate mate." },
+  { id: 6, title: "Greek Gift Sacrifice", exercises: 2, description: "Sacrifice on h7/h2 to smash king pawn shelters." },
+  { id: 7, title: "Removing the Defender", exercises: 2, description: "Eliminate or deflect key guards protecting key squares." },
+  { id: 8, title: "Decoy & Attraction", exercises: 2, description: "Lure enemy pieces onto fatal tactical squares." },
+  { id: 9, title: "Intermezzo (In-Between Move)", exercises: 2, description: "Insert unexpected forcing moves mid-exchange." },
+  { id: 10, title: "Zugzwang Mechanics", exercises: 2, description: "Force the opponent into self-damaging legal continuations." },
+  { id: 11, title: "Back-Rank Weaknesses", exercises: 2, description: "Explode vulnerable back-rank corridors with rook & queen sacrifices." },
+  { id: 12, title: "Passed Pawn Promotion", exercises: 2, description: "Escort passed pawns into new queens in the endgame." },
+  { id: 13, title: "Outpost Squares", exercises: 2, description: "Anchor minor pieces in enemy territory supported by pawns." },
+  { id: 14, title: "Open File Control", exercises: 2, description: "Seize open corridors with battery rooks and double-stack." },
+  { id: 15, title: "King Safety & Castling", exercises: 2, description: "Secure the king behind solid pawn chains early in the game." },
+  { id: 16, title: "Weak Color Complexes", exercises: 2, description: "Infiltrate holes left by missing bishops or pushed pawns." },
+  { id: 17, title: "Rook Endgames (Philidor & Lucena)", exercises: 2, description: "Master fundamental rook endgame drawing and winning techniques." },
+  { id: 18, title: "Opposition & Key Squares", exercises: 2, description: "Outmaneuver the enemy king in pure pawn endgames." },
+  { id: 19, title: "Pawn Structure Chains", exercises: 2, description: "Attack pawn chains at their base to break defensive spines." },
+  { id: 20, title: "Space Advantage", exercises: 2, description: "Cramp enemy pieces with aggressive pawn centers." },
+  { id: 21, title: "Prophylaxis", exercises: 2, description: "Neutralize opponent active plans before launching your own." },
+  { id: 22, title: "Exchange Sacrifices", exercises: 2, description: "Trade a rook for a minor piece to destroy pawn covers or key outposts." },
+  { id: 23, title: "Mating Nets", exercises: 2, description: "Weave inescapable webs around exposed enemy kings." }
+];
 
-const LEARN_OPENINGS = Array.from({ length: 12 }, (_, i) => ({
-  id: i + 1,
-  title: `Opening Course ${i + 1}`,
-  lines: 2,
-  description: `Annotated lines for Opening #${i + 1}.`
-}));
+const LEARN_OPENINGS = [
+  { id: 1, title: "Ruy Lopez", lines: 2, description: "Classical Spanish opening: 1.e4 e5 2.Nf3 Nc6 3.Bb5." },
+  { id: 2, title: "Sicilian Defense", lines: 2, description: "Sharp counter-attacking setup against 1.e4: 1.e4 c5." },
+  { id: 3, title: "Italian Game", lines: 2, description: "Rapid piece deployment targeting f7: 1.e4 e5 2.Nf3 Nc6 3.Bc4." },
+  { id: 4, title: "French Defense", lines: 2, description: "Solid pawn chain center challenge: 1.e4 e6 2.d4 d5." },
+  { id: 5, title: "Caro-Kann Defense", lines: 2, description: "Rock-solid pawn structure setup: 1.e4 c6 2.d4 d5." },
+  { id: 6, title: "Queen's Gambit", lines: 2, description: "Classical central domination setup: 1.d4 d5 2.c4." },
+  { id: 7, title: "King's Indian Defense", lines: 2, description: "Hypermodern kingside attack setup: 1.d4 Nf6 2.c4 g6." },
+  { id: 8, title: "Nimzo-Indian Defense", lines: 2, description: "Pinning White's c3 knight to control e4: 1.d4 Nf6 2.c4 e6 3.Nc3 Bb4." },
+  { id: 9, title: "English Opening", lines: 2, description: "Flank opening controlling d5: 1.c4." },
+  { id: 10, title: "Reti Opening", lines: 2, description: "Flexible hypermodern setup: 1.Nf3." },
+  { id: 11, title: "Scandinavian Defense", lines: 2, description: "Direct central challenge: 1.e4 d5." },
+  { id: 12, title: "Dutch Defense", lines: 2, description: "Asymmetric kingside pressure against 1.d4: 1.d4 f5." }
+];
 
 function openLearnWorkspace() {
   document.querySelector(".learn-overlay")?.remove();

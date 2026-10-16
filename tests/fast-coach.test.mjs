@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-test("analysis.js contains fast coach reply logic focusing on lessons", () => {
+test("analysis.js generates fast coach replies explaining move changes and lesson focus", () => {
   const code = readFileSync("analysis.js", "utf8");
-  assert.ok(code.includes("Fast coach reply (U5)"), "contains fast coach reply marker/logic");
-  assert.ok(code.includes("changed the position evaluation"), "contains explanation of move change");
-  assert.ok(code.includes("Focus on piece safety and king activity"), "contains lesson focus");
+  assert.ok(code.includes("Fast coach reply (U5)"), "contains fast coach reply logic marker");
+  assert.ok(code.includes("changed the position evaluation"), "explains move consequences");
+  assert.ok(code.includes("Focus on piece safety and king activity"), "focuses on key lesson");
 });
