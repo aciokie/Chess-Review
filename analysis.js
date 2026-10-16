@@ -174,8 +174,14 @@ function categoryName(cls) {
 function categoryText(text) {
   const names = QUALITY_ORDER.filter(k => categoryName(k) !== QUALITY[k].name);
   if (!names.length) return text;
-  const byName = new Map(names.map(k => [QUALITY[k].name.toLowerCase(), categoryName(k)]));
-  const pattern = names.map(k => QUALITY[k].name).sort((a, b) => b.length - a.length).join("|");
+  const terms = [];
+  names.forEach(k => {
+    terms.push([QUALITY[k].name.toLowerCase(), categoryName(k)]);
+    if (k === "brilliant") terms.push(["masterstroke", categoryName(k)]);
+  });
+  const byName = new Map(terms);
+  const words = Array.from(byName.keys()).sort((a, b) => b.length - a.length);
+  const pattern = words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join("|");
   return text.replace(new RegExp("\\b(" + pattern + ")\\b", "gi"), match => byName.get(match.toLowerCase()));
 }
 // "image" = real piece images (cburnett). Filenames per piece+color (l=white, d=black).
