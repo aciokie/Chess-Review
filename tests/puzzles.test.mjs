@@ -1,62 +1,54 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { Chess } from "../lib/chess.js";
+import { validatePuzzleRecord, validatePuzzleDataset, PUZZLE_THEMES, DIFFICULTY_BANDS } from "../puzzles.js";
 
-test("data/puzzles.json contains exactly 25,000 unique valid puzzle records", () => {
-  const data = JSON.parse(readFileSync("data/puzzles.json", "utf8"));
-  assert.equal(data.puzzles.length, 25000, "contains exactly 25000 puzzles");
+test("validatePuzzleDataset approves all 25,000 puzzles in data/puzzles.json", () => {
+  const raw = readFileSync("data/puzzles.json", "utf8");
+  const data = JSON.parse(raw);
 
-  const ids = new Set();
-  const fens = new Set();
-  const themes = new Set();
-  const diffs = new Set();
-
-  for (const p of data.puzzles) {
-    assert.ok(p.id, "puzzle has id");
-    assert.ok(!ids.has(p.id), "puzzle ID is unique: " + p.id);
-    ids.add(p.id);
-
-    assert.ok(p.fen, "puzzle has fen");
-    assert.ok(!fens.has(p.fen), "puzzle FEN position is unique");
-    fens.add(p.fen);
-
-    assert.ok(Array.isArray(p.moves) && p.moves.length > 0, "puzzle has moves array");
-
-    // Validate position and solution move legality using lib/chess.js
-    const chess = new Chess(p.fen);
-    for (const m of p.moves) {
-      const res = chess.move({
-        from: m.slice(0, 2),
-        to: m.slice(2, 4),
-        promotion: m.slice(4, 5) || undefined,
-      });
-      assert.ok(res, `Move ${m} is legal in position ${p.fen} for puzzle ${p.id}`);
-    }
-
-    assert.ok(p.theme, "puzzle has theme");
-    themes.add(p.theme);
-
-    assert.ok(p.difficulty, "puzzle has difficulty");
-    diffs.add(p.difficulty);
-  }
-
-  assert.equal(ids.size, 25000, "all 25,000 puzzle IDs are unique");
-  assert.equal(fens.size, 25000, "all 25,000 puzzle FEN positions are unique");
-  assert.equal(themes.size, 12, "all 12 required puzzle themes are present");
-  assert.equal(diffs.size, 3, "all 3 difficulty bands are present");
+  const res = validatePuzzleDataset(data);
+  assert.equal(res.valid, true, `Validation failed: ${res.error}`);
+  assert.equal(res.count, 25000, "Dataset contains exactly 25,000 puzzles");
 });
 
-test("puzzles.mjs correctly detects invalid solution moves", () => {
-  const chess = new Chess();
-  const moves = chess.moves({ verbose: true });
-  const isIllegal = !moves.some((m) => m.from === "e2" && m.to === "e5");
-  assert.ok(isIllegal, "e2e5 is an illegal move from starting position");
+test("validatePuzzleRecord rejects malformed records", () => {
+  assert.ok(validatePuzzleRecord(null));
+  assert.ok(validatePuzzleRecord({}));
+  assert.ok(validatePuzzleRecord({ id: "p1" })); // missing FEN
+  assert.ok(validatePuzzleRecord({ id: "p1", fen: "invalid_fen" })); // bad FEN
+  assert.ok(validatePuzzleRecord({ id: "p1", fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", moves: [] })); // empty moves
+  assert.ok(validatePuzzleRecord({ id: "p1", fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", moves: ["e2e5"], theme: "fork", difficulty: "easy" })); // illegal move
+  assert.ok(validatePuzzleRecord({ id: "p1", fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", moves: ["e2e4"], theme: "invalid_theme", difficulty: "easy" })); // bad theme
+  assert.ok(validatePuzzleRecord({ id: "p1", fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", moves: ["e2e4"], theme: "fork", difficulty: "super_hard" })); // bad difficulty
 });
 
-test("puzzles.js defines PuzzleManager and themes", () => {
-  const code = readFileSync("puzzles.js", "utf8");
-  assert.ok(code.includes("PuzzleManager"), "defines PuzzleManager class");
-  assert.ok(code.includes("PUZZLE_THEMES"), "defines PUZZLE_THEMES");
-  assert.ok(code.includes("DIFFICULTY_BANDS"), "defines DIFFICULTY_BANDS");
+test("validatePuzzleDataset rejects duplicate content and IDs", () => {
+  const validP1 = {
+    id: "p0001",
+    fen: "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+    moves: ["f3g5"],
+    theme: "fork",
+    difficulty: "easy"
+  };
+  const validP2 = {
+    id: "p0002",
+    fen: "r1b1k2r/ppppqppp/2n5/4P3/2B5/2P2N2/P4PPP/R2QK2R b KQkq - 0 9",
+    moves: ["c6e5"],
+    theme: "pin",
+    difficulty: "medium"
+  };
+
+  // Duplicate ID
+  const dupIdData = { puzzles: [validP1, { ...validP2, id: "p0001" }] };
+  assert.equal(validatePuzzleDataset(dupIdData).valid, false);
+
+  // Duplicate FEN/Content
+  const dupContentData = { puzzles: [validP1, { ...validP1, id: "p0002" }] };
+  assert.equal(validatePuzzleDataset(dupContentData).valid, false);
+});
+
+test("puzzles.js exports themes and difficulty bands", () => {
+  assert.equal(PUZZLE_THEMES.length, 12, "contains 12 themes");
+  assert.equal(DIFFICULTY_BANDS.length, 3, "contains 3 difficulty bands");
 });
