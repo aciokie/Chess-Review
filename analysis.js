@@ -6837,6 +6837,165 @@ const LEARN_OPENINGS_DATA = [
 
 let activeChallengeTimer = null;
 
+
+/* ---------------- Offline Lichess Puzzle Solver UI (U2) ---------------- */
+import { PuzzleManager, PuzzleSolver, PUZZLE_THEMES, DIFFICULTY_BANDS } from "./puzzles.js";
+
+let activePuzzleManager = null;
+let activePuzzleSolver = null;
+
+async function openPuzzlePractice(initialTheme = "all", initialDiff = "all", reviewMissed = false) {
+  if (!activePuzzleManager) {
+    activePuzzleManager = new PuzzleManager();
+    await activePuzzleManager.loadPuzzles();
+  }
+
+  document.querySelector(".puzzle-overlay")?.remove();
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+
+  let currentTheme = initialTheme;
+  let currentDiff = initialDiff;
+
+  const getNextPuzzle = () => {
+    if (reviewMissed) {
+      const missed = activePuzzleManager.getMissed();
+      return missed.length ? missed[0] : null;
+    }
+    return activePuzzleManager.getRandomPuzzle(currentTheme, currentDiff);
+  };
+
+  let puzzle = getNextPuzzle();
+
+  const card = el("div", { class: "puzzle-card", role: "dialog", "aria-label": "Puzzle Practice" },
+    el("div", { class: "puzzle-head" },
+      el("h3", {}, reviewMissed ? "Review Missed Puzzles" : "Puzzle Practice"),
+      el("button", { class: "icon-btn", title: "Close", onclick: close }, icon("close"))
+    ),
+    el("div", { class: "puzzle-body", id: "puzzleBody" })
+  );
+
+  const overlay = el("div", { class: "puzzle-overlay", onclick: (e) => { if (e.target === overlay) close(); } }, card);
+  document.body.append(overlay);
+  document.addEventListener("keydown", onKey);
+
+  const renderPuzzleView = () => {
+    const body = document.getElementById("puzzleBody");
+    if (!body) return;
+
+    if (!puzzle) {
+      body.replaceChildren(
+        el("div", { class: "puzzle-empty" },
+          el("p", {}, reviewMissed ? "No missed puzzles recorded! Great job!" : "No puzzles match the selected filters."),
+          el("button", { class: "learn-action-btn", onclick: close }, "Close")
+        )
+      );
+      return;
+    }
+
+    activePuzzleSolver = new PuzzleSolver(puzzle);
+
+    const themeSelect = el("select", {
+      class: "puzzle-select",
+      onchange: (e) => { currentTheme = e.target.value; puzzle = getNextPuzzle(); renderPuzzleView(); }
+    },
+      el("option", { value: "all", selected: currentTheme === "all" }, "All Themes"),
+      ...PUZZLE_THEMES.map(t => el("option", { value: t, selected: currentTheme === t }, t))
+    );
+
+    const diffSelect = el("select", {
+      class: "puzzle-select",
+      onchange: (e) => { currentDiff = e.target.value; puzzle = getNextPuzzle(); renderPuzzleView(); }
+    },
+      el("option", { value: "all", selected: currentDiff === "all" }, "All Difficulties"),
+      ...DIFFICULTY_BANDS.map(d => el("option", { value: d, selected: currentDiff === d }, d))
+    );
+
+    const feedback = el("div", { class: "puzzle-feedback" });
+    const moveInput = el("input", { type: "text", class: "learn-input", placeholder: "Enter move (e.g. f3g5 or e4d5)" });
+
+    const filterRow = reviewMissed ? null : el("div", { class: "puzzle-filter-row" }, themeSelect, diffSelect);
+
+    body.replaceChildren(
+      filterRow,
+      el("div", { class: "puzzle-info-row" },
+        el("span", { class: "puzzle-meta" }, `Puzzle #${puzzle.id} · Rating: ${puzzle.rating} · Theme: ${puzzle.theme} (${puzzle.difficulty})`),
+        el("span", { class: "puzzle-status" }, `Missed queue: ${activePuzzleManager.getMissed().length}`)
+      ),
+      el("p", { class: "puzzle-instruction" }, "Find the winning move sequence:"),
+      el("div", { class: "puzzle-controls-row" },
+        moveInput,
+        el("button", {
+          class: "learn-action-btn",
+          onclick: () => {
+            const val = moveInput.value.trim().toLowerCase();
+            if (!val || val.length < 4) return;
+            const res = activePuzzleSolver.playMove(val.slice(0, 2), val.slice(2, 4), val.slice(4, 5) || undefined);
+            if (res.success) {
+              if (res.completed) {
+                feedback.textContent = "✓ Puzzle Solved!";
+                feedback.className = "puzzle-feedback good";
+                if (reviewMissed) activePuzzleManager.removeMissed(puzzle.id);
+              } else {
+                feedback.textContent = `✓ Correct! Opponent played ${res.opponentMove}. Continue...`;
+                feedback.className = "puzzle-feedback good";
+              }
+              moveInput.value = "";
+            } else {
+              activePuzzleManager.recordMissed(puzzle);
+              if (res.reason === "illegal_move") {
+                feedback.textContent = "✕ Illegal move on board!";
+              } else {
+                feedback.textContent = "✕ Incorrect move. Try again, use a hint, or reveal solution.";
+              }
+              feedback.className = "puzzle-feedback bad";
+            }
+          }
+        }, "Submit Move"),
+        el("button", {
+          class: "learn-action-btn sec",
+          onclick: () => {
+            const h = activePuzzleSolver.getHint();
+            feedback.textContent = `Hint: Theme is ${h.theme}. Move piece on ${h.from} to ${h.to}.`;
+            feedback.className = "puzzle-feedback hint";
+          }
+        }, "Hint"),
+        el("button", {
+          class: "learn-action-btn sec",
+          onclick: () => {
+            activePuzzleManager.recordMissed(puzzle);
+            const moves = activePuzzleSolver.reveal();
+            feedback.textContent = `Solution: ${moves.join(" ")}`;
+            feedback.className = "puzzle-feedback hint";
+          }
+        }, "Reveal Solution"),
+        el("button", {
+          class: "learn-action-btn sec",
+          onclick: () => {
+            activePuzzleSolver.reset();
+            moveInput.value = "";
+            feedback.textContent = "Puzzle reset to start position.";
+            feedback.className = "puzzle-feedback hint";
+          }
+        }, "Retry"),
+        el("button", {
+          class: "learn-action-btn",
+          onclick: () => {
+            puzzle = getNextPuzzle();
+            renderPuzzleView();
+          }
+        }, "Next Puzzle →")
+      ),
+      feedback
+    );
+  };
+
+  renderPuzzleView();
+}
+
 function openLearnWorkspace() {
   document.querySelector(".learn-overlay")?.remove();
   const close = () => {

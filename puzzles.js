@@ -1,4 +1,4 @@
-// puzzles.js — Offline Lichess Puzzle Manager & Validator for U2
+// puzzles.js — Offline Lichess Puzzle Manager, Validator, and Solver for U2
 import { browserAPI } from "./browser-compat.js";
 import { Chess } from "./lib/chess.js";
 
@@ -87,7 +87,6 @@ export class PuzzleManager {
   constructor() {
     this.puzzles = [];
     this.missedPuzzles = [];
-    this.currentIndex = 0;
   }
 
   async loadPuzzles() {
@@ -121,14 +120,142 @@ export class PuzzleManager {
     });
   }
 
+  getRandomPuzzle(theme = "all", difficulty = "all") {
+    const list = this.filterPuzzles(theme, difficulty);
+    if (!list.length) return null;
+    return list[Math.floor(Math.random() * list.length)];
+  }
+
   recordMissed(puzzle) {
     if (!this.missedPuzzles.some((p) => p.id === puzzle.id)) {
       this.missedPuzzles.push(puzzle);
-      browserAPI.storage.local.set({ missedPuzzles: this.missedPuzzles });
+      try {
+        browserAPI?.storage?.local?.set({ missedPuzzles: this.missedPuzzles });
+      } catch {}
     }
+  }
+
+  removeMissed(puzzleId) {
+    this.missedPuzzles = this.missedPuzzles.filter((p) => p.id !== puzzleId);
+    try {
+      browserAPI?.storage?.local?.set({ missedPuzzles: this.missedPuzzles });
+    } catch {}
   }
 
   getMissed() {
     return this.missedPuzzles;
+  }
+}
+
+export class PuzzleSolver {
+  constructor(puzzle) {
+    this.puzzle = puzzle;
+    this.chess = new Chess(puzzle.fen);
+    this.moveIdx = 0;
+    this.completed = false;
+    this.failed = false;
+  }
+
+  reset() {
+    this.chess = new Chess(this.puzzle.fen);
+    this.moveIdx = 0;
+    this.completed = false;
+    this.failed = false;
+  }
+
+  get expectedMove() {
+    if (this.completed || this.moveIdx >= this.puzzle.moves.length) return null;
+    return this.puzzle.moves[this.moveIdx];
+  }
+
+  playMove(from, to, promotion = undefined) {
+    if (this.completed) return { success: false, reason: "already_completed" };
+
+    const expected = this.expectedMove;
+    if (!expected) return { success: false, reason: "no_more_moves" };
+
+    // Form UCI string from input
+    const uciAttempt = from + to + (promotion ? promotion.toLowerCase() : "");
+
+    // Check if legal on board
+    let moveObj;
+    try {
+      moveObj = this.chess.move({ from, to, promotion });
+    } catch {
+      moveObj = null;
+    }
+
+    if (!moveObj) {
+      return { success: false, reason: "illegal_move" };
+    }
+
+    // Check if move matches expected solution
+    if (uciAttempt.toLowerCase() !== expected.toLowerCase() && (from + to).toLowerCase() !== expected.toLowerCase()) {
+      // Revert move
+      this.chess.undo();
+      this.failed = true;
+      return { success: false, reason: "incorrect_move" };
+    }
+
+    // Correct move played!
+    this.moveIdx++;
+
+    if (this.moveIdx >= this.puzzle.moves.length) {
+      this.completed = true;
+      return { success: true, completed: true, opponentMove: null };
+    }
+
+    // Automatic opponent response if present
+    const opponentUci = this.puzzle.moves[this.moveIdx];
+    let oppMoveObj = null;
+    if (opponentUci) {
+      try {
+        oppMoveObj = this.chess.move({
+          from: opponentUci.slice(0, 2),
+          to: opponentUci.slice(2, 4),
+          promotion: opponentUci.slice(4, 5) || undefined
+        });
+        this.moveIdx++;
+      } catch {
+        oppMoveObj = null;
+      }
+    }
+
+    if (this.moveIdx >= this.puzzle.moves.length) {
+      this.completed = true;
+    }
+
+    return {
+      success: true,
+      completed: this.completed,
+      opponentMove: opponentUci,
+      opponentMoveObj: oppMoveObj
+    };
+  }
+
+  getHint() {
+    const expected = this.expectedMove;
+    if (!expected) return null;
+    return {
+      theme: this.puzzle.theme,
+      from: expected.slice(0, 2),
+      to: expected.slice(2, 4)
+    };
+  }
+
+  reveal() {
+    while (!this.completed && this.moveIdx < this.puzzle.moves.length) {
+      const uci = this.puzzle.moves[this.moveIdx];
+      try {
+        this.chess.move({
+          from: uci.slice(0, 2),
+          to: uci.slice(2, 4),
+          promotion: uci.slice(4, 5) || undefined
+        });
+      } catch {}
+      this.moveIdx++;
+    }
+    this.completed = true;
+    return this.puzzle.moves;
   }
 }
