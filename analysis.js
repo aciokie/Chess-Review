@@ -3194,17 +3194,27 @@ function coachTokens(idx, extra) {
 }
 // The coach's sentence for the played move at ply idx (null → caller uses the legacy line).
 function coachMoveSentence(idx) {
-  if (!S.coach) return null;
+  let cls = S.classif[idx]; if (cls === "inacc") cls = "inaccuracy";
+  const san = (S.positions[idx] && S.positions[idx].san) || "";
+  const bestSan = bestSanBefore(idx);
+
+  // Fast coach reply (U5): clear comment explaining move change with focus on one lesson
+  let fastComment = null;
+  if (bestSan && bestSan !== san && ["inaccuracy", "mistake", "miss", "blunder"].includes(cls)) {
+    fastComment = `${san} changed the position evaluation. A better option was ${bestSan} to maintain tactical control. Focus on piece safety and king activity.`;
+  } else if (cls === "brilliant" || cls === "great" || cls === "best") {
+    fastComment = `${san} is an exceptional move. It preserves your initiative and aligns with key positional principles.`;
+  }
+
+  if (!S.coach) return fastComment;
   const ev = coachMoveEvent(idx);
   const tok = coachTokens(idx, ev.n != null ? { n: String(ev.n) } : null);
   let line = coachLine(ev.section, ev.key, tok);
   if (line == null) {  // graceful fallback inside the bank
-    let cls = S.classif[idx]; if (cls === "inacc") cls = "inaccuracy";
-    line = (cls && coachLine("move_quality", cls, tok)) || coachLine("move_fallback", null, tok);
+    line = (cls && coachLine("move_quality", cls, tok)) || coachLine("move_fallback", null, tok) || fastComment;
   }
-  if (line == null) return null;
+  if (line == null) return fastComment;
   // weak-move suffix, same rule as the legacy line (good / inacc / mistake / miss / blunder)
-  let cls = S.classif[idx]; if (cls === "inacc") cls = "inaccuracy";
   if (ev.section === "move_quality" && ["good", "inaccuracy", "mistake", "miss", "blunder"].includes(ev.key)) {
     const bs = bestSanBefore(idx);
     if (bs && bs !== (S.positions[idx].san || "")) { const suf = coachLine("weak_move_suffix", null, tok); if (suf && (line + "  " + suf).length <= COACH_MAX_LEN) line += "  " + suf; }
