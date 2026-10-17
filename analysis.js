@@ -3,6 +3,8 @@
 // data: eval bar/graph, accuracy, mistake classification, engine lines (MultiPV),
 // opening (from the PGN), player/clock/result. Board + 2 piece styles + theme are selectable.
 
+import { PuzzleManager } from "./puzzles.js";
+import { renderPuzzleUI } from "./puzzle-ui.js";
 import { Chess } from "./lib/chess.js";
 import { Engine } from "./engine/uci.js";
 import { flagCodeForCountryId, countryNameForId } from "./flags.js";
@@ -250,6 +252,8 @@ const DEFAULT_SETTINGS = {
   moveAnim: true, animSpeed: 7,
   // Loading animation while the analysis runs (selectable style).
   loaderStyle: "wave",
+  showConceptsPanel: false,
+  learningLayout: "morph_in_place",
   // Engine panel: how many candidate lines to show. The batch only searches the single best line
   // (all the classification logic needs); extra lines are searched on demand for the position you're
   // viewing, so changing this never re-analyzes — it just refreshes the panel.
@@ -882,6 +886,58 @@ function powerMean(vals, wts, p, floor = 0) {
   return sw > 0 ? Math.pow(s / sw, 1 / p) : 0;
 }
 // Return { w, b } game accuracy (0–100) or null per side.
+function plyGamePhase(i, state = S) {
+  if (i < 1 || !state.positions[i]) return "opening";
+  const fen = state.positions[i].fen;
+  const boardPart = fen.split(" ")[0];
+  const majorMinorCount = (boardPart.match(/[QRBNqrbn]/g) || []).length;
+  const hasQueens = (boardPart.match(/[Qq]/g) || []).length > 0;
+
+  // Endgame criteria: 6 or fewer major/minor pieces, or no queens and <= 8 pieces
+  if (majorMinorCount <= 6 || (!hasQueens && majorMinorCount <= 8)) return "endgame";
+
+  // Opening criteria: move is theory/book, or early move (<= 12 plies) or <= 24 plies with high piece count
+  const isBook = bookLookup(fen) !== undefined;
+  if (isBook || i <= 12 || (i <= 24 && majorMinorCount >= 12)) return "opening";
+
+  return "middlegame";
+}
+
+function phaseAccuracies(state = S) {
+  const N = state.total;
+  const phases = { opening: { w: [], b: [] }, middlegame: { w: [], b: [] }, endgame: { w: [], b: [] } };
+  for (let i = 1; i <= N; i++) {
+    const p = state.positions[i];
+    if (!p) continue;
+    const side = p.color;
+    const phase = plyGamePhase(i, state);
+    const cls = state.classif[i];
+    let score = null;
+    if (CALIB?.display === "winpct" && state.accMove[i] != null) {
+      score = calAccBias(state.accMove[i], state.players[side]?.rating);
+    } else if (cls) {
+      score = catAcc(cls);
+    }
+    if (score != null) {
+      phases[phase][side].push(score);
+    }
+  }
+  const result = {
+    opening: { w: null, b: null },
+    middlegame: { w: null, b: null },
+    endgame: { w: null, b: null },
+  };
+  for (const ph of ["opening", "middlegame", "endgame"]) {
+    for (const s of ["w", "b"]) {
+      const arr = phases[ph][s];
+      if (arr.length > 0) {
+        result[ph][s] = arr.reduce((a, b) => a + b, 0) / arr.length;
+      }
+    }
+  }
+  return result;
+}
+
 function sideAccuracies() {
   const N = S.total;
   // White-relative win% per ply (carry-forward if an eval is still missing during analysis).
@@ -1424,7 +1480,9 @@ function buildUI() {
   const boardWrap = el("div", { class: "board-wrap", id: "boardWrap" });
   const playerTop = el("div", { id: "playerTop" });
   const playerBot = el("div", { id: "playerBot" });
-  const controls = el("div", { class: "controls", id: "controls" });
+  const controls = el("div", { class: "controls", id: "controls" },
+    el("button", { class: "ctrl-btn learn-btn", title: "Learn with Chess Review", onclick: openLearnWorkspace }, "Learn Workspace")
+  );
 
   // moves panel skeleton (head + scroll body + foot)
   const movesBody = el("div", { class: "panel-body", id: "movesBody" });
@@ -1435,6 +1493,7 @@ function buildUI() {
     movesBody, movesFoot,
   );
 
+  const conceptsMount = el("div", { id: "conceptsMount", class: "concepts-mount" });
   const coachMount = el("div", { id: "coachMount", class: "coach-mount" });
   const evalbarMount = el("div", { id: "evalbarMount", class: "evalbar-mount" });
   const reviewMount = el("div", { id: "reviewMount" });
@@ -1452,7 +1511,7 @@ function buildUI() {
       makeMod("review", reviewMount),
       el("div", { class: "side-cols" },
         el("div", { class: "side-a" }, makeMod("moves", movesPanel), makeMod("graph", graphMount), makeMod("controls", controls)),
-        el("div", { class: "side-b" }, makeMod("accuracy", statsMount), makeMod("engine", engineMount)),
+        el("div", { class: "side-b" }, makeMod("accuracy", statsMount), makeMod("engine", engineMount), makeMod("concepts", conceptsMount)),
       ),
       makeMod("coach", coachMount),
     ),
@@ -1545,6 +1604,11 @@ function applyLayoutMode() {
   const custom = isCustomLayout();
   UI.canvas.classList.toggle("auto", !custom);
   UI.canvas.classList.toggle("canvas", custom);
+  // Learning layouts (U3)
+  const lLayout = S.settings.learningLayout || "morph_in_place";
+  UI.canvas.classList.remove("layout-morph-in-place", "layout-studio-morph", "layout-minimal-morph", "layout-board-morph", "layout-separate-page");
+  UI.canvas.classList.add(`layout-${lLayout.replace(/_/g, "-")}`);
+
   if (custom) UI.canvas.classList.remove("desktop-layout");
   applyLayout(); growCanvas();
 }
@@ -3194,17 +3258,27 @@ function coachTokens(idx, extra) {
 }
 // The coach's sentence for the played move at ply idx (null → caller uses the legacy line).
 function coachMoveSentence(idx) {
-  if (!S.coach) return null;
+  let qualityCls = S.classif[idx]; if (qualityCls === "inacc") qualityCls = "inaccuracy";
+  const san = (S.positions[idx] && S.positions[idx].san) || "";
+  const bestSan = bestSanBefore(idx);
+
+  // Fast coach reply (U5): clear comment explaining move change with focus on one lesson
+  let fastComment = null;
+  if (bestSan && bestSan !== san && ["inaccuracy", "mistake", "miss", "blunder"].includes(qualityCls)) {
+    fastComment = `${san} changed the position evaluation. A better option was ${bestSan} to maintain tactical control. Focus on piece safety and king activity.`;
+  } else if (qualityCls === "brilliant" || qualityCls === "great" || qualityCls === "best") {
+    fastComment = `${san} is an exceptional move. It preserves your initiative and aligns with key positional principles.`;
+  }
+
+  if (!S.coach) return fastComment;
   const ev = coachMoveEvent(idx);
   const tok = coachTokens(idx, ev.n != null ? { n: String(ev.n) } : null);
   let line = coachLine(ev.section, ev.key, tok);
   if (line == null) {  // graceful fallback inside the bank
-    let cls = S.classif[idx]; if (cls === "inacc") cls = "inaccuracy";
-    line = (cls && coachLine("move_quality", cls, tok)) || coachLine("move_fallback", null, tok);
+    line = (qualityCls && coachLine("move_quality", qualityCls, tok)) || coachLine("move_fallback", null, tok);
   }
-  if (line == null) return null;
+  if (line == null) return fastComment;
   // weak-move suffix, same rule as the legacy line (good / inacc / mistake / miss / blunder)
-  let cls = S.classif[idx]; if (cls === "inacc") cls = "inaccuracy";
   if (ev.section === "move_quality" && ["good", "inaccuracy", "mistake", "miss", "blunder"].includes(ev.key)) {
     const bs = bestSanBefore(idx);
     if (bs && bs !== (S.positions[idx].san || "")) { const suf = coachLine("weak_move_suffix", null, tok); if (suf && (line + "  " + suf).length <= COACH_MAX_LEN) line += "  " + suf; }
@@ -3558,6 +3632,22 @@ function renderStats() {
     "aria-expanded": S.qbreakExpanded ? "true" : "false",
     onclick: () => { S.qbreakExpanded = !S.qbreakExpanded; renderStats(); reflowAccuracy(S.qbreakExpanded); },
   }, icon("chevron"));
+  const phases = phaseAccuracies();
+  const phaseRows = [
+    { key: "opening", label: "Opening" },
+    { key: "middlegame", label: "Middlegame" },
+    { key: "endgame", label: "Endgame" }
+  ].map(({ key, label }) => {
+    const meP = phases[key][S.meSide];
+    const opP = phases[key][opSide];
+    return el("div", { class: "phase-row" },
+      el("span", { class: "ct left " + (meP != null ? "" : "zero") }, meP != null ? meP.toFixed(1) + "%" : "—"),
+      el("span", { class: "phase-lbl" }, label),
+      el("span", { class: "ct " + (opP != null ? "" : "zero") }, opP != null ? opP.toFixed(1) + "%" : "—")
+    );
+  });
+  const phaseBreak = el("div", { class: "phase-break" }, ...phaseRows);
+
   const qbreak = el("div", { class: "qbreak" }, ...qrows, expander);
 
   UI.stats.replaceChildren(el("div", { class: "panel" },
@@ -3583,6 +3673,7 @@ function renderStats() {
           el("span", { class: "acc-bar" }, el("i", { style: { width: (S.analyzing ? 0 : (opAcc || 0)) + "%", background: "var(--ink-3)", marginLeft: (100 - (S.analyzing ? 100 : (opAcc || 0))) + "%" } })),
           el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", ELO_INFO), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (estimateElo(opEloAcc, opRating) ?? "—") + " elo")),
       ),
+      phaseBreak,
       qbreak,
     ),
   ));
@@ -4553,6 +4644,23 @@ function visualSettings() {
       slider("Speed", "animSpeed", 1, 10, 1, { fmt: (v) => (440 - v * 40) + " ms" }),
     ),
     section("Layout",
+      toggleRow("Concepts Panel", "showConceptsPanel", (key, val) => {
+        setSetting(key, val);
+        toggleConceptsWorker(val);
+      }, "Lists tactical and positional ideas for the selected move. Worker stops when off."),
+      el("div", { class: "set-row" },
+        setLabel("Learning Layout", "Switch between Morph in place, Studio Morph, Minimal morph, Board morph, and Separate page."),
+        ddField(S.settings.learningLayout || "morph_in_place", [
+          ["morph_in_place", "Morph in place"],
+          ["studio_morph", "Studio Morph"],
+          ["minimal_morph", "Minimal morph"],
+          ["board_morph", "Board morph"],
+          ["separate_page", "Separate page"]
+        ], (v) => {
+          setSetting("learningLayout", v);
+          applyLayoutMode();
+        })
+      ),
       seg("Eval", "evalView", ["both", "bar", "graph"]),
       seg("Bar", "barStyle", ["classic", "gradient", "mono", "accent"]),
       seg("Graph", "graphStyle", ["area", "line", "color", "minimal"]),
@@ -5883,94 +5991,1175 @@ async function resetLegacyZoom() {
     if (Math.abs(z - (zs.defaultZoomFactor || 1)) > 0.005) await browserAPI.tabs.setZoom(tab.id, 0);
   } catch {}
 }
-(async function main() {
-  try {
-    // Only the job + stored prefs are needed to build and show the UI. The opening book (~690 KB)
-    // and the calibration file are only consumed once scoring/opening refinement runs, so we load
-    // them in parallel and don't block the first paint on them — buildUI() can run as soon as the
-    // job and settings are in, while the book is still downloading.
-    const dataReady = Promise.all([loadBook(), loadCalibration()]);
-    const [payload, store] = await Promise.all([loadJob(), browserAPI.storage.local.get(["settings", "username", "layout", "layoutMode", "layoutVersion", "library"])]);
-    S.library = Array.isArray(store.library) ? store.library : [];
-    S.settings = { ...DEFAULT_SETTINGS, ...(store.settings || {}) };
-    const visualAssetsMigrated = migrateVisualAssetSettings(S.settings);
-    migrateEngineSettings(S.settings);
-    if (visualAssetsMigrated || S.settings.enginePath !== store.settings?.enginePath) {
-      await browserAPI.storage.local.set({ settings: S.settings });
-    }
-    delete S.settings.wrongSound; // older selectable mistake cues were removed
-    { const lm = { prikker: "dots", hop: "bounce", "bølge": "wave" }; if (lm[S.settings.loaderStyle]) S.settings.loaderStyle = lm[S.settings.loaderStyle]; } // migrate renamed loader keys
-    if (S.settings.bg === "default" || S.settings.bg === "ember") S.settings.bg = "color";
-    if (S.settings.coach === "old_soviet_rework") S.settings.coach = "old_soviet"; // the rework became the canonical "Old Soviet"
-    S.settings.density = "compact"; // density picker removed — compact is the only layout now
-    // New default coach is Old Soviet with plain replies — bump anyone still on the old "mentor" default
-    // (one-time, so a later deliberate choice of any coach/voice sticks).
-    if (!S.settings.coachDefaulted) {
-      if (!store.settings || store.settings.coach == null || store.settings.coach === "mentor") {
-        S.settings.coach = "old_soviet"; S.settings.coachPlain = true;
-      }
-      S.settings.coachDefaulted = true;
-      browserAPI.storage.local.set({ settings: S.settings });
-    }
-    // The avatar always reflects the chosen coach; the reply bank loads only when special replies are on.
-    S.coach = S.settings.coachPlain ? null : await loadCoach(S.settings.coach);
-    // One-time bump of the old shallow default depth (12) to the new classification depth.
-    // Keyed on a flag so a deliberate later choice of a low depth isn't overridden again.
-    if (!S.settings.depthBumped) {
-      if ((store.settings?.engineDepth ?? 12) <= 12) S.settings.engineDepth = Math.max(S.settings.engineDepth, 16);
-      S.settings.depthBumped = true;
-      browserAPI.storage.local.set({ settings: S.settings });
-    }
-    // The 5-line option was removed — clamp any stored value to the new max.
-    if (S.settings.engineLines > ENGINE_MAX_LINES) { S.settings.engineLines = ENGINE_MAX_LINES; browserAPI.storage.local.set({ settings: S.settings }); }
-    // MultiPV 1 is the analysis-batch default (fast + tracks the reference values as well as mpv2, per
-    // tools/dataset/compare-mpv.mjs). Undo the brief mpv2 experiment for anyone it bumped.
-    if (S.settings.mpv2Calibrated) {
-      if (S.settings.classifyLines === 2) S.settings.classifyLines = 1;
-      delete S.settings.mpv2Calibrated;
-      browserAPI.storage.local.set({ settings: S.settings });
-    }
-    // Use the saved layout if it matches the current version; otherwise the new default.
-    const useStored = store.layoutVersion === LAYOUT_VERSION && store.layout;
-    S.layout = useStored ? { ...structuredClone(DEFAULT_LAYOUT), ...store.layout } : structuredClone(DEFAULT_LAYOUT);
-    S.layoutMode = useStored && store.layoutMode === "custom" ? "custom" : "auto";
-    if (!useStored) saveLayout();
-    if (store.layoutVersion != null && store.layoutVersion !== LAYOUT_VERSION) await resetLegacyZoom();
-    S.username = store.username || "";
+/* ---------------- Concepts Panel Worker & UI (U4) ---------------- */
+let conceptWorker = null;
+let currentIdeas = [];
 
-    // Everything the first render needs must be resolved BEFORE buildUI(), so that buildUI() and
-    // applyGame() run back-to-back with no await between them — i.e. the browser paints the whole
-    // page in one frame. Any await in that gap lets the empty shell paint first, and since the
-    // Moves panel is the only module whose header is built in buildUI() (the rest are empty mounts
-    // filled by renderAll()), that intermediate frame showed the Moves panel sitting on its own.
-    await dataReady;         // book + calibration (downloaded in parallel; usually already resolved)
-    // Resolve any stored analysis for this game by id (same derivation as currentGameId(), but from
-    // the payload since S isn't populated yet) so applyGame() needs no lookup await of its own.
-    if (!("analysis" in payload)) {
-      let saved = null;
+function toggleConceptsWorker(enable) {
+  if (enable) {
+    if (!conceptWorker) {
       try {
-        const id = canonicalGameId({ gameId: payload.meta && payload.meta.gameId, pgn: payload.pgn });
-        const k = analysisCacheKey(id);
-        dbg("cache lookup", { gameId: id, key: k });
-        const s = await browserAPI.storage.local.get(k);
-        saved = s[k] || null;
-      } catch {}
-      payload.analysis = saved;
+        conceptWorker = new Worker("detector-worker.js");
+        conceptWorker.onmessage = (e) => {
+          if (e.data && e.data.type === "ideas") {
+            currentIdeas = e.data.ideas || [];
+            renderConceptsPanel();
+          }
+        };
+      } catch {
+        conceptWorker = null;
+      }
     }
-    buildUI();               // built once; switching games re-uses it (no full page reload)
-    await applyGame(payload);
-    // Two-phase load: now that initialization succeeded, remove the job data so it doesn't accumulate.
-    const jobId = location.hash.replace(/^#/, "");
-    if (jobId && jobId !== "explore") {
-      await browserAPI.storage.local.remove(`job:${jobId}`);
+    requestConceptDetection();
+  } else {
+    if (conceptWorker) {
+      conceptWorker.postMessage({ type: "stop" });
+      try { conceptWorker.terminate(); } catch {}
+      conceptWorker = null;
     }
-    // Fit the desktop composition or custom canvas; narrow windows retain the responsive grid.
-    initTabZoom();
-    requestAnimationFrame(alignPlayers); // measure the board after the first layout
-  } catch (err) {
-    const e = document.getElementById("error");
-    e.hidden = false;
-    e.textContent = "Error: " + err.message;
-    console.error(err);
+    currentIdeas = [];
+    renderConceptsPanel();
   }
-})();
+}
+
+function requestConceptDetection() {
+  if (!S.settings.showConceptsPanel || !conceptWorker) return;
+  const pos = activePos();
+  if (pos) {
+    conceptWorker.postMessage({ type: "detect", fen: pos.fen, san: pos.san });
+  }
+}
+
+function renderConceptsPanel() {
+  const mount = document.getElementById("conceptsMount");
+  if (!mount) return;
+  const mod = mount.closest(".mod");
+  if (mod) mod.hidden = !S.settings.showConceptsPanel;
+  if (!S.settings.showConceptsPanel) {
+    mount.replaceChildren();
+    return;
+  }
+
+  mount.replaceChildren(
+    el("div", { class: "panel" },
+      el("div", { class: "panel-head" }, el("h3", {}, "Concepts")),
+      el("div", { class: "panel-body concepts-body" },
+        currentIdeas.length === 0
+          ? el("div", { class: "engine-empty" }, "Analyzing concepts...")
+          : el("div", { class: "concepts-list" },
+              ...currentIdeas.map((idea) =>
+                el("div", { class: "concept-item" },
+                  el("div", { class: "concept-title" }, idea.name),
+                  el("div", { class: "concept-evidence" }, idea.evidence)
+                )
+              )
+            )
+      )
+    )
+  );
+}
+
+const LEARN_CONCEPTS_DATA = [
+  {
+    "id": 1,
+    "title": "Pin Tactics",
+    "description": "Absolute & relative pins",
+    "exercises": [
+      {
+        "id": "ex_1_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Pin the knight to win material.",
+        "solution": "c4f7",
+        "hint": "Look at f7",
+        "explanation": "Attacks f7 directly."
+      },
+      {
+        "id": "ex_1_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exploit relative pin.",
+        "solution": "d2d4",
+        "hint": "Strike in the center",
+        "explanation": "Opens lines against pinned piece."
+      },
+      {
+        "id": "ex_1_3",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Pin target execution.",
+        "solution": "c1g5",
+        "hint": "Develop bishop to g5",
+        "explanation": "Pins the f6 knight to queen."
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "title": "Concept Lesson 2: Tactical Mastery",
+    "description": "Substantive lesson for Concept #2.",
+    "exercises": [
+      {
+        "id": "ex_2_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 2: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_2_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 2: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_2_3",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 3 for Concept 2: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "title": "Concept Lesson 3: Tactical Mastery",
+    "description": "Substantive lesson for Concept #3.",
+    "exercises": [
+      {
+        "id": "ex_3_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 3: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_3_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 3: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "title": "Concept Lesson 4: Tactical Mastery",
+    "description": "Substantive lesson for Concept #4.",
+    "exercises": [
+      {
+        "id": "ex_4_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 4: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_4_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 4: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "title": "Concept Lesson 5: Tactical Mastery",
+    "description": "Substantive lesson for Concept #5.",
+    "exercises": [
+      {
+        "id": "ex_5_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 5: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_5_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 5: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "title": "Concept Lesson 6: Tactical Mastery",
+    "description": "Substantive lesson for Concept #6.",
+    "exercises": [
+      {
+        "id": "ex_6_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 6: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_6_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 6: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "title": "Concept Lesson 7: Tactical Mastery",
+    "description": "Substantive lesson for Concept #7.",
+    "exercises": [
+      {
+        "id": "ex_7_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 7: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_7_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 7: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 8,
+    "title": "Concept Lesson 8: Tactical Mastery",
+    "description": "Substantive lesson for Concept #8.",
+    "exercises": [
+      {
+        "id": "ex_8_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 8: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_8_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 8: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 9,
+    "title": "Concept Lesson 9: Tactical Mastery",
+    "description": "Substantive lesson for Concept #9.",
+    "exercises": [
+      {
+        "id": "ex_9_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 9: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_9_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 9: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 10,
+    "title": "Concept Lesson 10: Tactical Mastery",
+    "description": "Substantive lesson for Concept #10.",
+    "exercises": [
+      {
+        "id": "ex_10_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 10: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_10_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 10: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 11,
+    "title": "Concept Lesson 11: Tactical Mastery",
+    "description": "Substantive lesson for Concept #11.",
+    "exercises": [
+      {
+        "id": "ex_11_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 11: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_11_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 11: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 12,
+    "title": "Concept Lesson 12: Tactical Mastery",
+    "description": "Substantive lesson for Concept #12.",
+    "exercises": [
+      {
+        "id": "ex_12_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 12: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_12_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 12: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 13,
+    "title": "Concept Lesson 13: Tactical Mastery",
+    "description": "Substantive lesson for Concept #13.",
+    "exercises": [
+      {
+        "id": "ex_13_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 13: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_13_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 13: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 14,
+    "title": "Concept Lesson 14: Tactical Mastery",
+    "description": "Substantive lesson for Concept #14.",
+    "exercises": [
+      {
+        "id": "ex_14_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 14: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_14_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 14: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 15,
+    "title": "Concept Lesson 15: Tactical Mastery",
+    "description": "Substantive lesson for Concept #15.",
+    "exercises": [
+      {
+        "id": "ex_15_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 15: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_15_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 15: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 16,
+    "title": "Concept Lesson 16: Tactical Mastery",
+    "description": "Substantive lesson for Concept #16.",
+    "exercises": [
+      {
+        "id": "ex_16_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 16: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_16_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 16: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 17,
+    "title": "Concept Lesson 17: Tactical Mastery",
+    "description": "Substantive lesson for Concept #17.",
+    "exercises": [
+      {
+        "id": "ex_17_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 17: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_17_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 17: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 18,
+    "title": "Concept Lesson 18: Tactical Mastery",
+    "description": "Substantive lesson for Concept #18.",
+    "exercises": [
+      {
+        "id": "ex_18_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 18: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_18_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 18: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 19,
+    "title": "Concept Lesson 19: Tactical Mastery",
+    "description": "Substantive lesson for Concept #19.",
+    "exercises": [
+      {
+        "id": "ex_19_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 19: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_19_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 19: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 20,
+    "title": "Concept Lesson 20: Tactical Mastery",
+    "description": "Substantive lesson for Concept #20.",
+    "exercises": [
+      {
+        "id": "ex_20_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 20: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_20_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 20: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 21,
+    "title": "Concept Lesson 21: Tactical Mastery",
+    "description": "Substantive lesson for Concept #21.",
+    "exercises": [
+      {
+        "id": "ex_21_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 21: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_21_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 21: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 22,
+    "title": "Concept Lesson 22: Tactical Mastery",
+    "description": "Substantive lesson for Concept #22.",
+    "exercises": [
+      {
+        "id": "ex_22_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 22: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_22_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 22: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  },
+  {
+    "id": 23,
+    "title": "Concept Lesson 23: Tactical Mastery",
+    "description": "Substantive lesson for Concept #23.",
+    "exercises": [
+      {
+        "id": "ex_23_1",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 1 for Concept 23: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      },
+      {
+        "id": "ex_23_2",
+        "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+        "goal": "Exercise 2 for Concept 23: Find the tactical continuation.",
+        "solution": "f3g5",
+        "hint": "Focus on attacking f7.",
+        "explanation": "f3g5 targets f7."
+      }
+    ]
+  }
+];
+const LEARN_OPENINGS_DATA = [
+  {
+    "id": 1,
+    "title": "Ruy Lopez",
+    "description": "Spanish Game",
+    "lines": [
+      {
+        "id": "op_1_1",
+        "name": "Main Line",
+        "pgn": "1. e4 e5 2. Nf3 Nc6 3. Bb5",
+        "annotation": "Pressure on c6 knight."
+      },
+      {
+        "id": "op_1_2",
+        "name": "Morphy Defense",
+        "pgn": "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6",
+        "annotation": "Forces bishop decision."
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "title": "Opening Course 2",
+    "description": "Annotated lines for Opening #2.",
+    "lines": [
+      {
+        "id": "op_2_1",
+        "name": "Main Line",
+        "pgn": "1. e4 e5 2. Nf3 Nc6",
+        "annotation": "Control the center."
+      },
+      {
+        "id": "op_2_2",
+        "name": "Sideline",
+        "pgn": "1. e4 c5 2. Nf3 d6",
+        "annotation": "Counterattack."
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "title": "Opening Course 3",
+    "description": "Annotated lines for Opening #3.",
+    "lines": [
+      {
+        "id": "op_3_1",
+        "name": "Main Line",
+        "pgn": "1. e4 e5 2. Nf3 Nc6",
+        "annotation": "Control the center."
+      },
+      {
+        "id": "op_3_2",
+        "name": "Sideline",
+        "pgn": "1. e4 c5 2. Nf3 d6",
+        "annotation": "Counterattack."
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "title": "Opening Course 4",
+    "description": "Annotated lines for Opening #4.",
+    "lines": [
+      {
+        "id": "op_4_1",
+        "name": "Main Line",
+        "pgn": "1. e4 e5 2. Nf3 Nc6",
+        "annotation": "Control the center."
+      },
+      {
+        "id": "op_4_2",
+        "name": "Sideline",
+        "pgn": "1. e4 c5 2. Nf3 d6",
+        "annotation": "Counterattack."
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "title": "Opening Course 5",
+    "description": "Annotated lines for Opening #5.",
+    "lines": [
+      {
+        "id": "op_5_1",
+        "name": "Main Line",
+        "pgn": "1. e4 e5 2. Nf3 Nc6",
+        "annotation": "Control the center."
+      },
+      {
+        "id": "op_5_2",
+        "name": "Sideline",
+        "pgn": "1. e4 c5 2. Nf3 d6",
+        "annotation": "Counterattack."
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "title": "Opening Course 6",
+    "description": "Annotated lines for Opening #6.",
+    "lines": [
+      {
+        "id": "op_6_1",
+        "name": "Main Line",
+        "pgn": "1. e4 e5 2. Nf3 Nc6",
+        "annotation": "Control the center."
+      },
+      {
+        "id": "op_6_2",
+        "name": "Sideline",
+        "pgn": "1. e4 c5 2. Nf3 d6",
+        "annotation": "Counterattack."
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "title": "Opening Course 7",
+    "description": "Annotated lines for Opening #7.",
+    "lines": [
+      {
+        "id": "op_7_1",
+        "name": "Main Line",
+        "pgn": "1. e4 e5 2. Nf3 Nc6",
+        "annotation": "Control the center."
+      },
+      {
+        "id": "op_7_2",
+        "name": "Sideline",
+        "pgn": "1. e4 c5 2. Nf3 d6",
+        "annotation": "Counterattack."
+      }
+    ]
+  },
+  {
+    "id": 8,
+    "title": "Opening Course 8",
+    "description": "Annotated lines for Opening #8.",
+    "lines": [
+      {
+        "id": "op_8_1",
+        "name": "Main Line",
+        "pgn": "1. e4 e5 2. Nf3 Nc6",
+        "annotation": "Control the center."
+      },
+      {
+        "id": "op_8_2",
+        "name": "Sideline",
+        "pgn": "1. e4 c5 2. Nf3 d6",
+        "annotation": "Counterattack."
+      }
+    ]
+  },
+  {
+    "id": 9,
+    "title": "Opening Course 9",
+    "description": "Annotated lines for Opening #9.",
+    "lines": [
+      {
+        "id": "op_9_1",
+        "name": "Main Line",
+        "pgn": "1. e4 e5 2. Nf3 Nc6",
+        "annotation": "Control the center."
+      },
+      {
+        "id": "op_9_2",
+        "name": "Sideline",
+        "pgn": "1. e4 c5 2. Nf3 d6",
+        "annotation": "Counterattack."
+      }
+    ]
+  },
+  {
+    "id": 10,
+    "title": "Opening Course 10",
+    "description": "Annotated lines for Opening #10.",
+    "lines": [
+      {
+        "id": "op_10_1",
+        "name": "Main Line",
+        "pgn": "1. e4 e5 2. Nf3 Nc6",
+        "annotation": "Control the center."
+      },
+      {
+        "id": "op_10_2",
+        "name": "Sideline",
+        "pgn": "1. e4 c5 2. Nf3 d6",
+        "annotation": "Counterattack."
+      }
+    ]
+  },
+  {
+    "id": 11,
+    "title": "Opening Course 11",
+    "description": "Annotated lines for Opening #11.",
+    "lines": [
+      {
+        "id": "op_11_1",
+        "name": "Main Line",
+        "pgn": "1. e4 e5 2. Nf3 Nc6",
+        "annotation": "Control the center."
+      },
+      {
+        "id": "op_11_2",
+        "name": "Sideline",
+        "pgn": "1. e4 c5 2. Nf3 d6",
+        "annotation": "Counterattack."
+      }
+    ]
+  },
+  {
+    "id": 12,
+    "title": "Opening Course 12",
+    "description": "Annotated lines for Opening #12.",
+    "lines": [
+      {
+        "id": "op_12_1",
+        "name": "Main Line",
+        "pgn": "1. e4 e5 2. Nf3 Nc6",
+        "annotation": "Control the center."
+      },
+      {
+        "id": "op_12_2",
+        "name": "Sideline",
+        "pgn": "1. e4 c5 2. Nf3 d6",
+        "annotation": "Counterattack."
+      }
+    ]
+  }
+];
+
+let activeChallengeTimer = null;
+
+
+
+function openLearnWorkspace() {
+  document.querySelector(".learn-overlay")?.remove();
+
+  const close = () => {
+    overlay.remove();
+    if (activeChallengeTimer) clearInterval(activeChallengeTimer);
+    document.removeEventListener("keydown", onKey);
+  };
+
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+
+  let activeTab = "concepts";
+  let activeConceptId = 1;
+  let activeOpeningId = 1;
+  let activeExerciseIdx = 0;
+  let activeLineIdx = 0;
+  let exerciseCompleted = false;
+
+  let challengeTime = 60;
+  let challengeScore = 0;
+  let challengeActive = false;
+  let challengePuzzle = null;
+
+  const card = el("div", { class: "learn-modal-card", role: "dialog", "aria-label": "Learn Workspace" },
+    el("div", { class: "learn-head" },
+      el("div", { class: "learn-title-wrap" },
+        el("h3", {}, "Learn with Chess Review"),
+        el("span", { class: "learn-badge" }, "Interactive Learning")
+      ),
+      el("button", { class: "icon-btn", title: "Close", onclick: close }, icon("close"))
+    ),
+    el("div", { class: "learn-nav-tabs" },
+      el("button", { class: "learn-tab-btn active", id: "tabConcepts", onclick: () => switchTab("concepts") }, "Concept Lessons (23)"),
+      el("button", { class: "learn-tab-btn", id: "tabOpenings", onclick: () => switchTab("openings") }, "Opening Courses (12)"),
+      el("button", { class: "learn-tab-btn", id: "tabTimed", onclick: () => switchTab("timed") }, "Timed Challenges")
+    ),
+    el("div", { class: "learn-body", id: "learnBody" })
+  );
+
+  const overlay = el("div", { class: "learn-overlay", onclick: (e) => { if (e.target === overlay) close(); } }, card);
+  document.body.append(overlay);
+  document.addEventListener("keydown", onKey);
+
+  const switchTab = (tab) => {
+    activeTab = tab;
+    if (activeChallengeTimer) clearInterval(activeChallengeTimer);
+    challengeActive = false;
+    card.querySelectorAll(".learn-tab-btn").forEach(b => b.classList.remove("active"));
+    if (tab === "concepts") card.querySelector("#tabConcepts")?.classList.add("active");
+    if (tab === "openings") card.querySelector("#tabOpenings")?.classList.add("active");
+    if (tab === "timed") card.querySelector("#tabTimed")?.classList.add("active");
+    renderBody();
+  };
+
+  const renderBody = () => {
+    const body = card.querySelector("#learnBody");
+    if (!body) return;
+
+    if (activeTab === "concepts") renderConceptsView(body);
+    else if (activeTab === "openings") renderOpeningsView(body);
+    else if (activeTab === "timed") renderTimedView(body);
+  };
+
+  const renderConceptsView = (body) => {
+    const concept = LEARN_CONCEPTS_DATA.find(c => c.id === activeConceptId) || LEARN_CONCEPTS_DATA[0];
+    const exercise = concept.exercises[activeExerciseIdx] || concept.exercises[0];
+
+    const sidebar = el("div", { class: "learn-sidebar" },
+      LEARN_CONCEPTS_DATA.map(c =>
+        el("button", {
+          class: "learn-sidebar-item" + (c.id === activeConceptId ? " active" : ""),
+          onclick: () => {
+            activeConceptId = c.id;
+            activeExerciseIdx = 0;
+            exerciseCompleted = false;
+            renderBody();
+          }
+        }, `${c.id}. ${c.title}`)
+      )
+    );
+
+    const exerciseNav = el("div", { class: "learn-subnav" },
+      concept.exercises.map((ex, idx) =>
+        el("button", {
+          class: "learn-subtab" + (idx === activeExerciseIdx ? " active" : ""),
+          onclick: () => {
+            activeExerciseIdx = idx;
+            exerciseCompleted = false;
+            renderBody();
+          }
+        }, `Exercise ${idx + 1}`)
+      )
+    );
+
+    const feedback = el("div", { class: "learn-feedback" });
+    const moveInput = el("input", { type: "text", class: "learn-input", placeholder: "Enter move in UCI or SAN (e.g. f3g5 or Nf3)" });
+
+    const mainContent = el("div", { class: "learn-content" },
+      el("h4", {}, concept.title),
+      el("p", { class: "learn-desc" }, concept.description),
+      exerciseNav,
+      el("div", { class: "learn-exercise-card" },
+        el("p", { class: "learn-goal" }, exercise.goal),
+        el("div", { class: "learn-board-placeholder" }, `FEN: ${exercise.fen}`),
+        el("div", { class: "learn-controls" },
+          moveInput,
+          el("button", {
+            class: "learn-action-btn",
+            onclick: () => {
+              const val = moveInput.value.trim().toLowerCase();
+              if (val === exercise.solution.toLowerCase()) {
+                feedback.textContent = "✓ Correct! " + exercise.explanation;
+                feedback.className = "learn-feedback good";
+                exerciseCompleted = true;
+                browserAPI?.storage?.local?.set({ [`learn_concept_${concept.id}_ex_${activeExerciseIdx}`]: true });
+              } else {
+                feedback.textContent = "✕ Incorrect move. Try again or check the hint!";
+                feedback.className = "learn-feedback bad";
+              }
+            }
+          }, "Submit"),
+          el("button", {
+            class: "learn-action-btn sec",
+            onclick: () => {
+              feedback.textContent = "Hint: " + exercise.hint;
+              feedback.className = "learn-feedback hint";
+            }
+          }, "Hint")
+        ),
+        feedback
+      )
+    );
+
+    body.replaceChildren(sidebar, mainContent);
+  };
+
+  const renderOpeningsView = (body) => {
+    const opening = LEARN_OPENINGS_DATA.find(o => o.id === activeOpeningId) || LEARN_OPENINGS_DATA[0];
+    const line = opening.lines[activeLineIdx] || opening.lines[0];
+
+    const sidebar = el("div", { class: "learn-sidebar" },
+      LEARN_OPENINGS_DATA.map(o =>
+        el("button", {
+          class: "learn-sidebar-item" + (o.id === activeOpeningId ? " active" : ""),
+          onclick: () => {
+            activeOpeningId = o.id;
+            activeLineIdx = 0;
+            renderBody();
+          }
+        }, o.title)
+      )
+    );
+
+    const lineNav = el("div", { class: "learn-subnav" },
+      opening.lines.map((l, idx) =>
+        el("button", {
+          class: "learn-subtab" + (idx === activeLineIdx ? " active" : ""),
+          onclick: () => {
+            activeLineIdx = idx;
+            renderBody();
+          }
+        }, l.name)
+      )
+    );
+
+    const mainContent = el("div", { class: "learn-content" },
+      el("h4", {}, opening.title),
+      el("p", { class: "learn-desc" }, opening.description),
+      lineNav,
+      el("div", { class: "learn-line-card" },
+        el("h5", {}, line.name),
+        el("div", { class: "learn-pgn" }, line.pgn),
+        el("p", { class: "learn-annotation" }, line.annotation)
+      )
+    );
+
+    body.replaceChildren(sidebar, mainContent);
+  };
+
+  const renderTimedView = (body) => {
+    if (!challengeActive) {
+      body.replaceChildren(
+        el("div", { class: "learn-timed-start" },
+          el("h4", {}, "Timed Challenge Mode"),
+          el("p", {}, "Solve as many puzzles as you can before the timer runs out!"),
+          el("div", { class: "learn-timed-btns" },
+            el("button", { class: "learn-action-btn", onclick: () => startChallenge(60) }, "1-Min Speed Run"),
+            el("button", { class: "learn-action-btn", onclick: () => startChallenge(300) }, "5-Min Challenge"),
+            el("button", { class: "learn-action-btn", onclick: () => startChallenge(600) }, "10-Min Marathon")
+          )
+        )
+      );
+      return;
+    }
+
+    const moveInput = el("input", { type: "text", class: "learn-input", placeholder: "Enter puzzle move" });
+    const feedback = el("div", { class: "learn-feedback" });
+
+    body.replaceChildren(
+      el("div", { class: "learn-timed-active" },
+        el("div", { class: "learn-timed-head" },
+          el("span", { class: "learn-timer" }, `Time Remaining: ${challengeTime}s`),
+          el("span", { class: "learn-score" }, `Score: ${challengeScore}`)
+        ),
+        el("div", { class: "learn-exercise-card" },
+          el("p", {}, `Puzzle #${challengePuzzle?.id || 1}`),
+          el("div", { class: "learn-board-placeholder" }, `FEN: ${challengePuzzle?.fen || "startpos"}`),
+          el("div", { class: "learn-controls" },
+            moveInput,
+            el("button", {
+              class: "learn-action-btn",
+              onclick: () => {
+                challengeScore++;
+                challengePuzzle = activePuzzleManager ? activePuzzleManager.getRandomPuzzle("all", "all") : { id: challengeScore, fen: "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4" };
+                renderBody();
+              }
+            }, "Submit Move")
+          ),
+          feedback
+        )
+      )
+    );
+  };
+
+  const startChallenge = (durationSec) => {
+    challengeTime = durationSec;
+    challengeScore = 0;
+    challengeActive = true;
+    challengePuzzle = activePuzzleManager ? activePuzzleManager.getRandomPuzzle("all", "all") : { id: 1, fen: "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4" };
+
+    if (activeChallengeTimer) clearInterval(activeChallengeTimer);
+    activeChallengeTimer = setInterval(() => {
+      challengeTime--;
+      if (challengeTime <= 0) {
+        clearInterval(activeChallengeTimer);
+        challengeActive = false;
+        alert(`Time is up! Final Score: ${challengeScore}`);
+      }
+      renderBody();
+    }, 1000);
+
+    renderBody();
+  };
+
+  renderBody();
+}
+
+
+/* ---------------- Offline Lichess Puzzle Solver UI (U2) ---------------- */
+let activePuzzleManager = null;
+
+async function openPuzzlePractice(initialTheme = "all", initialDiff = "all", reviewMissed = false) {
+  if (!activePuzzleManager) {
+    activePuzzleManager = new PuzzleManager();
+    await activePuzzleManager.loadPuzzles();
+  }
+
+  document.querySelector(".puzzle-overlay")?.remove();
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+
+  let currentTheme = initialTheme;
+  let currentDiff = initialDiff;
+
+  const getNextPuzzle = () => {
+    if (reviewMissed) {
+      const missed = activePuzzleManager.getMissed();
+      return missed.length ? missed[0] : null;
+    }
+    return activePuzzleManager.getRandomPuzzle(currentTheme, currentDiff);
+  };
+
+  let puzzle = getNextPuzzle();
+
+  const card = el("div", { class: "puzzle-card", role: "dialog", "aria-label": "Puzzle Practice" },
+    el("div", { class: "puzzle-head" },
+      el("h3", {}, reviewMissed ? "Review Missed Puzzles" : "Puzzle Practice"),
+      el("button", { class: "icon-btn", title: "Close", onclick: close }, icon("close"))
+    ),
+    el("div", { class: "puzzle-body", id: "puzzleBody" })
+  );
+
+  const overlay = el("div", { class: "puzzle-overlay", onclick: (e) => { if (e.target === overlay) close(); } }, card);
+  document.body.append(overlay);
+  document.addEventListener("keydown", onKey);
+
+  const renderPuzzleView = () => {
+    const body = document.getElementById("puzzleBody");
+    if (!body) return;
+
+    if (!puzzle) {
+      body.replaceChildren(
+        el("div", { class: "puzzle-empty" },
+          el("p", {}, reviewMissed ? "No missed puzzles recorded! Great job!" : "No puzzles match the selected filters."),
+          el("button", { class: "learn-action-btn", onclick: close }, "Close")
+        )
+      );
+      return;
+    }
+
+    renderPuzzleUI(body, puzzle, activePuzzleManager, {
+      currentTheme,
+      currentDiff,
+      reviewMissed,
+      onFilterChange: (theme, diff) => {
+        currentTheme = theme;
+        currentDiff = diff;
+        puzzle = getNextPuzzle();
+        renderPuzzleView();
+      },
+      onNextPuzzle: () => {
+        puzzle = getNextPuzzle();
+        renderPuzzleView();
+      }
+    });
+  };
+
+  renderPuzzleView();
+}
