@@ -3,6 +3,8 @@
 // data: eval bar/graph, accuracy, mistake classification, engine lines (MultiPV),
 // opening (from the PGN), player/clock/result. Board + 2 piece styles + theme are selectable.
 
+import { PuzzleManager } from "./puzzles.js";
+import { renderPuzzleUI } from "./puzzle-ui.js";
 import { Chess } from "./lib/chess.js";
 import { Engine } from "./engine/uci.js";
 import { flagCodeForCountryId, countryNameForId } from "./flags.js";
@@ -6838,11 +6840,257 @@ const LEARN_OPENINGS_DATA = [
 let activeChallengeTimer = null;
 
 
-/* ---------------- Offline Lichess Puzzle Solver UI (U2) ---------------- */
-import { PuzzleManager, PuzzleSolver, PUZZLE_THEMES, DIFFICULTY_BANDS } from "./puzzles.js";
 
+function openLearnWorkspace() {
+  document.querySelector(".learn-overlay")?.remove();
+
+  const close = () => {
+    overlay.remove();
+    if (activeChallengeTimer) clearInterval(activeChallengeTimer);
+    document.removeEventListener("keydown", onKey);
+  };
+
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+
+  let activeTab = "concepts";
+  let activeConceptId = 1;
+  let activeOpeningId = 1;
+  let activeExerciseIdx = 0;
+  let activeLineIdx = 0;
+  let exerciseCompleted = false;
+
+  let challengeTime = 60;
+  let challengeScore = 0;
+  let challengeActive = false;
+  let challengePuzzle = null;
+
+  const card = el("div", { class: "learn-modal-card", role: "dialog", "aria-label": "Learn Workspace" },
+    el("div", { class: "learn-head" },
+      el("div", { class: "learn-title-wrap" },
+        el("h3", {}, "Learn with Chess Review"),
+        el("span", { class: "learn-badge" }, "Interactive Learning")
+      ),
+      el("button", { class: "icon-btn", title: "Close", onclick: close }, icon("close"))
+    ),
+    el("div", { class: "learn-nav-tabs" },
+      el("button", { class: "learn-tab-btn active", id: "tabConcepts", onclick: () => switchTab("concepts") }, "Concept Lessons (23)"),
+      el("button", { class: "learn-tab-btn", id: "tabOpenings", onclick: () => switchTab("openings") }, "Opening Courses (12)"),
+      el("button", { class: "learn-tab-btn", id: "tabTimed", onclick: () => switchTab("timed") }, "Timed Challenges")
+    ),
+    el("div", { class: "learn-body", id: "learnBody" })
+  );
+
+  const overlay = el("div", { class: "learn-overlay", onclick: (e) => { if (e.target === overlay) close(); } }, card);
+  document.body.append(overlay);
+  document.addEventListener("keydown", onKey);
+
+  const switchTab = (tab) => {
+    activeTab = tab;
+    if (activeChallengeTimer) clearInterval(activeChallengeTimer);
+    challengeActive = false;
+    card.querySelectorAll(".learn-tab-btn").forEach(b => b.classList.remove("active"));
+    if (tab === "concepts") card.querySelector("#tabConcepts")?.classList.add("active");
+    if (tab === "openings") card.querySelector("#tabOpenings")?.classList.add("active");
+    if (tab === "timed") card.querySelector("#tabTimed")?.classList.add("active");
+    renderBody();
+  };
+
+  const renderBody = () => {
+    const body = card.querySelector("#learnBody");
+    if (!body) return;
+
+    if (activeTab === "concepts") renderConceptsView(body);
+    else if (activeTab === "openings") renderOpeningsView(body);
+    else if (activeTab === "timed") renderTimedView(body);
+  };
+
+  const renderConceptsView = (body) => {
+    const concept = LEARN_CONCEPTS_DATA.find(c => c.id === activeConceptId) || LEARN_CONCEPTS_DATA[0];
+    const exercise = concept.exercises[activeExerciseIdx] || concept.exercises[0];
+
+    const sidebar = el("div", { class: "learn-sidebar" },
+      LEARN_CONCEPTS_DATA.map(c =>
+        el("button", {
+          class: "learn-sidebar-item" + (c.id === activeConceptId ? " active" : ""),
+          onclick: () => {
+            activeConceptId = c.id;
+            activeExerciseIdx = 0;
+            exerciseCompleted = false;
+            renderBody();
+          }
+        }, `${c.id}. ${c.title}`)
+      )
+    );
+
+    const exerciseNav = el("div", { class: "learn-subnav" },
+      concept.exercises.map((ex, idx) =>
+        el("button", {
+          class: "learn-subtab" + (idx === activeExerciseIdx ? " active" : ""),
+          onclick: () => {
+            activeExerciseIdx = idx;
+            exerciseCompleted = false;
+            renderBody();
+          }
+        }, `Exercise ${idx + 1}`)
+      )
+    );
+
+    const feedback = el("div", { class: "learn-feedback" });
+    const moveInput = el("input", { type: "text", class: "learn-input", placeholder: "Enter move in UCI or SAN (e.g. f3g5 or Nf3)" });
+
+    const mainContent = el("div", { class: "learn-content" },
+      el("h4", {}, concept.title),
+      el("p", { class: "learn-desc" }, concept.description),
+      exerciseNav,
+      el("div", { class: "learn-exercise-card" },
+        el("p", { class: "learn-goal" }, exercise.goal),
+        el("div", { class: "learn-board-placeholder" }, `FEN: ${exercise.fen}`),
+        el("div", { class: "learn-controls" },
+          moveInput,
+          el("button", {
+            class: "learn-action-btn",
+            onclick: () => {
+              const val = moveInput.value.trim().toLowerCase();
+              if (val === exercise.solution.toLowerCase()) {
+                feedback.textContent = "✓ Correct! " + exercise.explanation;
+                feedback.className = "learn-feedback good";
+                exerciseCompleted = true;
+                browserAPI?.storage?.local?.set({ [`learn_concept_${concept.id}_ex_${activeExerciseIdx}`]: true });
+              } else {
+                feedback.textContent = "✕ Incorrect move. Try again or check the hint!";
+                feedback.className = "learn-feedback bad";
+              }
+            }
+          }, "Submit"),
+          el("button", {
+            class: "learn-action-btn sec",
+            onclick: () => {
+              feedback.textContent = "Hint: " + exercise.hint;
+              feedback.className = "learn-feedback hint";
+            }
+          }, "Hint")
+        ),
+        feedback
+      )
+    );
+
+    body.replaceChildren(sidebar, mainContent);
+  };
+
+  const renderOpeningsView = (body) => {
+    const opening = LEARN_OPENINGS_DATA.find(o => o.id === activeOpeningId) || LEARN_OPENINGS_DATA[0];
+    const line = opening.lines[activeLineIdx] || opening.lines[0];
+
+    const sidebar = el("div", { class: "learn-sidebar" },
+      LEARN_OPENINGS_DATA.map(o =>
+        el("button", {
+          class: "learn-sidebar-item" + (o.id === activeOpeningId ? " active" : ""),
+          onclick: () => {
+            activeOpeningId = o.id;
+            activeLineIdx = 0;
+            renderBody();
+          }
+        }, o.title)
+      )
+    );
+
+    const lineNav = el("div", { class: "learn-subnav" },
+      opening.lines.map((l, idx) =>
+        el("button", {
+          class: "learn-subtab" + (idx === activeLineIdx ? " active" : ""),
+          onclick: () => {
+            activeLineIdx = idx;
+            renderBody();
+          }
+        }, l.name)
+      )
+    );
+
+    const mainContent = el("div", { class: "learn-content" },
+      el("h4", {}, opening.title),
+      el("p", { class: "learn-desc" }, opening.description),
+      lineNav,
+      el("div", { class: "learn-line-card" },
+        el("h5", {}, line.name),
+        el("div", { class: "learn-pgn" }, line.pgn),
+        el("p", { class: "learn-annotation" }, line.annotation)
+      )
+    );
+
+    body.replaceChildren(sidebar, mainContent);
+  };
+
+  const renderTimedView = (body) => {
+    if (!challengeActive) {
+      body.replaceChildren(
+        el("div", { class: "learn-timed-start" },
+          el("h4", {}, "Timed Challenge Mode"),
+          el("p", {}, "Solve as many puzzles as you can before the timer runs out!"),
+          el("div", { class: "learn-timed-btns" },
+            el("button", { class: "learn-action-btn", onclick: () => startChallenge(60) }, "1-Min Speed Run"),
+            el("button", { class: "learn-action-btn", onclick: () => startChallenge(300) }, "5-Min Challenge"),
+            el("button", { class: "learn-action-btn", onclick: () => startChallenge(600) }, "10-Min Marathon")
+          )
+        )
+      );
+      return;
+    }
+
+    const moveInput = el("input", { type: "text", class: "learn-input", placeholder: "Enter puzzle move" });
+    const feedback = el("div", { class: "learn-feedback" });
+
+    body.replaceChildren(
+      el("div", { class: "learn-timed-active" },
+        el("div", { class: "learn-timed-head" },
+          el("span", { class: "learn-timer" }, `Time Remaining: ${challengeTime}s`),
+          el("span", { class: "learn-score" }, `Score: ${challengeScore}`)
+        ),
+        el("div", { class: "learn-exercise-card" },
+          el("p", {}, `Puzzle #${challengePuzzle?.id || 1}`),
+          el("div", { class: "learn-board-placeholder" }, `FEN: ${challengePuzzle?.fen || "startpos"}`),
+          el("div", { class: "learn-controls" },
+            moveInput,
+            el("button", {
+              class: "learn-action-btn",
+              onclick: () => {
+                challengeScore++;
+                challengePuzzle = activePuzzleManager ? activePuzzleManager.getRandomPuzzle("all", "all") : { id: challengeScore, fen: "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4" };
+                renderBody();
+              }
+            }, "Submit Move")
+          ),
+          feedback
+        )
+      )
+    );
+  };
+
+  const startChallenge = (durationSec) => {
+    challengeTime = durationSec;
+    challengeScore = 0;
+    challengeActive = true;
+    challengePuzzle = activePuzzleManager ? activePuzzleManager.getRandomPuzzle("all", "all") : { id: 1, fen: "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4" };
+
+    if (activeChallengeTimer) clearInterval(activeChallengeTimer);
+    activeChallengeTimer = setInterval(() => {
+      challengeTime--;
+      if (challengeTime <= 0) {
+        clearInterval(activeChallengeTimer);
+        challengeActive = false;
+        alert(`Time is up! Final Score: ${challengeScore}`);
+      }
+      renderBody();
+    }, 1000);
+
+    renderBody();
+  };
+
+  renderBody();
+}
+
+
+/* ---------------- Offline Lichess Puzzle Solver UI (U2) ---------------- */
 let activePuzzleManager = null;
-let activePuzzleSolver = null;
 
 async function openPuzzlePractice(initialTheme = "all", initialDiff = "all", reviewMissed = false) {
   if (!activePuzzleManager) {
@@ -6896,243 +7144,21 @@ async function openPuzzlePractice(initialTheme = "all", initialDiff = "all", rev
       return;
     }
 
-    activePuzzleSolver = new PuzzleSolver(puzzle);
-
-    const themeSelect = el("select", {
-      class: "puzzle-select",
-      onchange: (e) => { currentTheme = e.target.value; puzzle = getNextPuzzle(); renderPuzzleView(); }
-    },
-      el("option", { value: "all", selected: currentTheme === "all" }, "All Themes"),
-      ...PUZZLE_THEMES.map(t => el("option", { value: t, selected: currentTheme === t }, t))
-    );
-
-    const diffSelect = el("select", {
-      class: "puzzle-select",
-      onchange: (e) => { currentDiff = e.target.value; puzzle = getNextPuzzle(); renderPuzzleView(); }
-    },
-      el("option", { value: "all", selected: currentDiff === "all" }, "All Difficulties"),
-      ...DIFFICULTY_BANDS.map(d => el("option", { value: d, selected: currentDiff === d }, d))
-    );
-
-    const feedback = el("div", { class: "puzzle-feedback" });
-    const moveInput = el("input", { type: "text", class: "learn-input", placeholder: "Or enter move (e.g. f3g5 or e7e8q)" });
-
-    const filterRow = reviewMissed ? null : el("div", { class: "puzzle-filter-row" }, themeSelect, diffSelect);
-
-    let selectedSq = null;
-    let hintSquares = null;
-    let pendingPromotion = null;
-
-    const boardWrap = el("div", { class: "puzzle-board-wrap" });
-
-    const renderBoard = () => {
-      const chess = activePuzzleSolver.chess;
-      const fen = chess.fen();
-      const sideToMove = chess.turn();
-      const files = ["a","b","c","d","e","f","g","h"];
-      const ranks = [8,7,6,5,4,3,2,1];
-      const flipped = sideToMove === "b";
-      const rowOrder = flipped ? [...ranks].reverse() : ranks;
-      const colOrder = flipped ? [...files].reverse() : files;
-
-      const boardEl = el("div", { class: "board puzzle-board" });
-      const rows = fen.split(" ")[0].split("/");
-      const occ = {};
-      for (let r = 0; r < 8; r++) {
-        let c = 0;
-        for (const ch of rows[r]) {
-          if (/\d/.test(ch)) c += +ch;
-          else { occ["abcdefgh"[c] + (8 - r)] = ch; c++; }
-        }
+    renderPuzzleUI(body, puzzle, activePuzzleManager, {
+      currentTheme,
+      currentDiff,
+      reviewMissed,
+      onFilterChange: (theme, diff) => {
+        currentTheme = theme;
+        currentDiff = diff;
+        puzzle = getNextPuzzle();
+        renderPuzzleView();
+      },
+      onNextPuzzle: () => {
+        puzzle = getNextPuzzle();
+        renderPuzzleView();
       }
-
-      let legalTargets = [];
-      if (selectedSq) {
-        try {
-          legalTargets = chess.moves({ square: selectedSq, verbose: true }).map(m => m.to);
-        } catch { legalTargets = []; }
-      }
-
-      rowOrder.forEach((rank, ri) => {
-        colOrder.forEach((file, ci) => {
-          const sqName = file + rank;
-          const rIdx = 8 - rank, cIdx = files.indexOf(file);
-          const light = (rIdx + cIdx) % 2 === 0;
-          const isSel = selectedSq === sqName;
-          const isLegal = legalTargets.includes(sqName);
-          const isHint = hintSquares && (hintSquares.from === sqName || hintSquares.to === sqName);
-
-          const sqEl = el("div", {
-            class: "sq " + (light ? "light" : "dark") + (isSel ? " sel" : "") + (isLegal ? " legal" : "") + (isHint ? " marked" : ""),
-            "data-sq": sqName,
-            onclick: () => handleSqClick(sqName)
-          });
-
-          const ch = occ[sqName];
-          if (ch) {
-            sqEl.append(makePiece(ch.toUpperCase(), ch === ch.toUpperCase() ? "w" : "b"));
-          }
-          boardEl.append(sqEl);
-        });
-      });
-
-      if (pendingPromotion) {
-        const promoOverlay = el("div", { class: "puzzle-promo-overlay" },
-          ["q", "r", "b", "n"].map((piece) =>
-            el("button", {
-              class: "puzzle-promo-btn",
-              onclick: (e) => {
-                e.stopPropagation();
-                const { from, to } = pendingPromotion;
-                pendingPromotion = null;
-                executeMove(from, to, piece);
-              }
-            }, piece.toUpperCase())
-          )
-        );
-        boardWrap.replaceChildren(boardEl, promoOverlay);
-      } else {
-        boardWrap.replaceChildren(boardEl);
-      }
-    };
-
-    const handleSqClick = (sqName) => {
-      if (activePuzzleSolver.completed || pendingPromotion) return;
-      const chess = activePuzzleSolver.chess;
-      const piece = chess.get(sqName);
-      const sideToMove = chess.turn();
-
-      if (selectedSq) {
-        if (selectedSq === sqName) {
-          selectedSq = null;
-          renderBoard();
-          return;
-        }
-
-        // If clicking another friendly piece, re-select that piece instead of attempting move
-        if (piece && piece.color === sideToMove) {
-          selectedSq = sqName;
-          renderBoard();
-          return;
-        }
-
-        // Target square attempt
-        const from = selectedSq;
-        const to = sqName;
-
-        const movingPiece = chess.get(from);
-        const isLegal = chess.moves({ square: from, verbose: true }).some(m => m.to === to);
-
-        if (movingPiece && movingPiece.type === "p" && (to.endsWith("8") || to.endsWith("1")) && isLegal) {
-          pendingPromotion = { from, to };
-          selectedSq = null;
-          renderBoard();
-          return;
-        }
-
-        selectedSq = null;
-        executeMove(from, to);
-        return;
-      }
-
-      if (piece && piece.color === sideToMove) {
-        selectedSq = sqName;
-      } else {
-        selectedSq = null;
-      }
-      renderBoard();
-    };
-
-    const executeMove = (from, to, promo) => {
-      hintSquares = null;
-      const res = activePuzzleSolver.playMove(from, to, promo);
-      if (res.success) {
-        if (res.completed) {
-          feedback.textContent = "✓ Puzzle Solved!";
-          feedback.className = "puzzle-feedback good";
-          if (reviewMissed) activePuzzleManager.removeMissed(puzzle.id);
-        } else {
-          feedback.textContent = `✓ Correct! Opponent played ${res.opponentMove}. Continue...`;
-          feedback.className = "puzzle-feedback good";
-        }
-        moveInput.value = "";
-      } else {
-        activePuzzleManager.recordMissed(puzzle);
-        if (res.reason === "illegal_move") {
-          feedback.textContent = "✕ Illegal move on board!";
-        } else {
-          feedback.textContent = "✕ Incorrect move. Try again, use a hint, or reveal solution.";
-        }
-        feedback.className = "puzzle-feedback bad";
-      }
-      renderBoard();
-    };
-
-    renderBoard();
-
-    body.replaceChildren(
-      filterRow,
-      el("div", { class: "puzzle-info-row" },
-        el("span", { class: "puzzle-meta" }, `Puzzle #${puzzle.id} · Rating: ${puzzle.rating} · Theme: ${puzzle.theme} (${puzzle.difficulty})`),
-        el("span", { class: "puzzle-status" }, `Missed queue: ${activePuzzleManager.getMissed().length}`)
-      ),
-      el("p", { class: "puzzle-instruction" }, "Find the winning move sequence:"),
-      boardWrap,
-      el("div", { class: "puzzle-controls-row" },
-        moveInput,
-        el("button", {
-          class: "learn-action-btn",
-          onclick: () => {
-            const val = moveInput.value.trim().toLowerCase();
-            if (!val || val.length < 4) return;
-            executeMove(val.slice(0, 2), val.slice(2, 4), val.slice(4, 5) || undefined);
-          }
-        }, "Submit Move"),
-        el("button", {
-          class: "learn-action-btn sec",
-          onclick: () => {
-            const h = activePuzzleSolver.getHint();
-            if (h) {
-              hintSquares = { from: h.from, to: h.to };
-              feedback.textContent = `Hint: Theme is ${h.theme}. Move piece on ${h.from} to ${h.to}.`;
-              feedback.className = "puzzle-feedback hint";
-              renderBoard();
-            }
-          }
-        }, "Hint"),
-        el("button", {
-          class: "learn-action-btn sec",
-          onclick: () => {
-            activePuzzleManager.recordMissed(puzzle);
-            const moves = activePuzzleSolver.reveal();
-            feedback.textContent = `Solution: ${moves.join(" ")}`;
-            feedback.className = "puzzle-feedback hint";
-            renderBoard();
-          }
-        }, "Reveal Solution"),
-        el("button", {
-          class: "learn-action-btn sec",
-          onclick: () => {
-            activePuzzleSolver.reset();
-            selectedSq = null;
-            hintSquares = null;
-            pendingPromotion = null;
-            moveInput.value = "";
-            feedback.textContent = "Puzzle reset to start position.";
-            feedback.className = "puzzle-feedback hint";
-            renderBoard();
-          }
-        }, "Retry"),
-        el("button", {
-          class: "learn-action-btn",
-          onclick: () => {
-            puzzle = getNextPuzzle();
-            renderPuzzleView();
-          }
-        }, "Next Puzzle →")
-      ),
-      feedback
-    );
+    });
   };
 
   renderPuzzleView();

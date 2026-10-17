@@ -130,8 +130,8 @@ test("PuzzleSolver: Retry, Hint, Reveal, and Coordinate Input Fallback", () => {
   assert.equal(solver.completed, true);
 });
 
-test("analysis.js contains puzzle board, promotion overlay, and re-selection handlers", () => {
-  const code = readFileSync("analysis.js", "utf8");
+test("puzzle-ui.js contains puzzle board, promotion overlay, and re-selection handlers", () => {
+  const code = readFileSync("puzzle-ui.js", "utf8");
   assert.ok(code.includes("puzzle-board"), "renders puzzle-board");
   assert.ok(code.includes("puzzle-promo-overlay"), "renders promotion overlay");
   assert.ok(code.includes("handleSqClick"), "handles square click");
