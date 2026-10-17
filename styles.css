@@ -1546,3 +1546,6 @@ button { font-family: inherit; cursor: pointer; }
 .puzzle-feedback.good { color: #7fb45f; }
 .puzzle-feedback.bad { color: #e86363; }
 .puzzle-feedback.hint { color: #d9a544; }
+
+.puzzle-board-wrap { display: flex; justify-content: center; align-items: center; margin: 10px 0; }
+.puzzle-board { width: 320px; height: 320px; display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); border: 2px solid var(--panel-border, rgba(255,255,255,0.15)); border-radius: 4px; }

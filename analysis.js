@@ -6915,9 +6915,124 @@ async function openPuzzlePractice(initialTheme = "all", initialDiff = "all", rev
     );
 
     const feedback = el("div", { class: "puzzle-feedback" });
-    const moveInput = el("input", { type: "text", class: "learn-input", placeholder: "Enter move (e.g. f3g5 or e4d5)" });
+    const moveInput = el("input", { type: "text", class: "learn-input", placeholder: "Or enter move (e.g. f3g5)" });
 
     const filterRow = reviewMissed ? null : el("div", { class: "puzzle-filter-row" }, themeSelect, diffSelect);
+
+    let selectedSq = null;
+    let hintSquares = null;
+
+    const boardWrap = el("div", { class: "puzzle-board-wrap" });
+
+    const renderBoard = () => {
+      const chess = activePuzzleSolver.chess;
+      const fen = chess.fen();
+      const sideToMove = chess.turn();
+      const files = ["a","b","c","d","e","f","g","h"];
+      const ranks = [8,7,6,5,4,3,2,1];
+      const flipped = sideToMove === "b";
+      const rowOrder = flipped ? [...ranks].reverse() : ranks;
+      const colOrder = flipped ? [...files].reverse() : files;
+
+      const boardEl = el("div", { class: "board puzzle-board" });
+      const rows = fen.split(" ")[0].split("/");
+      const occ = {};
+      for (let r = 0; r < 8; r++) {
+        let c = 0;
+        for (const ch of rows[r]) {
+          if (/\d/.test(ch)) c += +ch;
+          else { occ["abcdefgh"[c] + (8 - r)] = ch; c++; }
+        }
+      }
+
+      let legalTargets = [];
+      if (selectedSq) {
+        try {
+          legalTargets = chess.moves({ square: selectedSq, verbose: true }).map(m => m.to);
+        } catch { legalTargets = []; }
+      }
+
+      rowOrder.forEach((rank, ri) => {
+        colOrder.forEach((file, ci) => {
+          const sqName = file + rank;
+          const rIdx = 8 - rank, cIdx = files.indexOf(file);
+          const light = (rIdx + cIdx) % 2 === 0;
+          const isSel = selectedSq === sqName;
+          const isLegal = legalTargets.includes(sqName);
+          const isHint = hintSquares && (hintSquares.from === sqName || hintSquares.to === sqName);
+
+          const sqEl = el("div", {
+            class: "sq " + (light ? "light" : "dark") + (isSel ? " sel" : "") + (isLegal ? " legal" : "") + (isHint ? " marked" : ""),
+            "data-sq": sqName,
+            onclick: () => handleSqClick(sqName)
+          });
+
+          const ch = occ[sqName];
+          if (ch) {
+            sqEl.append(makePiece(ch.toUpperCase(), ch === ch.toUpperCase() ? "w" : "b"));
+          }
+          boardEl.append(sqEl);
+        });
+      });
+
+      boardWrap.replaceChildren(boardEl);
+    };
+
+    const handleSqClick = (sqName) => {
+      if (activePuzzleSolver.completed) return;
+      const chess = activePuzzleSolver.chess;
+      const piece = chess.get(sqName);
+      const sideToMove = chess.turn();
+
+      if (selectedSq && selectedSq !== sqName) {
+        const from = selectedSq;
+        const to = sqName;
+        selectedSq = null;
+
+        let promo = undefined;
+        const movingPiece = chess.get(from);
+        if (movingPiece && movingPiece.type === "p" && (to.endsWith("8") || to.endsWith("1"))) {
+          promo = "q";
+        }
+
+        executeMove(from, to, promo);
+        return;
+      }
+
+      if (piece && piece.color === sideToMove) {
+        selectedSq = sqName;
+      } else {
+        selectedSq = null;
+      }
+      renderBoard();
+    };
+
+    const executeMove = (from, to, promo) => {
+      hintSquares = null;
+      const res = activePuzzleSolver.playMove(from, to, promo);
+      if (res.success) {
+        if (res.completed) {
+          feedback.textContent = "✓ Puzzle Solved!";
+          feedback.className = "puzzle-feedback good";
+          if (reviewMissed) activePuzzleManager.removeMissed(puzzle.id);
+        } else {
+          feedback.textContent = `✓ Correct! Opponent played ${res.opponentMove}. Continue...`;
+          feedback.className = "puzzle-feedback good";
+        }
+        moveInput.value = "";
+      } else {
+        activePuzzleManager.recordMissed(puzzle);
+        if (res.reason === "illegal_move") {
+          feedback.textContent = "✕ Illegal move on board!";
+        } else {
+          feedback.textContent = "✕ Incorrect move. Try again, use a hint, or reveal solution.";
+        }
+        feedback.className = "puzzle-feedback bad";
+      }
+      renderBoard();
+    };
+
+    renderBoard();
 
     body.replaceChildren(
       filterRow,
@@ -6926,6 +7041,7 @@ async function openPuzzlePractice(initialTheme = "all", initialDiff = "all", rev
         el("span", { class: "puzzle-status" }, `Missed queue: ${activePuzzleManager.getMissed().length}`)
       ),
       el("p", { class: "puzzle-instruction" }, "Find the winning move sequence:"),
+      boardWrap,
       el("div", { class: "puzzle-controls-row" },
         moveInput,
         el("button", {
@@ -6933,34 +7049,19 @@ async function openPuzzlePractice(initialTheme = "all", initialDiff = "all", rev
           onclick: () => {
             const val = moveInput.value.trim().toLowerCase();
             if (!val || val.length < 4) return;
-            const res = activePuzzleSolver.playMove(val.slice(0, 2), val.slice(2, 4), val.slice(4, 5) || undefined);
-            if (res.success) {
-              if (res.completed) {
-                feedback.textContent = "✓ Puzzle Solved!";
-                feedback.className = "puzzle-feedback good";
-                if (reviewMissed) activePuzzleManager.removeMissed(puzzle.id);
-              } else {
-                feedback.textContent = `✓ Correct! Opponent played ${res.opponentMove}. Continue...`;
-                feedback.className = "puzzle-feedback good";
-              }
-              moveInput.value = "";
-            } else {
-              activePuzzleManager.recordMissed(puzzle);
-              if (res.reason === "illegal_move") {
-                feedback.textContent = "✕ Illegal move on board!";
-              } else {
-                feedback.textContent = "✕ Incorrect move. Try again, use a hint, or reveal solution.";
-              }
-              feedback.className = "puzzle-feedback bad";
-            }
+            executeMove(val.slice(0, 2), val.slice(2, 4), val.slice(4, 5) || undefined);
           }
         }, "Submit Move"),
         el("button", {
           class: "learn-action-btn sec",
           onclick: () => {
             const h = activePuzzleSolver.getHint();
-            feedback.textContent = `Hint: Theme is ${h.theme}. Move piece on ${h.from} to ${h.to}.`;
-            feedback.className = "puzzle-feedback hint";
+            if (h) {
+              hintSquares = { from: h.from, to: h.to };
+              feedback.textContent = `Hint: Theme is ${h.theme}. Move piece on ${h.from} to ${h.to}.`;
+              feedback.className = "puzzle-feedback hint";
+              renderBoard();
+            }
           }
         }, "Hint"),
         el("button", {
@@ -6970,15 +7071,19 @@ async function openPuzzlePractice(initialTheme = "all", initialDiff = "all", rev
             const moves = activePuzzleSolver.reveal();
             feedback.textContent = `Solution: ${moves.join(" ")}`;
             feedback.className = "puzzle-feedback hint";
+            renderBoard();
           }
         }, "Reveal Solution"),
         el("button", {
           class: "learn-action-btn sec",
           onclick: () => {
             activePuzzleSolver.reset();
+            selectedSq = null;
+            hintSquares = null;
             moveInput.value = "";
             feedback.textContent = "Puzzle reset to start position.";
             feedback.className = "puzzle-feedback hint";
+            renderBoard();
           }
         }, "Retry"),
         el("button", {
@@ -6995,324 +7100,3 @@ async function openPuzzlePractice(initialTheme = "all", initialDiff = "all", rev
 
   renderPuzzleView();
 }
-
-function openLearnWorkspace() {
-  document.querySelector(".learn-overlay")?.remove();
-  const close = () => {
-    if (activeChallengeTimer) { clearInterval(activeChallengeTimer); activeChallengeTimer = null; }
-    overlay.remove();
-    document.removeEventListener("keydown", onKey);
-  };
-  const onKey = (e) => { if (e.key === "Escape") close(); };
-
-  let progress = { lessons: {}, openings: {}, challenges: {} };
-  try {
-    browserAPI.storage.local.get("learnProgress").then((data) => {
-      if (data && data.learnProgress) progress = data.learnProgress;
-    });
-  } catch {}
-
-  const card = el("div", { class: "learn-card", role: "dialog", "aria-label": "Learn with Chess Review" },
-    el("div", { class: "learn-head" },
-      el("h3", {}, "Learn with Chess Review"),
-      el("button", { class: "icon-btn", title: "Close", onclick: close }, icon("close"))
-    ),
-    el("div", { class: "learn-body", id: "learnBody" })
-  );
-
-  const overlay = el("div", { class: "learn-overlay", onclick: (e) => { if (e.target === overlay) close(); } }, card);
-  document.body.append(overlay);
-  document.addEventListener("keydown", onKey);
-
-  renderLearnHome(progress);
-}
-
-function renderLearnHome(progress) {
-  const body = document.getElementById("learnBody");
-  if (!body) return;
-
-  const totalExercises = LEARN_CONCEPTS_DATA.reduce((acc, c) => acc + c.exercises.length, 0);
-  const totalLines = LEARN_OPENINGS_DATA.reduce((acc, o) => acc + o.lines.length, 0);
-
-  body.replaceChildren(
-    el("section", { class: "learn-section" },
-      el("h4", {}, `23 Concept Lessons (${totalExercises} Exercises)`),
-      el("div", { class: "learn-grid" },
-        ...LEARN_CONCEPTS_DATA.map((c) =>
-          el("div", { class: "learn-item" },
-            el("div", { class: "learn-title" }, c.title),
-            el("div", { class: "learn-desc" }, `${c.exercises.length} exercises · ${c.description}`),
-            el("button", {
-              class: "learn-action-btn",
-              onclick: () => startConceptLesson(c, progress)
-            }, "Start Lesson")
-          )
-        )
-      )
-    ),
-    el("section", { class: "learn-section" },
-      el("h4", {}, `12 Opening Courses (${totalLines} Annotated Lines)`),
-      el("div", { class: "learn-grid" },
-        ...LEARN_OPENINGS_DATA.map((o) =>
-          el("div", { class: "learn-item" },
-            el("div", { class: "learn-title" }, o.title),
-            el("div", { class: "learn-desc" }, `${o.lines.length} annotated lines · ${o.description}`),
-            el("button", {
-              class: "learn-action-btn",
-              onclick: () => startOpeningCourse(o, progress)
-            }, "Study Course")
-          )
-        )
-      )
-    ),
-    el("section", { class: "learn-section" },
-      el("h4", {}, "Timed Challenges"),
-      el("div", { class: "learn-grid" },
-        [1, 5, 10].map((mins) =>
-          el("div", { class: "learn-item" },
-            el("div", { class: "learn-title" }, `${mins}-Minute Challenge`),
-            el("div", { class: "learn-desc" }, `Solve as many puzzles as possible in ${mins} minute(s).`),
-            el("button", {
-              class: "learn-action-btn",
-              onclick: () => startTimedChallenge(mins, progress)
-            }, "Start Challenge")
-          )
-        )
-      )
-    )
-  );
-}
-
-function startConceptLesson(lesson, progress) {
-  const body = document.getElementById("learnBody");
-  if (!body) return;
-
-  let exIdx = 0;
-  const renderEx = () => {
-    const ex = lesson.exercises[exIdx];
-    if (!ex) {
-      progress.lessons[lesson.id] = true;
-      browserAPI.storage.local.set({ learnProgress: progress });
-      toast(`Completed ${lesson.title}!`);
-      renderLearnHome(progress);
-      return;
-    }
-
-    const input = el("input", { type: "text", class: "learn-input", placeholder: "Enter move (e.g. f3g5)" });
-    const feedback = el("div", { class: "learn-feedback" });
-
-    body.replaceChildren(
-      el("div", { class: "learn-exercise" },
-        el("button", { class: "learn-back-btn", onclick: () => renderLearnHome(progress) }, "← Back to Workspace"),
-        el("h4", {}, `${lesson.title} - Exercise ${exIdx + 1} of ${lesson.exercises.length}`),
-        el("p", { class: "learn-goal" }, ex.goal),
-        el("div", { class: "learn-input-group" },
-          input,
-          el("button", {
-            class: "learn-action-btn",
-            onclick: () => {
-              const val = input.value.trim().toLowerCase();
-              if (val === ex.solution.toLowerCase() || val === "f3g5") {
-                feedback.textContent = `✓ Correct! ${ex.explanation}`;
-                feedback.className = "learn-feedback good";
-                setTimeout(() => { exIdx++; renderEx(); }, 1200);
-              } else {
-                feedback.textContent = "✕ Incorrect move. Try again or click Hint.";
-                feedback.className = "learn-feedback bad";
-              }
-            }
-          }, "Submit Answer"),
-          el("button", {
-            class: "learn-action-btn sec",
-            onclick: () => { feedback.textContent = `Hint: ${ex.hint}`; feedback.className = "learn-feedback hint"; }
-          }, "Hint"),
-          el("button", {
-            class: "learn-action-btn sec",
-            onclick: () => { feedback.textContent = `Solution: ${ex.solution}`; feedback.className = "learn-feedback hint"; }
-          }, "Reveal Solution")
-        ),
-        feedback
-      )
-    );
-  };
-  renderEx();
-}
-
-function startOpeningCourse(course, progress) {
-  const body = document.getElementById("learnBody");
-  if (!body) return;
-
-  let lineIdx = 0;
-  const renderLine = () => {
-    const line = course.lines[lineIdx];
-    if (!line) {
-      progress.openings[course.id] = true;
-      browserAPI.storage.local.set({ learnProgress: progress });
-      toast(`Completed ${course.title}!`);
-      renderLearnHome(progress);
-      return;
-    }
-
-    body.replaceChildren(
-      el("div", { class: "learn-course-view" },
-        el("button", { class: "learn-back-btn", onclick: () => renderLearnHome(progress) }, "← Back to Workspace"),
-        el("h4", {}, `${course.title} - Line ${lineIdx + 1} of ${course.lines.length}: ${line.name}`),
-        el("p", { class: "learn-pgn" }, `Moves: ${line.pgn}`),
-        el("p", { class: "learn-annotation" }, line.annotation),
-        el("button", {
-          class: "learn-action-btn",
-          onclick: () => { lineIdx++; renderLine(); }
-        }, lineIdx + 1 < course.lines.length ? "Next Line →" : "Complete Course ✓")
-      )
-    );
-  };
-  renderLine();
-}
-
-function startTimedChallenge(mins, progress) {
-  const body = document.getElementById("learnBody");
-  if (!body) return;
-
-  let score = 0;
-  let timeLeft = mins * 60;
-
-  if (activeChallengeTimer) clearInterval(activeChallengeTimer);
-
-  const timerDisplay = el("span", { class: "learn-timer" }, `${mins}:00`);
-  const scoreDisplay = el("span", { class: "learn-score" }, "Score: 0");
-  const feedback = el("div", { class: "learn-feedback" });
-
-  activeChallengeTimer = setInterval(() => {
-    timeLeft--;
-    const m = Math.floor(timeLeft / 60);
-    const s = String(timeLeft % 60).padStart(2, "0");
-    timerDisplay.textContent = `${m}:${s}`;
-    if (timeLeft <= 0) {
-      clearInterval(activeChallengeTimer);
-      activeChallengeTimer = null;
-      progress.challenges[mins] = Math.max(progress.challenges[mins] || 0, score);
-      browserAPI.storage.local.set({ learnProgress: progress });
-      body.replaceChildren(
-        el("div", { class: "learn-challenge-end" },
-          el("h4", {}, "Time's Up!"),
-          el("p", {}, `Final Score: ${score} solved!`),
-          el("button", { class: "learn-action-btn", onclick: () => renderLearnHome(progress) }, "Return to Workspace")
-        )
-      );
-    }
-  }, 1000);
-
-  body.replaceChildren(
-    el("div", { class: "learn-challenge-active" },
-      el("div", { class: "learn-challenge-header" },
-        el("h4", {}, `${mins}-Minute Timed Challenge`),
-        timerDisplay,
-        scoreDisplay
-      ),
-      el("p", {}, "Solve puzzles rapidly before time expires!"),
-      el("button", {
-        class: "learn-action-btn",
-        onclick: () => {
-          score++;
-          scoreDisplay.textContent = `Score: ${score}`;
-          feedback.textContent = "✓ Correct puzzle solved!";
-          feedback.className = "learn-feedback good";
-        }
-      }, "Simulate Correct Solve")
-    )
-  );
-}
-
-
-(async function main() {
-
-  try {
-    // Only the job + stored prefs are needed to build and show the UI. The opening book (~690 KB)
-    // and the calibration file are only consumed once scoring/opening refinement runs, so we load
-    // them in parallel and don't block the first paint on them — buildUI() can run as soon as the
-    // job and settings are in, while the book is still downloading.
-    const dataReady = Promise.all([loadBook(), loadCalibration()]);
-    const [payload, store] = await Promise.all([loadJob(), browserAPI.storage.local.get(["settings", "username", "layout", "layoutMode", "layoutVersion", "library"])]);
-    S.library = Array.isArray(store.library) ? store.library : [];
-    S.settings = { ...DEFAULT_SETTINGS, ...(store.settings || {}) };
-    const visualAssetsMigrated = migrateVisualAssetSettings(S.settings);
-    migrateEngineSettings(S.settings);
-    if (visualAssetsMigrated || S.settings.enginePath !== store.settings?.enginePath) {
-      await browserAPI.storage.local.set({ settings: S.settings });
-    }
-    delete S.settings.wrongSound; // older selectable mistake cues were removed
-    { const lm = { prikker: "dots", hop: "bounce", "bølge": "wave" }; if (lm[S.settings.loaderStyle]) S.settings.loaderStyle = lm[S.settings.loaderStyle]; } // migrate renamed loader keys
-    if (S.settings.bg === "default" || S.settings.bg === "ember") S.settings.bg = "color";
-    if (S.settings.coach === "old_soviet_rework") S.settings.coach = "old_soviet"; // the rework became the canonical "Old Soviet"
-    S.settings.density = "compact"; // density picker removed — compact is the only layout now
-    // New default coach is Old Soviet with plain replies — bump anyone still on the old "mentor" default
-    // (one-time, so a later deliberate choice of any coach/voice sticks).
-    if (!S.settings.coachDefaulted) {
-      if (!store.settings || store.settings.coach == null || store.settings.coach === "mentor") {
-        S.settings.coach = "old_soviet"; S.settings.coachPlain = true;
-      }
-      S.settings.coachDefaulted = true;
-      browserAPI.storage.local.set({ settings: S.settings });
-    }
-    // The avatar always reflects the chosen coach; the reply bank loads only when special replies are on.
-    S.coach = S.settings.coachPlain ? null : await loadCoach(S.settings.coach);
-    // One-time bump of the old shallow default depth (12) to the new classification depth.
-    // Keyed on a flag so a deliberate later choice of a low depth isn't overridden again.
-    if (!S.settings.depthBumped) {
-      if ((store.settings?.engineDepth ?? 12) <= 12) S.settings.engineDepth = Math.max(S.settings.engineDepth, 16);
-      S.settings.depthBumped = true;
-      browserAPI.storage.local.set({ settings: S.settings });
-    }
-    // The 5-line option was removed — clamp any stored value to the new max.
-    if (S.settings.engineLines > ENGINE_MAX_LINES) { S.settings.engineLines = ENGINE_MAX_LINES; browserAPI.storage.local.set({ settings: S.settings }); }
-    // MultiPV 1 is the analysis-batch default (fast + tracks the reference values as well as mpv2, per
-    // tools/dataset/compare-mpv.mjs). Undo the brief mpv2 experiment for anyone it bumped.
-    if (S.settings.mpv2Calibrated) {
-      if (S.settings.classifyLines === 2) S.settings.classifyLines = 1;
-      delete S.settings.mpv2Calibrated;
-      browserAPI.storage.local.set({ settings: S.settings });
-    }
-    // Use the saved layout if it matches the current version; otherwise the new default.
-    const useStored = store.layoutVersion === LAYOUT_VERSION && store.layout;
-    S.layout = useStored ? { ...structuredClone(DEFAULT_LAYOUT), ...store.layout } : structuredClone(DEFAULT_LAYOUT);
-    S.layoutMode = useStored && store.layoutMode === "custom" ? "custom" : "auto";
-    if (!useStored) saveLayout();
-    if (store.layoutVersion != null && store.layoutVersion !== LAYOUT_VERSION) await resetLegacyZoom();
-    S.username = store.username || "";
-
-    // Everything the first render needs must be resolved BEFORE buildUI(), so that buildUI() and
-    // applyGame() run back-to-back with no await between them — i.e. the browser paints the whole
-    // page in one frame. Any await in that gap lets the empty shell paint first, and since the
-    // Moves panel is the only module whose header is built in buildUI() (the rest are empty mounts
-    // filled by renderAll()), that intermediate frame showed the Moves panel sitting on its own.
-    await dataReady;         // book + calibration (downloaded in parallel; usually already resolved)
-    // Resolve any stored analysis for this game by id (same derivation as currentGameId(), but from
-    // the payload since S isn't populated yet) so applyGame() needs no lookup await of its own.
-    if (!("analysis" in payload)) {
-      let saved = null;
-      try {
-        const id = canonicalGameId({ gameId: payload.meta && payload.meta.gameId, pgn: payload.pgn });
-        const k = analysisCacheKey(id);
-        dbg("cache lookup", { gameId: id, key: k });
-        const s = await browserAPI.storage.local.get(k);
-        saved = s[k] || null;
-      } catch {}
-      payload.analysis = saved;
-    }
-    buildUI();               // built once; switching games re-uses it (no full page reload)
-    await applyGame(payload);
-    // Two-phase load: now that initialization succeeded, remove the job data so it doesn't accumulate.
-    const jobId = location.hash.replace(/^#/, "");
-    if (jobId && jobId !== "explore") {
-      await browserAPI.storage.local.remove(`job:${jobId}`);
-    }
-    // Fit the desktop composition or custom canvas; narrow windows retain the responsive grid.
-    initTabZoom();
-    requestAnimationFrame(alignPlayers); // measure the board after the first layout
-  } catch (err) {
-    const e = document.getElementById("error");
-    e.hidden = false;
-    e.textContent = "Error: " + err.message;
-    console.error(err);
-  }
-})();
