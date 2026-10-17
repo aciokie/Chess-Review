@@ -5,6 +5,28 @@ locally in your browser. One click turns any **Chess.com** or **Lichess** game i
 review — accuracy scores, move-by-move classifications, an evaluation graph, and an estimated
 rating. No account, no server, no manual PGN copying.
 
+**Learn with Chess Review** opens from the button beneath Engine, beside the move
+controls. By default, the review panels morph into one learning workspace while
+the board and top bar stay in place. **Settings → Visual → Learning experience**
+offers **Morph in place**, **Studio Morph**, **Minimal morph**, **Board morph**, and
+the original **Separate page** layout. The transition also runs when returning to
+review and respects reduced-motion preferences.
+The learning workspace includes 23 concept lessons with 47 exercises, 25,000 offline
+puzzles, 1/5/10-minute challenges, and 12 opening courses with 24 annotated lines.
+Lessons use move, square-selection and position-reading exercises. Opening practice
+supports both colors and automatic opponent replies. Progress and bookmarks stay in
+your browser, and **Back to review** restores your game position and orientation. The
+[learning objective and progress tracker](docs/LEARN_WITH_CHESS_REVIEW.md) records the
+design brief; [content sources](data/learning/SOURCES.md) record licensing and
+validation scope.
+
+The right-hand Settings panel includes an optional **Concepts** tab after Visual and
+Engine. A separate **Concepts** panel to the right of Accuracy and Engine uses those
+same findings, phrased from your playing side, with a **Coach reply** view that picks
+the one most useful lesson for the selected move. Check **Enable concept analysis** to
+list supported findings with their exact scopes. It defaults off and stops its worker
+immediately when disabled. Existing scores and coach comments are unchanged.
+
 **Source:** https://github.com/T-Julsgaard/Chess-Review
 
 **Chrome webshop**: https://chromewebstore.google.com/detail/chess-review/pdbffcjdmcadihmnmenkadndbdbigfam?hl=en
@@ -15,6 +37,7 @@ rating. No account, no server, no manual PGN copying.
 
 - **One-click review** of any Chess.com or Lichess game — or paste a game URL / raw PGN.
 - **Accuracy estimates** for both players, calculated from local Stockfish analysis using the extension's scoring rules. Scores can differ from other review tools.
+- **Accuracy by game phase**: each player's accuracy is also split into Opening (first 10 moves), Middlegame and Endgame (six or fewer knights, bishops, rooks and queens left), shown under the Elo estimate.
 - **Move classifications** from Masterstroke to Blunder, with an evaluation graph and best-move arrows.
 - **Estimated rating** — a rough guide to the level each player performed at in the game.
 - **Opening detection** from an offline book, named even for PGNs without headers.

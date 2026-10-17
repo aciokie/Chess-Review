@@ -8,6 +8,10 @@ import { Engine } from "./engine/uci.js";
 import { flagCodeForCountryId, countryNameForId } from "./flags.js";
 import { browserAPI } from "./browser-compat.js";
 import { canonicalGameId, analysisCacheKey } from "./gameid.js";
+import { ConceptSession, conceptKey } from "./lib/concepts/session.js";
+import { CONCEPT_GROUPS, DEFAULT_CONCEPT_GROUPS, normalizeConceptGroups, FAST_CONCEPT_REMOVALS, CONCEPT_ITEMS, normalizeDisabledConcepts } from "./lib/concepts/controls.js";
+import { coachInsights, coachReply } from "./lib/coach-insights.js";
+import { LearningWorkspace } from "./lib/learning/workspace.js";
 
 // Development-only diagnostics for game identity / cache routing. Silent in production; enable by
 // opening the page with ?debug (analysis.html?debug#<job>) or setting globalThis.CHESS_REVIEW_DEBUG.
@@ -211,6 +215,10 @@ function migrateVisualAssetSettings(settings) {
 }
 
 const DEFAULT_SETTINGS = {
+  conceptsEnabled: false,
+  conceptGroups: DEFAULT_CONCEPT_GROUPS,
+  disabledConcepts: [],
+  conceptsView: "all",
   categoryNames: {},
   theme: "dark", accent: "#7fb45f", accentCustom: "#9b72d0", density: "compact",
   evalView: "both", mlStyle: "rows", badgeStyle: "icon", badgeScale: 1,
@@ -248,6 +256,7 @@ const DEFAULT_SETTINGS = {
   showThreat: false,
   // Move animation (sliding piece on single-step navigation). 1 = slow, 10 = fast.
   moveAnim: true, animSpeed: 7,
+  learningTransition: "morph",
   // Loading animation while the analysis runs (selectable style).
   loaderStyle: "wave",
   // Engine panel: how many candidate lines to show. The batch only searches the single best line
@@ -322,13 +331,15 @@ const LAYOUT_VERSION = 8;
 const DEFAULT_LAYOUT = {
   board:    { x: 344,  y: 0,   w: 822, h: 934 },
   evalbar:  { x: 288,  y: 58,  w: 30,  h: 816 },
-  controls: { x: 1194, y: 812, w: 310, h: 54  },
+  controls: { x: 1194, y: 928, w: 310, h: 54  },
   coach:    { x: 1570, y: 0,   w: 192, h: 196 },
   review:   { x: 1200, y: 60,  w: 606, h: 136 },
   moves:    { x: 1200, y: 218, w: 300, h: 386 },
-  accuracy: { x: 1510, y: 216, w: 294, h: 506 },
+  accuracy: { x: 1510, y: 216, w: 294, h: 536 },
   graph:    { x: 1200, y: 620, w: 302, h: 178 },
-  engine:   { x: 1512, y: 738, w: 294, h: 176 },
+  engine:   { x: 1512, y: 768, w: 294, h: 146 },
+  concepts: { x: 1822, y: 60,  w: 294, h: 854 },
+  learn:    { x: 1512, y: 928, w: 294, h: 54 },
 };
 const GRIP_SVG = `<svg viewBox="0 0 12 12" width="12" height="12"><path d="M11 4 4 11M11 8 8 11" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>`;
 const HANDLE_SVG = `<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><circle cx="5" cy="4" r="1.3"/><circle cx="11" cy="4" r="1.3"/><circle cx="5" cy="8" r="1.3"/><circle cx="11" cy="8" r="1.3"/><circle cx="5" cy="12" r="1.3"/><circle cx="11" cy="12" r="1.3"/></svg>`;
@@ -424,8 +435,9 @@ function shareGame(ev) {
   try {
     // Bake the resolved perspective into the export so the game reopens the right way up even on a
     // PC whose stored handle doesn't match either player — the username stays the safety net, the
-    // flip is the certainty. (flip = is the user Black / sitting after a board flip.)
-    const meta = { ...S.meta, flip: S.flipped, myName: (S.players?.[S.meSide]?.name) || S.username || "" };
+    // flip is the certainty. (flip = is the user Black / sitting after a board flip.) A flipped
+    // anonymous import must stay anonymous when reopened, so only an identified side is exported.
+    const meta = { ...S.meta, flip: S.flipped, myName: S.playerKnown === false ? "" : (S.players?.[S.meSide]?.name) || S.username || "" };
     let pgn = S.pgn;
     if (S.meta?.explore && S.variation) {
       const chess = new Chess(S.variation.positions[0].fen);
@@ -632,6 +644,7 @@ const S = {
   players: { w: {}, b: {} }, meSide: "w",
   // acc = displayed (category-based) accuracy; accElo = win%-based accuracy that feeds the Elo estimate.
   acc: { w: null, b: null }, accElo: { w: null, b: null }, counts: { w: {}, b: {} },
+  phaseAcc: { w: {}, b: {} },
   bookCount: 0, opening: null, verdict: "Analyzing …",
   idx: 0, total: 0, flipped: false,
   // `progress` is the contiguous prefix that is safe to navigate to while a batch is
@@ -785,7 +798,7 @@ function deriveOpening(h) {
 }
 function derivePlayers(h, meta, username) {
   const res = h.Result || meta.result || "";
-  const me = (username || "").toLowerCase();
+  const me = (meta.myName || username || "").toLowerCase();
   // country = flag basename ("US", "GB_ENG") resolved from the chess.com country id the page
   // scraped, or null when we have no flag for it → the avatar falls back to the username initial.
   // countryName labels the flag's hover tooltip.
@@ -793,7 +806,8 @@ function derivePlayers(h, meta, username) {
   const b = { name: h.Black || meta.black?.user || "Black", rating: h.BlackElo || "", result: res, country: flagCodeForCountryId(meta.black?.countryId), countryName: countryNameForId(meta.black?.countryId) };
   let meSide = "w";
   if (me && b.name.toLowerCase() === me && w.name.toLowerCase() !== me) meSide = "b";
-  return { players: { w, b }, meSide };
+  const playerKnown = !!me && (w.name.toLowerCase() === me) !== (b.name.toLowerCase() === me);
+  return { players: { w, b }, meSide, playerKnown };
 }
 
 /* ---------------- Math ---------------- */
@@ -1340,8 +1354,54 @@ function classifyLine(state) {
   state.opening = bookOpening || state.openingHeader;
 }
 
+/* ---------------- Accuracy by game phase ---------------- */
+const PHASES = ["opening", "middlegame", "endgame"];
+const PHASE_LABEL = { opening: "Opening", middlegame: "Middlegame", endgame: "Endgame" };
+const OPENING_PLIES = 20;      // the first 10 full moves
+const ENDGAME_MAX_PIECES = 6;  // knights, bishops, rooks and queens left on the board (both sides)
+function pieceCountNonPawn(fen) {
+  const board = String(fen || "").split(" ")[0];
+  let n = 0;
+  for (const ch of board) if ("nbrqNBRQ".includes(ch)) n++;
+  return n;
+}
+// Phase of each ply's move (index = ply, 1-based; judged from the position the move was played
+// in). Phases only move forward: opening → middlegame → endgame.
+function phaseByPly(state = S) {
+  const out = new Array((state.total || 0) + 1).fill(null);
+  let phase = "opening";
+  for (let i = 1; i <= (state.total || 0); i++) {
+    const before = state.positions[i - 1];
+    if (!before) break;
+    if (pieceCountNonPawn(before.fen) <= ENDGAME_MAX_PIECES) phase = "endgame";
+    else if (phase === "opening" && i > OPENING_PLIES) phase = "middlegame";
+    out[i] = phase;
+  }
+  return out;
+}
+// { w: {opening, middlegame, endgame}, b: {...} } — each the average move score within the phase
+// (same per-move scoring as the shown accuracy), or null when that side had no scored move there.
+function phaseAccuracy(state = S) {
+  const phases = phaseByPly(state);
+  const winpct = CALIB?.display === "winpct";
+  const sums = { w: {}, b: {} };
+  for (const s of ["w", "b"]) for (const p of PHASES) sums[s][p] = { t: 0, n: 0 };
+  for (let i = 1; i <= (state.total || 0); i++) {
+    const c = state.classif[i];
+    if (!c || !phases[i]) continue;
+    const a = winpct && state.accMove[i] != null ? state.accMove[i] : catAcc(c);
+    if (a == null) continue;
+    const slot = sums[state.positions[i].color][phases[i]];
+    slot.t += a; slot.n++;
+  }
+  const out = { w: {}, b: {} };
+  for (const s of ["w", "b"]) for (const p of PHASES) out[s][p] = sums[s][p].n ? sums[s][p].t / sums[s][p].n : null;
+  return out;
+}
+
 function computeDerived() {
   classifyLine(S);
+  S.phaseAcc = phaseAccuracy(S);
   const N = S.total;
   const eloAccs = sideAccuracies();   // win%-based accuracy → Elo (unchanged)
   for (const side of ["w", "b"]) {
@@ -1441,6 +1501,9 @@ function buildUI() {
   const graphMount = el("div", { id: "graphMount" });
   const statsMount = el("div", { id: "statsMount" });
   const engineMount = el("div", { id: "engineMount" });
+  const conceptsMount = el("div", { id: "conceptsMount" });
+  const learnMount = el("div", { class: "learn-entry" },
+    el("button", { class: "learn-entry-button", onclick: openLearning }, icon("book"), "Learn with Chess Review"));
 
   // The stage holds every module. In the automatic layout the side wrappers group the panels into
   // columns (styles.css picks wide / medium / narrow by window size); in the custom layout they are
@@ -1452,10 +1515,11 @@ function buildUI() {
       makeMod("review", reviewMount),
       el("div", { class: "side-cols" },
         el("div", { class: "side-a" }, makeMod("moves", movesPanel), makeMod("graph", graphMount), makeMod("controls", controls)),
-        el("div", { class: "side-b" }, makeMod("accuracy", statsMount), makeMod("engine", engineMount)),
+        el("div", { class: "side-b" }, makeMod("accuracy", statsMount), makeMod("engine", engineMount), makeMod("learn", learnMount)),
       ),
       makeMod("coach", coachMount),
     ),
+    makeMod("concepts", conceptsMount),
   );
 
   const settings = el("div", { class: "settings-pop", id: "settings", hidden: true });
@@ -1483,7 +1547,7 @@ function buildUI() {
     meta: document.getElementById("meta"), settings, canvas, boardWrap,
     playerTop, playerBot, controls, coach: coachMount, evalbar: evalbarMount,
     review: reviewMount, movesBody, movesCount, movesFoot,
-    graph: graphMount, stats: statsMount, engine: engineMount,
+    graph: graphMount, stats: statsMount, engine: engineMount, concepts: conceptsMount,
     libRail, libControls, libList, libCount,
   };
 
@@ -1491,7 +1555,48 @@ function buildUI() {
   initBoardInput();
   renderCoachAvatar();     // mount the animated coach portrait for the active personality
   renderLibrary();
+  if (typeof ResizeObserver !== "undefined") {
+    const alignment = new ResizeObserver(() => alignConceptPanel());
+    alignment.observe(UI.engine.closest(".mod"));
+    alignment.observe(UI.review.closest(".mod"));
+  }
   window.addEventListener("resize", () => { fitEnginePanel(); growCanvas(); alignPlayers(); positionSettings(); });
+}
+
+let learningWorkspace = null;
+let deferredPracticeAdvance = false;
+async function openLearning() {
+  if (learningWorkspace) return;
+  // Finish an already-started practice animation before freezing its exact board.
+  if (S.practice && (S.practice.rolling || S.practice.demoing || S.practice.busy)) {
+    toast("Let the current practice move finish, then open learning."); return;
+  }
+  const playing = !!S.autoTimer;
+  if (playing) { clearInterval(S.autoTimer); S.autoTimer = null; renderControls(); }
+  const snapshot = {idx:S.idx, flipped:S.flipped, variationIdx:S.variation?.idx, selectedSq:S.selectedSq,
+    lineWalking:S.lineWalking, bestWalking:S.bestWalking};
+  stopLineWalk();
+  UI.settings.hidden = true;
+  hideBoardBadgeTip();
+  learningWorkspace = new LearningWorkspace({document, storage:browserAPI.storage.local, makePiece, url:_url,
+    settings:()=>S.settings, flipped:S.flipped, book:()=>BOOK,
+    embedded:LearningWorkspace.presentationFor(S.settings) === "page" ? null : {stage:UI.canvas, boardWrap:UI.boardWrap, fen:activePos().fen},
+    onClose:()=>{
+      learningWorkspace = null;
+      S.idx=snapshot.idx; S.flipped=snapshot.flipped; S.selectedSq=snapshot.selectedSq;
+      if(S.variation&&snapshot.variationIdx!=null)S.variation.idx=snapshot.variationIdx;
+      if(!S.practice){paintBoard();}
+      renderControls();
+      if(deferredPracticeAdvance){
+        deferredPracticeAdvance=false;
+        const practice=S.practice;
+        setTimeout(()=>{if(S.practice===practice)practiceAdvance();},1300);
+      }
+      if(playing&&!S.practice&&!S.analysisMode)toggleAuto();
+      if(snapshot.bestWalking)playBestMoves();
+      else if(snapshot.lineWalking)startLineWalk();
+    }});
+  await learningWorkspace.open();
 }
 
 /* ---------------- Loading indicator ----------------
@@ -1532,6 +1637,7 @@ function layoutForSave() {
   const out = structuredClone(S.layout);
   if (out.accuracy) out.accuracy.h += delta;
   for (const k of belowKeys) if (out[k]) out[k].y += delta;
+  if (S._accReflow.conceptsResized && out.concepts) out.concepts.h += delta;
   return out;
 }
 function saveLayout() {
@@ -1552,6 +1658,7 @@ function applyLayout() {
   const custom = isCustomLayout();
   const desktop = !custom && UI.canvas.classList.contains("desktop-layout");
   const collapse = desktop && !S.qbreakExpanded ? accuracyReflowInfo(DEFAULT_LAYOUT) : null;
+  UI.canvas.style.setProperty("--desktop-width", layoutPageSize(DEFAULT_LAYOUT).pageW + "px");
   for (const mod of UI.canvas.querySelectorAll(".mod")) {
     const key = mod.getAttribute("data-mod");
     const source = custom ? S.layout[key] : desktop ? DEFAULT_LAYOUT[key] : null;
@@ -1619,9 +1726,13 @@ function accuracyReflowInfo(layout = S.layout) {
   for (const [k, o] of Object.entries(layout)) {
     if (k === "accuracy") continue;
     const overlapX = o.x < acc.x + acc.w && o.x + o.w > acc.x;
-    if (overlapX && o.y >= acc.y + acc.h - 1) belowKeys.push(k);
+    const followsLearningRow = k === "controls" && layout.learn && o.y === layout.learn.y;
+    if ((overlapX || followsLearningRow) && o.y >= acc.y + acc.h - 1) belowKeys.push(k);
   }
-  return { delta, belowKeys };
+  const concepts = layout.concepts, review = layout.review, engine = layout.engine;
+  const conceptsResized = !!(concepts && review && engine && concepts.x >= engine.x + engine.w
+    && Math.abs(concepts.y - review.y) < 1 && Math.abs(concepts.y + concepts.h - engine.y - engine.h) < 1);
+  return { delta, belowKeys, conceptsResized };
 }
 // Keep the Accuracy module and everything stacked below it glued together when the category list
 // expands/collapses on the custom canvas (the automatic layout reflows on its own). The saved
@@ -1632,15 +1743,17 @@ function reflowAccuracy(expanded) {
   if (!UI.canvas || !isCustomLayout()) return;
   const acc = S.layout.accuracy; if (!acc) return;
   if (!expanded && !S._accReflow) {
-    const { delta, belowKeys } = accuracyReflowInfo();
+    const { delta, belowKeys, conceptsResized } = accuracyReflowInfo();
     acc.h = Math.max(MINH, acc.h - delta);
     for (const k of belowKeys) S.layout[k].y = Math.max(0, S.layout[k].y - delta);
-    S._accReflow = { delta, belowKeys };
+    if (conceptsResized) S.layout.concepts.h = Math.max(MINH, S.layout.concepts.h - delta);
+    S._accReflow = { delta, belowKeys, conceptsResized };
   } else if (expanded && S._accReflow) {
     // Expand: restore the panel's height and push the same modules back down.
     const { delta, belowKeys } = S._accReflow;
     acc.h += delta;
     for (const k of belowKeys) if (S.layout[k]) S.layout[k].y += delta;
+    if (S._accReflow.conceptsResized && S.layout.concepts) S.layout.concepts.h += delta;
     S._accReflow = null;
   }
   applyLayout(); growCanvas();
@@ -1805,6 +1918,7 @@ function makePiece(type, side) {
   return el("img", { class: "piece-img", src: _url(`pieces-img/${setFolder}/${code}.svg`), alt: "", draggable: "false" });
 }
 function buildBoard() {
+  if (learningWorkspace?.embedded) return;
   const files = ["a","b","c","d","e","f","g","h"];
   const ranks = [8,7,6,5,4,3,2,1];
   const rowOrder = S.flipped ? [...ranks].reverse() : ranks;
@@ -1830,6 +1944,7 @@ function buildBoard() {
   paintBoard();
 }
 function paintBoard() {
+  if (learningWorkspace?.embedded) return;
   hideBoardBadgeTip();
   const pos = activePos();
   const boardEl = UI.boardWrap.querySelector(".board");
@@ -1929,6 +2044,7 @@ function arrowBuild(pts, headLen, headHalf) {
 }
 const arrowFmt = (p) => `${+p.x.toFixed(4)},${+p.y.toFixed(4)}`;
 function renderBestArrow() {
+  if (learningWorkspace?.embedded) return;
   const board = UI.boardWrap.querySelector(".board");
   if (!board) return;
   let svg = board.querySelector("svg.best-arrow");
@@ -2048,6 +2164,7 @@ function toggleUserArrow(from, to) {
 }
 // preview: temporary arrow during dragging (drawn on top of the saved ones).
 function renderUserArrows(preview) {
+  if (learningWorkspace?.embedded) return;
   const board = UI.boardWrap.querySelector(".board");
   if (!board) return;
   let svg = board.querySelector("svg.user-arrows");
@@ -2140,6 +2257,7 @@ function threatFen(fen) {
 // "Show the threat": draw the opponent's best move (as if it were their turn) as a yellow arrow.
 let _threatToken = 0;
 async function renderThreatArrow() {
+  if (learningWorkspace?.embedded) return;
   const board = UI.boardWrap.querySelector(".board");
   if (!board) return;
   let svg = board.querySelector("svg.threat-arrow");
@@ -2152,10 +2270,10 @@ async function renderThreatArrow() {
   if (uci === undefined) {
     const token = ++_threatToken;
     let eng; try { eng = await getHelperEngine(); } catch { return; }
-    if (token !== _threatToken) return;
+    if (token !== _threatToken || learningWorkspace?.embedded) return;
     eng.stop();
     let res; try { res = await eng.analyse(threatFen(fen), Math.min(14, S.settings.engineDepth), 1); } catch { return; }
-    if (token !== _threatToken) return;
+    if (token !== _threatToken || learningWorkspace?.embedded) return;
     uci = res && res.bestmove ? res.bestmove : null;
     S.threatCache.set(fen, uci);
     if (activePos().fen !== fen) return;          // position changed while we searched
@@ -2221,8 +2339,9 @@ function initBoardInput() {
   const wrap = UI.boardWrap;
   wrap.addEventListener("contextmenu", (e) => e.preventDefault());
   // Never let the browser start its own image/element drag on the board (the stray ghost image).
-  wrap.addEventListener("dragstart", (e) => e.preventDefault());
+  wrap.addEventListener("dragstart", (e) => {if (!learningWorkspace?.embedded) e.preventDefault();});
   wrap.addEventListener("pointerdown", (e) => {
+    if (learningWorkspace) return;
     if (e.button === 2) { rightPointerDown(e); return; }
     if (e.button !== 0) return;
     // During practice the board only accepts moves while you're actively solving (not while it's
@@ -3223,6 +3342,10 @@ function analysisProgressText() {
   return `Analyzing … ${done}/${S.total}`;
 }
 function renderReview() {
+  refreshConcepts();
+  // Cached/completed inputs do not emit a worker update on navigation.
+  if (UI.settings && !UI.settings.hidden && S.settingsTab === "concepts") renderSettings();
+  renderCoachPanel();
   // In-place progress text during analysis (so the loader animation doesn't restart each move).
   if (S.analyzing && revRefs) { revRefs.head.textContent = analysisProgressText(); return; }
 
@@ -3559,7 +3682,13 @@ function renderStats() {
     onclick: () => { S.qbreakExpanded = !S.qbreakExpanded; renderStats(); reflowAccuracy(S.qbreakExpanded); },
   }, icon("chevron"));
   const qbreak = el("div", { class: "qbreak" }, ...qrows, expander);
-
+  const phaseVal = (v) => (v == null ? "–" : v.toFixed(0));
+  const phaseLine = (side) => el("div", { class: "phase-line", "aria-label": "Accuracy by game phase" },
+    ...PHASES.map((p) => {
+      const v = S.phaseAcc?.[side]?.[p];
+      return el("span", { class: "phase-cell" + (v == null ? " none" : ""), title: `${PHASE_LABEL[p]} accuracy` },
+        el("i", {}, { opening: "Open", middlegame: "Mid", endgame: "End" }[p]), el("b", {}, S.analyzing ? "·" : phaseVal(v)));
+    }));
   UI.stats.replaceChildren(el("div", { class: "panel" },
     // The button is always rendered (disabled while analyzing or already practicing) so the
     // header height never changes between states.
@@ -3573,7 +3702,8 @@ function renderStats() {
             ? loaderNode("acc-val", "var(--accent)")
             : el("span", { class: "acc-val", style: { color: "var(--accent)" }, onmouseenter: (e) => showInfoTip(e.currentTarget, "Accuracy", ACCURACY_INFO), onmouseleave: hideQTip }, meAcc == null ? "—" : meAcc.toFixed(1)),
           el("span", { class: "acc-bar" }, el("i", { style: { width: (S.analyzing ? 0 : (meAcc || 0)) + "%", background: "var(--accent)" } })),
-          el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", ELO_INFO), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (estimateElo(meEloAcc, meRating) ?? "—") + " elo")),
+          el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", ELO_INFO), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (estimateElo(meEloAcc, meRating) ?? "—") + " elo"),
+          phaseLine(S.meSide)),
         el("span", { class: "acc-vs" }, "VS"),
         el("div", { class: "acc-cell right" },
           el("span", { class: "acc-name" }, S.players[opSide].name),
@@ -3581,7 +3711,8 @@ function renderStats() {
             ? loaderNode("acc-val", "var(--accent)")
             : el("span", { class: "acc-val", style: { color: "var(--ink-2)" }, onmouseenter: (e) => showInfoTip(e.currentTarget, "Accuracy", ACCURACY_INFO), onmouseleave: hideQTip }, opAcc == null ? "—" : opAcc.toFixed(1)),
           el("span", { class: "acc-bar" }, el("i", { style: { width: (S.analyzing ? 0 : (opAcc || 0)) + "%", background: "var(--ink-3)", marginLeft: (100 - (S.analyzing ? 100 : (opAcc || 0))) + "%" } })),
-          el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", ELO_INFO), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (estimateElo(opEloAcc, opRating) ?? "—") + " elo")),
+          el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", ELO_INFO), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (estimateElo(opEloAcc, opRating) ?? "—") + " elo"),
+          phaseLine(opSide)),
       ),
       qbreak,
     ),
@@ -3912,6 +4043,92 @@ function renderVarBlocks() {
 }
 
 /* ---------------- Engine lines ---------------- */
+let _coachPositionKey = null;
+
+function alignConceptPanel() {
+  const mod = UI.concepts?.closest(".mod"), review = UI.review?.closest(".mod"), engine = UI.engine?.closest(".mod");
+  if (!mod || !review || !engine || isCustomLayout()) return;
+  if (UI.canvas.classList.contains("desktop-layout")) {
+    const top = parseFloat(review.style.top), bottom = parseFloat(engine.style.top) + parseFloat(engine.style.height);
+    mod.style.top = top + "px";
+    mod.style.left = parseFloat(engine.style.left) + parseFloat(engine.style.width) + 16 + "px";
+    mod.style.height = Math.max(MINH, bottom - top) + "px";
+  } else if (window.innerWidth >= 1500 && window.innerHeight >= 600) {
+    const r = review.getBoundingClientRect(), e = engine.getBoundingClientRect();
+    const scale = r.height / review.offsetHeight || 1;
+    mod.style.height = Math.max(MINH, (e.bottom - r.top) / scale) + "px";
+  } else mod.style.height = "";
+}
+
+function renderCoachPanel() {
+  if (!UI.concepts) return;
+  const mount = UI.concepts;
+  const selected = activePos(), hasMove = !S.practice && !!selected.from && !!selected.to;
+  const input = S.settings.conceptsEnabled === true ? selectedConceptInput() : null;
+  const key = input ? conceptKey(input) : S.practice ? "practice" : hasMove ? selected.fen : "start";
+  const view = S.settings.conceptsView === "reply" ? "reply" : "all";
+  const player = S.playerKnown === false ? null : S.meSide;
+  const signature = JSON.stringify([key, player, view, S.settings.conceptsEnabled]);
+  const same = signature === _coachPositionKey, oldBody = mount.querySelector(".coach-insights-body");
+  const scroll = same ? oldBody?.scrollTop || 0 : 0;
+  const open = new Set(same ? [...mount.querySelectorAll("details[open]")].map(d => d.dataset.insight) : []);
+  const focused = mount.contains(document.activeElement) ? document.activeElement.id : null;
+  _coachPositionKey = signature;
+  const mover = hasMove ? selected.color : null;
+  const entry = input && _conceptSession?.entries.get(key);
+  const body = el("div", {class: "panel-body coach-insights-body" + (view === "reply" ? " coach-reply-body" : ""), "aria-labelledby": "conceptsHeading"});
+  body.append(el("p", {class: "coach-position", "aria-live": "polite"},
+    `${!player ? "Player identity unavailable" : player === "w" ? "Playing White" : "Playing Black"} · ${hasMove ? (S.analysisMode ? "Variation · " : "") + (!player ? (mover === "w" ? "White’s " : "Black’s ") : mover === player ? "Your " : "Opponent’s ") + selected.san : S.practice ? "Practice" : "Starting position"}`));
+  if (view === "all" && hasMove && !S.analysisMode && S.classif[S.idx]) {
+    body.append(el("p", {class: "coach-move-quality"}, `Move assessment: ${categoryName(S.classif[S.idx])}`));
+  }
+  if (S.practice) body.append(el("p", {}, "Use the practice coach above. Position insights return when practice ends."));
+  else if (!S.settings.conceptsEnabled) body.append(
+    el("p", {}, "Enable position insights to see the coach’s explanations for each move."),
+    el("button", {class: "engine-bestwalk", id: "coachEnable", onclick: () => setConceptEnabled(true)}, "Enable position insights"));
+  else if (!input) body.append(el("p", {}, "Select a move to see what changed and what the resulting position contains."));
+  else {
+    const reply = coachReply(entry?.findings || [], {mover, player, change:entry?.change, input});
+    const insights = view === "reply" ? reply.items : coachInsights(entry?.findings || [], {mover, player});
+    if (view === "reply" && !player) body.append(el("p", {class:"coach-status"}, "The playing side could not be identified. All concepts remains available with neutral move labels."));
+    if (!entry || entry.status !== "complete") body.append(el("p", {class: "coach-status"}, insights.length ? "Observations ready; checking further continuations…" : "Checking this position…"));
+    if (entry?.status === "complete" && !insights.length && (view === "all" || player)) body.append(el("p", {class:"coach-empty"}, view === "reply" ? "No specific lesson stands out from the checks available for this move." : "No supported finding within the available inputs and search limits."));
+    const list = el("ol", {class: "coach-insights-list"});
+    for (const finding of insights) {
+      const id = JSON.stringify([finding.event, finding.name, finding.sourceText]);
+      const details = el("details", {"data-insight": id, open: open.has(id)}, el("summary", {}, view === "reply" ? "Why this reply?" : "Evidence and scope"),
+        el("p", {}, finding.kind), el("p", {}, "Detector explanation: " + finding.sourceText),
+        ...(finding.proofNote ? [el("p", {}, finding.proofNote)] : []),
+        ...finding.scopes.map(scope => el("p", {}, scope.occurrence + ": " + scope.scope)),
+        ...(finding.details ? [el("pre", {class:"concept-evidence-data"}, JSON.stringify(finding.details,null,2))] : []),
+        ...(finding.supporting || []).map(f => el("p", {}, f.name + ": " + f.sourceText)),
+        ...(finding.studyScopes?.length ? [el("p", {}, "Candidate study scopes (not acceptance or a per-event claim):"), ...finding.studyScopes.map(scope=>el("p", {},scope.id+": "+scope.scope))] : []));
+      list.append(el("li", {class: "coach-insight", "data-concept": finding.name},
+        el("strong", {}, finding.name),
+        ...(view === "all" ? [el("span", {class: "coach-perspective"}, finding.perspective)] : []),
+        el("p", {}, finding.text),
+        ...(view === "reply" && finding.takeaway ? [el("p", {class:"coach-takeaway"}, el("span", {}, "Try this next time"), finding.takeaway)] : []), details));
+    }
+    body.append(list);
+    const diagnostics = [...(entry?.errors || []), ...(entry?.unavailable || []), ...(entry?.issues || [])];
+    const analysisNotes = [];
+    if (entry?.disabled) analysisNotes.push(el("p", {class:"coach-status"}, "Fast or custom profile · Some groups or individual concepts are off. Change them in Settings → Concepts."));
+    if (diagnostics.length) analysisNotes.push(el("p", {class:"coach-status"}, "Some searches or inputs were unavailable. Showing supported findings; details are in Settings → Concepts."));
+    analysisNotes.push(el("p", {class: "coach-status"}, view === "reply" ? "One lesson selected from this move’s findings. Proof details and conditions are available above. A quiet reply does not certify the move is safe." : `${insights.length} findings · Supported matches from enabled concepts for this move. Provisional implementation does not mean research acceptance.`));
+    if (view === "reply") {
+      if(entry?.errors?.length)body.append(el("p", {class:"coach-status", role:"status"}, "Some checks could not finish. This reply may be incomplete."));
+      body.append(el("details", {class:"coach-analysis-notes", "data-insight":"analysis-notes", open:open.has("analysis-notes")}, el("summary", {}, "Analysis details"), ...analysisNotes));
+    } else body.append(...analysisNotes);
+  }
+  const switcher = el("div", {class:"concept-view-switch", role:"group", "aria-label":"Concept view"},
+    ...[["all","All concepts"],["reply","Coach reply"]].map(([value,label])=>el("button", {type:"button", id:"concept-view-"+value, "aria-pressed":view===value?"true":"false", onclick:()=>{S.settings.conceptsView=value;browserAPI.storage.local.set({settings:S.settings});renderCoachPanel();}},label)));
+  mount.replaceChildren(el("div", {class: "panel coach-insights-panel"},
+    el("div", {class: "panel-head"}, el("h3", {id: "conceptsHeading"}, "Concepts")), switcher, body));
+  body.scrollTop = scroll;
+  if (focused) document.getElementById(focused)?.focus({preventScroll: true});
+  alignConceptPanel();
+}
+
 // While solving a practice position, the engine lines would give the answer away → hide them.
 function renderEnginePractice() {
   UI.engine.replaceChildren(el("div", { class: "panel" },
@@ -3987,6 +4204,7 @@ function fitEnginePanel() {
   } else if (UI.canvas.classList.contains("desktop-layout")) {
     mod.style.height = height + "px";
   }
+  alignConceptPanel();
 }
 function renderEngine(lines, padFromCache = false) {
   const curFen = activePos().fen;
@@ -4429,7 +4647,7 @@ const VISUAL_SETTING_KEYS = [
   "graphStyle", "barStyle", "insightFont", "showCoords", "coordSize", ...BACKGROUND_SETTING_KEYS,
   "coach", "coachPlain", "boardTheme", "pieceStyle", "boardCustomLight", "boardCustomDark",
   "sound", "soundVolume", "soundFx", ...ARROW_SETTING_KEYS,
-  "moveAnim", "animSpeed", "loaderStyle",
+  "moveAnim", "animSpeed", "loaderStyle", "learningTransition",
 ];
 function resetSettingKeys(keys) {
   for (const key of keys) S.settings[key] = structuredClone(DEFAULT_SETTINGS[key]);
@@ -4551,6 +4769,12 @@ function visualSettings() {
     section("Move animation",
       toggleRow("Animation", "moveAnim"),
       slider("Speed", "animSpeed", 1, 10, 1, { fmt: (v) => (440 - v * 40) + " ms" }),
+    ),
+    section("Learning experience",
+      el("div", {class:"learn-style-options", role:"group", "aria-label":"Learning presentation"}, ...LearningWorkspace.presentations.map(({id,label,description})=>
+        el("button", {type:"button",class:"learn-style-option", "data-presentation":id,"aria-pressed":String(S.settings.learningTransition===id),onclick:()=>setSetting("learningTransition",id)},
+          el("span", {class:"learn-style-radio","aria-hidden":"true"}),el("span",{},el("strong",{},label),el("small",{},description))))),
+      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Each morph includes its own layout and animation. Reduced motion uses an instant transition.")),
     ),
     section("Layout",
       seg("Eval", "evalView", ["both", "bar", "graph"]),
@@ -4692,12 +4916,18 @@ function motorSettings() {
 function renderSettings() {
   closeArrowColorPicker();
   const scroll = UI.settings.scrollTop; // keep scroll position when a setting changes
+  const openConceptDetails = new Set([...UI.settings.querySelectorAll(".concepts-panel details[open]")].map(node => node.dataset.conceptDetail));
+  const focusedConceptToggle = UI.settings.contains(document.activeElement) && document.activeElement.id?.startsWith("concept") ? document.activeElement.id : null;
   const tabs = el("div", { class: "set-tabs" },
     el("button", { class: "set-tab" + (S.settingsTab === "visual" ? " on" : ""), onclick: () => { S.settingsTab = "visual"; renderSettings(); } }, "Visual"),
     el("button", { class: "set-tab" + (S.settingsTab === "engine" ? " on" : ""), onclick: () => { S.settingsTab = "engine"; renderSettings(); } }, "Engine"),
+    el("button", { class: "set-tab" + (S.settingsTab === "concepts" ? " on" : ""), onclick: () => { S.settingsTab = "concepts"; refreshConcepts(); renderSettings(); } }, "Concepts"),
   );
-  UI.settings.replaceChildren(tabs, S.settingsTab === "engine" ? motorSettings() : visualSettings());
+  UI.settings.classList.toggle("concepts-open", S.settingsTab === "concepts");
+  UI.settings.replaceChildren(tabs, S.settingsTab === "concepts" ? conceptSettings() : S.settingsTab === "engine" ? motorSettings() : visualSettings());
   UI.settings.scrollTop = scroll;
+  for (const detail of UI.settings.querySelectorAll(".concepts-panel details")) { detail.open = openConceptDetails.has(detail.dataset.conceptDetail); if(detail.open) detail._populateConceptItems?.(); }
+  if (focusedConceptToggle) UI.settings.querySelector("#" + focusedConceptToggle)?.focus({preventScroll: true});
   positionSettings();
 }
 function positionSettings() {
@@ -4707,10 +4937,139 @@ function positionSettings() {
   // stale panel geometry when the automatic/custom layout was reset.
   UI.settings.style.right = window.innerWidth <= 520 ? "" : "24px";
 }
-function toggleSettings() {
+async function toggleSettings() {
+  if (learningWorkspace?.embedded) await learningWorkspace.close();
   closeArrowColorPicker();
   UI.settings.hidden = !UI.settings.hidden;
   if (!UI.settings.hidden) renderSettings();
+}
+
+/* ---------------- Optional, isolated concept analysis ---------------- */
+let _conceptSession = null, _conceptPositions = null, _conceptEnabled = false, _conceptRenderTimer = null;
+let _conceptGameKeys = [], _conceptSelection = null;
+function conceptMoveInput(positions, ply) {
+  if (ply < 1 || !positions[ply]?.from || !positions[ply]?.to) return null;
+  const history = searchHistory(positions, ply - 1), move = positions[ply];
+  return {fen: positions[ply - 1].fen, move: move.from + move.to + (move.promotion || ""),
+    history: {fen: history.initialFen, moves: history.moves}, conceptGroups: normalizeConceptGroups(S.settings.conceptGroups),
+    ...(normalizeDisabledConcepts(S.settings.disabledConcepts).length ? {disabledConcepts:normalizeDisabledConcepts(S.settings.disabledConcepts)} : {})};
+}
+function selectedConceptInput() {
+  if (S.practice) return null;
+  if (S.analysisMode && S.variation) {
+    const v = S.variation, positions = [...S.positions.slice(0, v.branchIdx + 1), ...v.positions.slice(1, v.idx + 1)];
+    return conceptMoveInput(positions, positions.length - 1);
+  }
+  return conceptMoveInput(S.positions, S.idx);
+}
+function refreshConcepts() {
+  const enabled = S.settings.conceptsEnabled === true;
+  if (!enabled && !_conceptSession) return;
+  if (!_conceptSession) _conceptSession = new ConceptSession({demandOnly: true, setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: id => clearTimeout(id), changed: () => {
+    if (_conceptRenderTimer) return;
+    _conceptRenderTimer = setTimeout(() => {
+      _conceptRenderTimer = null;
+      if (UI.settings && !UI.settings.hidden && S.settingsTab === "concepts") renderSettings();
+      renderCoachPanel();
+    }, 100);
+  }});
+  const selection = JSON.stringify([normalizeConceptGroups(S.settings.conceptGroups), normalizeDisabledConcepts(S.settings.disabledConcepts)]);
+  if (_conceptPositions !== S.positions || _conceptEnabled !== enabled || _conceptSelection !== selection) {
+    const changedGame = _conceptPositions !== S.positions;
+    _conceptPositions = S.positions; _conceptEnabled = enabled; _conceptSelection = selection;
+    // No history building or worker creation while the checkbox is off.
+    const inputs = enabled ? S.positions.slice(1).map((_p, i) => conceptMoveInput(S.positions, i + 1)).filter(Boolean) : [];
+    if (enabled || changedGame) _conceptGameKeys = inputs.map(conceptKey);
+    _conceptSession.configure(inputs, enabled);
+  }
+  if (enabled) { const selected = selectedConceptInput(); if (selected) _conceptSession.include(selected, true); else _conceptSession.cancelSelected(); }
+}
+function setConceptEnabled(enabled) {
+  S.settings.conceptsEnabled = enabled;
+  browserAPI.storage.local.set({settings: S.settings});
+  refreshConcepts();
+}
+function setConceptGroups(groups) {
+  S.settings.conceptGroups = normalizeConceptGroups(groups);
+  browserAPI.storage.local.set({settings: S.settings});
+  refreshConcepts();
+  renderCoachPanel();
+  if (!_conceptRenderTimer) _conceptRenderTimer = setTimeout(() => {
+    _conceptRenderTimer = null;
+    if (UI.settings && !UI.settings.hidden && S.settingsTab === 'concepts') renderSettings();
+  }, 100);
+}
+function setConceptGroup(id, enabled) {
+  const groups = normalizeConceptGroups(S.settings.conceptGroups);
+  setConceptGroups(enabled ? [...groups,id] : groups.filter(value=>value!==id));
+}
+function setConceptItem(id, enabled) {
+  const disabled = normalizeDisabledConcepts(S.settings.disabledConcepts);
+  S.settings.disabledConcepts = normalizeDisabledConcepts(enabled ? disabled.filter(value=>value!==id) : [...disabled,id]);
+  setConceptGroups(S.settings.conceptGroups);
+}
+function resetConceptDefaults() {
+  S.settings.disabledConcepts = [];
+  setConceptGroups(DEFAULT_CONCEPT_GROUPS);
+  renderSettings();
+}
+function conceptSettings() {
+  const enabled = S.settings.conceptsEnabled === true, groups = normalizeConceptGroups(S.settings.conceptGroups), disabled = normalizeDisabledConcepts(S.settings.disabledConcepts);
+  const note = text => el("div", {class: "set-row hint"}, el("span", {class: "set-note"}, text));
+  const checkbox = el("input", {type: "checkbox", id: "conceptsEnabled", checked: enabled,
+    onchange: event => setConceptEnabled(event.target.checked)});
+  const panel = el("div", {class: "concepts-panel"},
+    el("label", {class: "set-row concept-group-row"}, el("span", {class: "set-lbl"}, "Concept analysis"), checkbox),
+    note("Analyzes the selected move locally. Navigation cancels unfinished work for other moves; completed results are reused."));
+  if (S.setOpen["Concept groups"] == null) S.setOpen["Concept groups"] = true;
+  panel.append(section("Concept groups",
+    note("Ordered from lighter to heavier work. Times vary with the position. Legal validation, checks, captures and terminal outcomes stay on."),
+    el("div", {class: "set-row"}, el("span", {class: "set-lbl"}, "Preset"),
+      el("div", {class: "set-seg"}, ...[["Fast",DEFAULT_CONCEPT_GROUPS],["All",CONCEPT_GROUPS.map(g=>g.id)]].map(([label,ids])=>
+        el("button", {class: JSON.stringify(groups)===JSON.stringify(ids)?"on":"", onclick:()=>setConceptGroups(ids)}, label)))),
+    el("div", {class:"set-row"}, el("button", {id:"conceptsReset",class:"concept-reset",onclick:resetConceptDefaults}, "Reset to default")),
+    note("Reset restores the Fast groups and their individual defaults. It keeps the analysis switch and your chosen view."),
+    ...CONCEPT_GROUPS.map(group=>{
+      const removed=new Set(FAST_CONCEPT_REMOVALS.flatMap(item=>item.events));
+      const items=CONCEPT_ITEMS.filter(item=>item.group===group.id&&!removed.has(item.id));
+      const costOrder={Fast:0,'Fast–moderate':1,Moderate:2,Slow:3,'Very slow':4};
+      items.sort((a,b)=>(costOrder[a.cost]??4)-(costOrder[b.cost]??4)||a.name.localeCompare(b.name));
+      const detail = el("details", {class:"concept-group", "data-concept-detail":"group:"+group.id},
+        el("summary", {class:"set-row concept-group-row"},
+          el("span", {class:"concept-group-copy"}, el("span", {class:"set-lbl"}, group.name),
+            el("span", {class:"concept-cost"},group.cost+' · '+items.filter(item=>!disabled.includes(item.id)).length+'/'+items.length+' selected')),
+          el("input", {type:"checkbox",id:"concept-group-"+group.id, "aria-label":"Enable "+group.name,
+            checked:groups.includes(group.id), onclick:event=>event.stopPropagation(), onchange:event=>setConceptGroup(group.id,event.target.checked)})),
+        note(group.description),
+        note("Individual choices apply when this group is on. Shared scans may still serve other enabled concepts."));
+      const populate = () => {
+        if(detail.querySelector(".concept-item-row"))return;
+        detail.append(...items.map(item=>el("label", {class:"set-row concept-item-row"},
+          el("span", {class:"concept-group-copy"},el("span",{class:"set-lbl"},item.name),el("span",{class:"concept-cost"},item.cost)),
+          el("input", {type:"checkbox",id:"concept-item-"+item.id,checked:!disabled.includes(item.id),disabled:!groups.includes(group.id),onchange:event=>setConceptItem(item.id,event.target.checked)}))));
+      };
+      detail._populateConceptItems = populate;
+      detail.ontoggle = () => {if(detail.open)populate();};
+      return detail;
+    })));
+  panel.prepend(el("details", {class:"concept-excluded", "data-concept-detail":"excluded", id:"conceptsExcluded"},
+    el("summary", {}, "Excluded concepts · "+FAST_CONCEPT_REMOVALS.length+" groups"),
+    el("strong", {class:"set-lbl"}, "Temporarily removed / not calculated"),
+    note("Applies to Fast and its lighter selections. These are teaching decisions, not changes to research acceptance. Enabling a heavier group restores the full inspector."),
+    ...FAST_CONCEPT_REMOVALS.map(item=>el("div", {class:"set-row"}, el("span", {class:"concept-group-copy"},
+      el("span", {class:"set-lbl"}, item.name), el("span", {class:"concept-cost"}, item.status), el("span", {class:"set-note"}, item.reason))))));
+  const input = selectedConceptInput(), entry = input && _conceptSession?.entries.get(conceptKey(input));
+  const metrics = _conceptSession?.metrics(_conceptGameKeys) || {timeMs:0,processed:0,total:0,found:0,reused:0};
+  panel.append(section("Analysis status",
+    note(!enabled ? "Analysis is stopped." : !input ? "Select a played move." : entry?.status === "complete" ? "Selected move ready. See its findings and Coach reply in the Concepts panel." : "Selected move pending; supported observations appear as they become ready."),
+    el("p", {id:"conceptMetrics",class:"set-note"},
+      `Concept work: ${(metrics.timeMs/1000).toFixed(2)} s · Positions processed: ${metrics.processed}/${metrics.total} · Findings: ${metrics.found} · Reused: ${metrics.reused}`),
+    note("Only visited positions are processed. Time includes reused work. Accepted and provisional scopes remain separate in finding details."),
+    ...[["Errors","errors"],["Unavailable inputs","unavailable"],["Exhausted budgets","issues"]].map(([label,field])=>{
+      const messages = [...new Set(entry?.[field] || [])];
+      return el("details", {"data-concept-detail":"debug:"+label}, el("summary", {}, label+": "+messages.length), ...messages.map(message=>el("p",{},message)));
+    })));
+  return panel;
 }
 
 /* ---------------- Credits & attributions ----------------
@@ -5092,6 +5451,7 @@ function practiceBeginSolve(solvePos) {
   renderControls(); renderReview(); renderEngineCurrent();
 }
 function practiceAdvance() {
+  if (learningWorkspace) { deferredPracticeAdvance = true; return; }
   const p = S.practice; if (!p) return;
   p.i++;
   p.solving = false;
@@ -5463,7 +5823,13 @@ function variationStep(delta) {
   renderEvalBar(); renderPlayers(); renderControls(); renderReview(); renderEngineCurrent();
   requestLiveEval();
 }
-function toggleFlip() { S.flipped = !S.flipped; buildBoard(); renderPlayers(); renderEvalBar(); }
+function toggleFlip() {
+  if (learningWorkspace?.embedded) {
+    learningWorkspace.flipBoard();
+    return;
+  }
+  S.flipped = !S.flipped; buildBoard(); renderPlayers(); renderEvalBar();
+}
 function toggleAuto() {
   if (S.autoTimer) { clearInterval(S.autoTimer); S.autoTimer = null; }
   else S.autoTimer = setInterval(() => {
@@ -5473,6 +5839,7 @@ function toggleAuto() {
   renderControls();
 }
 document.addEventListener("keydown", (e) => {
+  if (learningWorkspace) return;
   if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
   // During practice the only shortcut is Escape to exit; nav keys are disabled.
   if (S.practice) { if (e.key === "Escape") exitPractice(); return; }
@@ -5729,11 +6096,11 @@ async function applyGame(payload) {
   S.analysisError = null;
   S.openingHeader = deriveOpening(S.headers);
   S.opening = S.openingHeader;
-  const { players, meSide } = derivePlayers(S.headers, S.meta, S.username);
+  const { players, meSide, playerKnown } = derivePlayers(S.headers, S.meta, S.username);
   S.players = players;
   const flip = S.meta && S.meta.flip;
   const side = flip === true ? "b" : flip === false ? "w" : meSide;
-  S.meSide = side; S.flipped = side === "b"; S.idx = 0;
+  S.meSide = side; S.playerKnown = playerKnown; S.flipped = side === "b"; S.idx = 0;
 
   if (isExplore) {
     // Explore mode: standalone analysis board with free movement
@@ -5893,6 +6260,7 @@ async function resetLegacyZoom() {
     const [payload, store] = await Promise.all([loadJob(), browserAPI.storage.local.get(["settings", "username", "layout", "layoutMode", "layoutVersion", "library"])]);
     S.library = Array.isArray(store.library) ? store.library : [];
     S.settings = { ...DEFAULT_SETTINGS, ...(store.settings || {}) };
+    S.settings.learningTransition = LearningWorkspace.presentationFor(store.settings || {});
     const visualAssetsMigrated = migrateVisualAssetSettings(S.settings);
     migrateEngineSettings(S.settings);
     if (visualAssetsMigrated || S.settings.enginePath !== store.settings?.enginePath) {
