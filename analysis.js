@@ -2945,15 +2945,15 @@ function renderControls() {
 
 // Natural phrasing for the move that led to the current position, keyed by classification.
 const COMMENT_PHRASE = {
-  brilliant: (m) => `${m} is a masterstroke.`,
-  great:     (m) => `${m} is a superb move.`,
+  brilliant: (m) => `${m} is brilliant.`,
+  great:     (m) => `${m} is a great move.`,
   best:      (m) => `${m} is the best move.`,
-  excellent: (m) => `${m} is near best.`,
-  good:      (m) => `${m} is a decent move.`,
+  excellent: (m) => `${m} is excellent.`,
+  good:      (m) => `${m} is a good move.`,
   book:      (m) => `${m} follows opening theory.`,
-  inacc:     (m) => `${m} is a minor misstep.`,
-  mistake:   (m) => `${m} is a major misstep.`,
-  miss:      (m) => `${m} is a missed chance.`,
+  inacc:     (m) => `${m} is an inaccuracy.`,
+  mistake:   (m) => `${m} is a mistake.`,
+  miss:      (m) => `${m} is a miss.`,
   blunder:   (m) => `${m} is a blunder.`,
 };
 // SAN of the engine's best move in the position BEFORE ply `idx` (the alternative to what was played).

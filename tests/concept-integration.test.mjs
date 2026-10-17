@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import {isDeepStrictEqual as nodeEqual} from 'node:util';
 import {createHash} from 'node:crypto';
@@ -19,7 +20,8 @@ const f=(event,text,evidence={},actor='w',extra={})=>({event,text,name:event,kin
 const inputFor=(moves,move)=>{const c=new Chess();for(const m of moves)c.move(m);return{fen:c.fen(),move,history:{fen:new Chess().fen(),moves}};};
 const run=input=>{const job=startConceptRun(input,p);for(const d of DETECTORS)runConceptStage(job,d);supplementalConcepts(job);return {job,summary:conceptRunSummary(job)};};
 
-test('promotion retains research bytes and explicit adaptation; accepted tracker and support remain separate',async()=>{
+test('promotion retains research bytes and explicit adaptation; accepted tracker and support remain separate',async(t)=>{
+ if (!existsSync(new URL('../research', import.meta.url))) { t.skip('research directory not present'); return; }
  for(const [file,expected] of Object.entries(p.runtime)) assert.equal(hash(normal(await fs.readFile(new URL('../'+file,import.meta.url),'utf8'))),expected,file);
  assert.equal(INTEGRATION_FINGERPRINT,hash(JSON.stringify({records:p.sources,runtime:p.runtime,entries:p.entries,verified:p.verified,profile:'P003-staged-4000-panels-v1'})));
  const tracker=normal(await fs.readFile(new URL('../'+p.trackerPath,import.meta.url),'utf8'));
@@ -49,7 +51,8 @@ test('browser assertions preserve the plain-data certificate checker semantics',
  assert.throws(()=>browserAssert.deepEqual({proof:true},{proof:false}));assert.throws(()=>browserAssert.equal(0,-0));assert.throws(()=>isDeepStrictEqual(new Map(),new Map()));
 });
 
-test('staged chain agrees with original research on events, evidence and statuses for a real opening move',async()=>{
+test('staged chain agrees with original research on events, evidence and statuses for a real opening move',async(t)=>{
+ if (!existsSync(new URL('../research', import.meta.url))) { t.skip('research directory not present'); return; }
  const input=inputFor(['e2e4','e7e5'],'g1f3');
  const {explainMove}=await import('../research/experiments/E177-queen-exchange-ending/code/ending.mjs');
  const source=explainMove(integrationInput(input));

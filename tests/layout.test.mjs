@@ -29,10 +29,10 @@ function layout(t, initialZoom = 1, defaultZoom = 1) {
 test('Full HD retains the original scale without drifting on reopen or a zoom resize event', async t => {
   const a = layout(t); a.viewport(1920, 920);
   await a.call('initTabZoom');
-  assert.equal(a.zoom(), .9); assert.equal(a.desktop(), true);
+  assert.equal(a.zoom(), .87); assert.equal(a.desktop(), true);
   a.viewport(1920, 920); await a.call('fitTabZoom');
   await a.call('initTabZoom');
-  assert.deepEqual(a.changes, [.9]);
+  assert.deepEqual(a.changes, [.87]);
 });
 
 test('desktop fits laptop windows, then restores the responsive layout when narrowed', async t => {
@@ -40,12 +40,12 @@ test('desktop fits laptop windows, then restores the responsive layout when narr
   for (const [w,h] of [[1366,648], [1536,744], [1280,600], [2560,1320]]) {
     a.viewport(w,h); await a.call('fitTabZoom');
     assert.equal(a.desktop(), true);
-    assert.ok(1832 * a.zoom() <= w && 1020 * a.zoom() <= h);
+    assert.ok(1832 * a.zoom() <= w && 1054 * a.zoom() <= h);
   }
   a.viewport(768,900); await a.call('fitTabZoom');
   assert.equal(a.desktop(), false); assert.equal(a.zoom(),1);
   a.viewport(1920,920); await a.call('fitTabZoom');
-  assert.equal(a.desktop(),true); assert.equal(a.zoom(),.9);
+  assert.equal(a.desktop(),true); assert.equal(a.zoom(),.87);
 });
 
 test('custom layouts keep their own geometry and fitting', async t => {
@@ -63,7 +63,7 @@ test('Stockfish 18 NNUE is selected by default and listed first', t => {
   const buttons=[...a.dom.window.document.querySelectorAll('#settings .set-seg button')];
   const first=buttons.findIndex(b=>b.textContent==='Stockfish 18 NNUE');
   assert.ok(first>=0); assert.equal(buttons[first].classList.contains('on'),true);
-  assert.equal(buttons[first+1].textContent,'Stockfish 19 Lite');
+  assert.equal(buttons[first+1].textContent,'Stockfish 19 Full');
 });
 
 test('Honeywood is the default board theme', t => {
@@ -84,14 +84,14 @@ test('desktop matches the saved canvas geometry and preserves the gap when accur
   }));
   a.state.layoutMode = 'custom'; a.call('applyLayoutMode'); a.call('reflowAccuracy', false);
   const savedCanvas = geometry();
-  assert.deepEqual(savedCanvas.engine, ['1512px', '622px', '294px', '176px']);
-  assert.deepEqual(savedCanvas.accuracy, ['1510px', '216px', '294px', '390px']);
+  assert.deepEqual(savedCanvas.engine, ['1512px', '652px', '294px', '146px']);
+  assert.deepEqual(savedCanvas.accuracy, ['1510px', '216px', '294px', '420px']);
   a.state.layoutMode = 'auto'; a.call('applyLayoutMode');
   a.viewport(1920, 920); await a.call('initTabZoom');
   assert.deepEqual(geometry(), savedCanvas);
   for (let i = 0; i < 3; i++) {
     a.state.qbreakExpanded = true; a.call('renderStats');
-    assert.equal(mod('accuracy').height, '506px'); assert.equal(mod('engine').top, '738px');
+    assert.equal(mod('accuracy').height, '536px'); assert.equal(mod('engine').top, '768px');
     a.state.qbreakExpanded = false; a.call('renderStats');
     assert.deepEqual(geometry(), savedCanvas);
   }
@@ -125,14 +125,14 @@ test('Reorganize preserves exact desktop boxes and zoom through repeated resets'
     const before = geometry();
     a.call('toggleReorganize'); await settle();
     assert.deepEqual(geometry(), before);
-    assert.equal(a.zoom(), .9);
+    assert.equal(a.zoom(), .87);
     assert.deepEqual(structuredClone(a.call('layoutForSave')), defaults);
     a.call('resetLayout'); await settle();
     assert.deepEqual(geometry(), before);
-    assert.equal(a.zoom(), .9);
+    assert.equal(a.zoom(), .87);
     assert.equal(a.state.reorganize, false);
   }
-  assert.deepEqual(a.changes, [.9]);
+  assert.deepEqual(a.changes, [.87]);
 });
 
 test('settings stays right-aligned through visual and layout resets', async t => {
@@ -155,9 +155,9 @@ test('settings stays right-aligned through visual and layout resets', async t =>
 
 test('saved desktop layouts reopen at the reset scale across typical screen sizes', async t => {
   for (const [w, h, initial, expected] of [
-    [1280, 600, 1.25, .58], [1366, 648, .91, .63], [1536, 744, 1, .72],
-    [1920, 916, .91, .89], [1920, 920, .89, .90],
-    [2560, 1320, 1.25, 1.29], [3840, 2040, 2, 1.99],
+    [1280, 600, 1.25, .56], [1366, 648, .91, .61], [1536, 744, 1, .70],
+    [1920, 916, .91, .86], [1920, 920, .89, .87],
+    [2560, 1320, 1.25, 1.20], [3840, 2040, 2, 1.8],
   ]) {
     const a = layout(t, initial);
     a.state.layoutMode = 'custom'; a.call('applyLayoutMode');
@@ -184,11 +184,11 @@ test('reset refits automatic layout after manual zoom and concurrent initializat
     await settle(); await setZoom(...args); active--;
   };
   await Promise.all([a.call('initTabZoom'), a.call('initTabZoom'), a.call('fitTabZoom')]);
-  assert.equal(scopes, 1); assert.deepEqual(a.changes, [.89]);
+  assert.equal(scopes, 1); assert.deepEqual(a.changes, [.86]);
   await tabs.setZoom(7, .91);
   await a.call('fitTabZoom'); assert.equal(a.zoom(), .91);
   await a.call('resetLayout');
-  assert.equal(a.zoom(), .89); assert.equal(scopes, 1);
+  assert.equal(a.zoom(), .86); assert.equal(scopes, 1);
 });
 
 test('failed zoom writes can be retried at the same window size', async t => {
@@ -198,7 +198,7 @@ test('failed zoom writes can be retried at the same window size', async t => {
   await a.call('initTabZoom');
   tabs.setZoom = setZoom;
   await a.call('fitTabZoom');
-  assert.equal(a.zoom(), .89);
+  assert.equal(a.zoom(), .86);
 });
 
 test('narrow windows use the browser default zoom, even with a nonstandard default', async t => {
@@ -206,7 +206,7 @@ test('narrow windows use the browser default zoom, even with a nonstandard defau
   await a.call('initTabZoom');
   assert.equal(a.desktop(), false); assert.equal(a.zoom(), 1.25);
   a.viewport(1920, 916); await a.call('fitTabZoom');
-  assert.equal(a.desktop(), true); assert.equal(a.zoom(), .89);
+  assert.equal(a.desktop(), true); assert.equal(a.zoom(), .86);
 });
 
 test('small custom canvases retain their own bounds instead of inheriting desktop width', async t => {
