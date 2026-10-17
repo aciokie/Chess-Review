@@ -6915,12 +6915,13 @@ async function openPuzzlePractice(initialTheme = "all", initialDiff = "all", rev
     );
 
     const feedback = el("div", { class: "puzzle-feedback" });
-    const moveInput = el("input", { type: "text", class: "learn-input", placeholder: "Or enter move (e.g. f3g5)" });
+    const moveInput = el("input", { type: "text", class: "learn-input", placeholder: "Or enter move (e.g. f3g5 or e7e8q)" });
 
     const filterRow = reviewMissed ? null : el("div", { class: "puzzle-filter-row" }, themeSelect, diffSelect);
 
     let selectedSq = null;
     let hintSquares = null;
+    let pendingPromotion = null;
 
     const boardWrap = el("div", { class: "puzzle-board-wrap" });
 
@@ -6975,27 +6976,62 @@ async function openPuzzlePractice(initialTheme = "all", initialDiff = "all", rev
         });
       });
 
-      boardWrap.replaceChildren(boardEl);
+      if (pendingPromotion) {
+        const promoOverlay = el("div", { class: "puzzle-promo-overlay" },
+          ["q", "r", "b", "n"].map((piece) =>
+            el("button", {
+              class: "puzzle-promo-btn",
+              onclick: (e) => {
+                e.stopPropagation();
+                const { from, to } = pendingPromotion;
+                pendingPromotion = null;
+                executeMove(from, to, piece);
+              }
+            }, piece.toUpperCase())
+          )
+        );
+        boardWrap.replaceChildren(boardEl, promoOverlay);
+      } else {
+        boardWrap.replaceChildren(boardEl);
+      }
     };
 
     const handleSqClick = (sqName) => {
-      if (activePuzzleSolver.completed) return;
+      if (activePuzzleSolver.completed || pendingPromotion) return;
       const chess = activePuzzleSolver.chess;
       const piece = chess.get(sqName);
       const sideToMove = chess.turn();
 
-      if (selectedSq && selectedSq !== sqName) {
-        const from = selectedSq;
-        const to = sqName;
-        selectedSq = null;
-
-        let promo = undefined;
-        const movingPiece = chess.get(from);
-        if (movingPiece && movingPiece.type === "p" && (to.endsWith("8") || to.endsWith("1"))) {
-          promo = "q";
+      if (selectedSq) {
+        if (selectedSq === sqName) {
+          selectedSq = null;
+          renderBoard();
+          return;
         }
 
-        executeMove(from, to, promo);
+        // If clicking another friendly piece, re-select that piece instead of attempting move
+        if (piece && piece.color === sideToMove) {
+          selectedSq = sqName;
+          renderBoard();
+          return;
+        }
+
+        // Target square attempt
+        const from = selectedSq;
+        const to = sqName;
+
+        const movingPiece = chess.get(from);
+        const isLegal = chess.moves({ square: from, verbose: true }).some(m => m.to === to);
+
+        if (movingPiece && movingPiece.type === "p" && (to.endsWith("8") || to.endsWith("1")) && isLegal) {
+          pendingPromotion = { from, to };
+          selectedSq = null;
+          renderBoard();
+          return;
+        }
+
+        selectedSq = null;
+        executeMove(from, to);
         return;
       }
 
@@ -7080,6 +7116,7 @@ async function openPuzzlePractice(initialTheme = "all", initialDiff = "all", rev
             activePuzzleSolver.reset();
             selectedSq = null;
             hintSquares = null;
+            pendingPromotion = null;
             moveInput.value = "";
             feedback.textContent = "Puzzle reset to start position.";
             feedback.className = "puzzle-feedback hint";

@@ -1549,3 +1549,8 @@ button { font-family: inherit; cursor: pointer; }
 
 .puzzle-board-wrap { display: flex; justify-content: center; align-items: center; margin: 10px 0; }
 .puzzle-board { width: 320px; height: 320px; display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); border: 2px solid var(--panel-border, rgba(255,255,255,0.15)); border-radius: 4px; }
+
+.puzzle-board-wrap { position: relative; display: flex; justify-content: center; align-items: center; margin: 10px 0; max-width: 100%; }
+.puzzle-board { width: 320px; height: 320px; max-width: 100%; aspect-ratio: 1; display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); border: 2px solid var(--panel-border, rgba(255,255,255,0.15)); border-radius: 4px; }
+.puzzle-promo-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; gap: 12px; z-index: 10; border-radius: 4px; }
+.puzzle-promo-btn { background: var(--accent); color: var(--accent-ink); border: none; font-size: 18px; font-weight: 800; border-radius: 6px; padding: 12px 16px; cursor: pointer; }
