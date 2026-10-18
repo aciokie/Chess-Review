@@ -56,3 +56,27 @@ test('computeDerived stores phase accuracy', t => {
   assert.ok(S.phaseAcc.b.opening != null);
   assert.equal(S.phaseAcc.w.endgame, null);
 });
+
+test('phaseElo runs each phase accuracy through the whole-game estimate', t => {
+  const a = app(t);
+  const S = loadGame(a, '1. e4 e5 2. Nf3 Nc6');
+  S.classif = [null, 'best', 'blunder', 'good', 'excellent'];
+  S.players = { w: { name: 'White', rating: 1500 }, b: { name: 'Black' } };
+  const acc = a.call('phaseAccuracy');
+  S.phaseAcc = acc;
+  const elo = a.call('phaseElo');
+  const expect = (v, r) => (v == null ? null : a.call('estimateElo', a.call('calAccBias', v, r), r));
+  assert.equal(elo.w.opening, expect(acc.w.opening, 1500));
+  assert.equal(elo.b.opening, expect(acc.b.opening, undefined));
+  assert.equal(elo.w.middlegame, null);
+  assert.equal(elo.b.endgame, null);
+});
+
+test('computeDerived stores phase Elo', t => {
+  const a = app(t);
+  const S = loadGame(a, '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6');
+  a.call('computeDerived');
+  assert.ok(S.phaseElo.w.opening != null);
+  assert.ok(S.phaseElo.b.opening != null);
+  assert.equal(S.phaseElo.w.endgame, null);
+});

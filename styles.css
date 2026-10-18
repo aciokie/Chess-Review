@@ -879,7 +879,9 @@ button { font-family: inherit; cursor: pointer; }
 .phase-cell { display: flex; flex-direction: column; align-items: center; line-height: 1.15; }
 .phase-cell i { font-style: normal; font-family: var(--font-ui); font-size: 9.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); }
 .phase-cell b { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink); }
+.phase-cell .phase-elo { font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); letter-spacing: .01em; cursor: default; }
 .phase-cell.none b { color: var(--ink-3); opacity: .6; }
+.phase-cell.none .phase-elo { opacity: .6; }
 .acc-cell.right .phase-cell b { color: var(--ink-2); }
 .qbreak-toggle {
   margin-top: 4px; width: 100%; display: grid; place-items: center;

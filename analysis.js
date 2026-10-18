@@ -1398,10 +1398,23 @@ function phaseAccuracy(state = S) {
   for (const s of ["w", "b"]) for (const p of PHASES) out[s][p] = sums[s][p].n ? sums[s][p].t / sums[s][p].n : null;
   return out;
 }
+// Per-phase Elo estimate — same pipeline as the whole-game estimate (see estimateElo above):
+// the phase's accuracy goes through the accuracy-bias correction, then estimateElo(acc, rating)
+// anchored on the player's actual rating. Null for a phase a side had no scored move in.
+function phaseElo(state = S) {
+  const out = { w: {}, b: {} };
+  for (const s of ["w", "b"]) for (const p of PHASES) {
+    const a = state.phaseAcc?.[s]?.[p];
+    const rating = state.players?.[s]?.rating;
+    out[s][p] = a == null ? null : estimateElo(calAccBias(a, rating), rating);
+  }
+  return out;
+}
 
 function computeDerived() {
   classifyLine(S);
   S.phaseAcc = phaseAccuracy(S);
+  S.phaseElo = phaseElo(S);
   const N = S.total;
   const eloAccs = sideAccuracies();   // win%-based accuracy → Elo (unchanged)
   for (const side of ["w", "b"]) {
@@ -3683,11 +3696,13 @@ function renderStats() {
   }, icon("chevron"));
   const qbreak = el("div", { class: "qbreak" }, ...qrows, expander);
   const phaseVal = (v) => (v == null ? "–" : v.toFixed(0));
-  const phaseLine = (side) => el("div", { class: "phase-line", "aria-label": "Accuracy by game phase" },
+  const phaseLine = (side) => el("div", { class: "phase-line", "aria-label": "Accuracy and estimated Elo by game phase" },
     ...PHASES.map((p) => {
-      const v = S.phaseAcc?.[side]?.[p];
-      return el("span", { class: "phase-cell" + (v == null ? " none" : ""), title: `${PHASE_LABEL[p]} accuracy` },
-        el("i", {}, { opening: "Open", middlegame: "Mid", endgame: "End" }[p]), el("b", {}, S.analyzing ? "·" : phaseVal(v)));
+      const v = S.phaseAcc?.[side]?.[p], e = S.phaseElo?.[side]?.[p];
+      return el("span", { class: "phase-cell" + (v == null ? " none" : ""), title: `${PHASE_LABEL[p]} accuracy and estimated Elo` },
+        el("i", {}, { opening: "Open", middlegame: "Mid", endgame: "End" }[p]),
+        el("b", {}, S.analyzing ? "·" : phaseVal(v)),
+        el("span", { class: "phase-elo", onmouseenter: (ev) => showInfoTip(ev.currentTarget, "Estimated Elo", ELO_INFO), onmouseleave: hideQTip }, S.analyzing ? "≈ ·" : (e == null ? "≈ —" : "≈ " + e)));
     }));
   UI.stats.replaceChildren(el("div", { class: "panel" },
     // The button is always rendered (disabled while analyzing or already practicing) so the
