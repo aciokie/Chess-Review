@@ -5,21 +5,6 @@ locally in your browser. One click turns any **Chess.com** or **Lichess** game i
 review — accuracy scores, move-by-move classifications, an evaluation graph, and an estimated
 rating. No account, no server, no manual PGN copying.
 
-**Learn with Chess Review** opens from the button beneath Engine, beside the move
-controls. By default, the review panels morph into one learning workspace while
-the board and top bar stay in place. **Settings → Visual → Learning experience**
-offers **Morph in place**, **Studio Morph**, **Minimal morph**, **Board morph**, and
-the original **Separate page** layout. The transition also runs when returning to
-review and respects reduced-motion preferences.
-The learning workspace includes 23 concept lessons with 47 exercises, 25,000 offline
-puzzles, 1/5/10-minute challenges, and 12 opening courses with 24 annotated lines.
-Lessons use move, square-selection and position-reading exercises. Opening practice
-supports both colors and automatic opponent replies. Progress and bookmarks stay in
-your browser, and **Back to review** restores your game position and orientation. The
-[learning objective and progress tracker](docs/LEARN_WITH_CHESS_REVIEW.md) records the
-design brief; [content sources](data/learning/SOURCES.md) record licensing and
-validation scope.
-
 The right-hand Settings panel includes an optional **Concepts** tab after Visual and
 Engine. A separate **Concepts** panel to the right of Accuracy and Engine uses those
 same findings, phrased from your playing side, with a **Coach reply** view that picks

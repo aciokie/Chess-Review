@@ -11,7 +11,6 @@ import { canonicalGameId, analysisCacheKey } from "./gameid.js";
 import { ConceptSession, conceptKey } from "./lib/concepts/session.js";
 import { CONCEPT_GROUPS, DEFAULT_CONCEPT_GROUPS, normalizeConceptGroups, FAST_CONCEPT_REMOVALS, CONCEPT_ITEMS, normalizeDisabledConcepts } from "./lib/concepts/controls.js";
 import { coachInsights, coachReply } from "./lib/coach-insights.js";
-import { LearningWorkspace } from "./lib/learning/workspace.js";
 
 // Development-only diagnostics for game identity / cache routing. Silent in production; enable by
 // opening the page with ?debug (analysis.html?debug#<job>) or setting globalThis.CHESS_REVIEW_DEBUG.
@@ -256,7 +255,6 @@ const DEFAULT_SETTINGS = {
   showThreat: false,
   // Move animation (sliding piece on single-step navigation). 1 = slow, 10 = fast.
   moveAnim: true, animSpeed: 7,
-  learningTransition: "morph",
   // Loading animation while the analysis runs (selectable style).
   loaderStyle: "wave",
   // Engine panel: how many candidate lines to show. The batch only searches the single best line
@@ -339,7 +337,6 @@ const DEFAULT_LAYOUT = {
   graph:    { x: 1200, y: 620, w: 302, h: 178 },
   engine:   { x: 1512, y: 768, w: 294, h: 146 },
   concepts: { x: 1822, y: 60,  w: 294, h: 854 },
-  learn:    { x: 1512, y: 928, w: 294, h: 54 },
 };
 const GRIP_SVG = `<svg viewBox="0 0 12 12" width="12" height="12"><path d="M11 4 4 11M11 8 8 11" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>`;
 const HANDLE_SVG = `<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><circle cx="5" cy="4" r="1.3"/><circle cx="11" cy="4" r="1.3"/><circle cx="5" cy="8" r="1.3"/><circle cx="11" cy="8" r="1.3"/><circle cx="5" cy="12" r="1.3"/><circle cx="11" cy="12" r="1.3"/></svg>`;
@@ -1532,8 +1529,6 @@ function buildUI() {
   const statsMount = el("div", { id: "statsMount" });
   const engineMount = el("div", { id: "engineMount" });
   const conceptsMount = el("div", { id: "conceptsMount" });
-  const learnMount = el("div", { class: "learn-entry" },
-    el("button", { class: "learn-entry-button", onclick: openLearning }, icon("book"), "Learn with Chess Review"));
 
   // The stage holds every module. In the automatic layout the side wrappers group the panels into
   // columns (styles.css picks wide / medium / narrow by window size); in the custom layout they are
@@ -1545,7 +1540,7 @@ function buildUI() {
       makeMod("review", reviewMount),
       el("div", { class: "side-cols" },
         el("div", { class: "side-a" }, makeMod("moves", movesPanel), makeMod("graph", graphMount), makeMod("controls", controls)),
-        el("div", { class: "side-b" }, makeMod("accuracy", statsMount), makeMod("engine", engineMount), makeMod("learn", learnMount)),
+        el("div", { class: "side-b" }, makeMod("accuracy", statsMount), makeMod("engine", engineMount)),
       ),
       makeMod("coach", coachMount),
     ),
@@ -1591,42 +1586,6 @@ function buildUI() {
     alignment.observe(UI.review.closest(".mod"));
   }
   window.addEventListener("resize", () => { fitEnginePanel(); growCanvas(); alignPlayers(); positionSettings(); });
-}
-
-let learningWorkspace = null;
-let deferredPracticeAdvance = false;
-async function openLearning() {
-  if (learningWorkspace) return;
-  // Finish an already-started practice animation before freezing its exact board.
-  if (S.practice && (S.practice.rolling || S.practice.demoing || S.practice.busy)) {
-    toast("Let the current practice move finish, then open learning."); return;
-  }
-  const playing = !!S.autoTimer;
-  if (playing) { clearInterval(S.autoTimer); S.autoTimer = null; renderControls(); }
-  const snapshot = {idx:S.idx, flipped:S.flipped, variationIdx:S.variation?.idx, selectedSq:S.selectedSq,
-    lineWalking:S.lineWalking, bestWalking:S.bestWalking};
-  stopLineWalk();
-  UI.settings.hidden = true;
-  hideBoardBadgeTip();
-  learningWorkspace = new LearningWorkspace({document, storage:browserAPI.storage.local, makePiece, url:_url,
-    settings:()=>S.settings, flipped:S.flipped, book:()=>BOOK,
-    embedded:LearningWorkspace.presentationFor(S.settings) === "page" ? null : {stage:UI.canvas, boardWrap:UI.boardWrap, fen:activePos().fen},
-    onClose:()=>{
-      learningWorkspace = null;
-      S.idx=snapshot.idx; S.flipped=snapshot.flipped; S.selectedSq=snapshot.selectedSq;
-      if(S.variation&&snapshot.variationIdx!=null)S.variation.idx=snapshot.variationIdx;
-      if(!S.practice){paintBoard();}
-      renderControls();
-      if(deferredPracticeAdvance){
-        deferredPracticeAdvance=false;
-        const practice=S.practice;
-        setTimeout(()=>{if(S.practice===practice)practiceAdvance();},1300);
-      }
-      if(playing&&!S.practice&&!S.analysisMode)toggleAuto();
-      if(snapshot.bestWalking)playBestMoves();
-      else if(snapshot.lineWalking)startLineWalk();
-    }});
-  await learningWorkspace.open();
 }
 
 /* ---------------- Loading indicator ----------------
@@ -1756,8 +1715,7 @@ function accuracyReflowInfo(layout = S.layout) {
   for (const [k, o] of Object.entries(layout)) {
     if (k === "accuracy") continue;
     const overlapX = o.x < acc.x + acc.w && o.x + o.w > acc.x;
-    const followsLearningRow = k === "controls" && layout.learn && o.y === layout.learn.y;
-    if ((overlapX || followsLearningRow) && o.y >= acc.y + acc.h - 1) belowKeys.push(k);
+    if (overlapX && o.y >= acc.y + acc.h - 1) belowKeys.push(k);
   }
   const concepts = layout.concepts, review = layout.review, engine = layout.engine;
   const conceptsResized = !!(concepts && review && engine && concepts.x >= engine.x + engine.w
@@ -1948,7 +1906,6 @@ function makePiece(type, side) {
   return el("img", { class: "piece-img", src: _url(`pieces-img/${setFolder}/${code}.svg`), alt: "", draggable: "false" });
 }
 function buildBoard() {
-  if (learningWorkspace?.embedded) return;
   const files = ["a","b","c","d","e","f","g","h"];
   const ranks = [8,7,6,5,4,3,2,1];
   const rowOrder = S.flipped ? [...ranks].reverse() : ranks;
@@ -1974,7 +1931,6 @@ function buildBoard() {
   paintBoard();
 }
 function paintBoard() {
-  if (learningWorkspace?.embedded) return;
   hideBoardBadgeTip();
   const pos = activePos();
   const boardEl = UI.boardWrap.querySelector(".board");
@@ -2074,7 +2030,6 @@ function arrowBuild(pts, headLen, headHalf) {
 }
 const arrowFmt = (p) => `${+p.x.toFixed(4)},${+p.y.toFixed(4)}`;
 function renderBestArrow() {
-  if (learningWorkspace?.embedded) return;
   const board = UI.boardWrap.querySelector(".board");
   if (!board) return;
   let svg = board.querySelector("svg.best-arrow");
@@ -2194,7 +2149,6 @@ function toggleUserArrow(from, to) {
 }
 // preview: temporary arrow during dragging (drawn on top of the saved ones).
 function renderUserArrows(preview) {
-  if (learningWorkspace?.embedded) return;
   const board = UI.boardWrap.querySelector(".board");
   if (!board) return;
   let svg = board.querySelector("svg.user-arrows");
@@ -2287,7 +2241,6 @@ function threatFen(fen) {
 // "Show the threat": draw the opponent's best move (as if it were their turn) as a yellow arrow.
 let _threatToken = 0;
 async function renderThreatArrow() {
-  if (learningWorkspace?.embedded) return;
   const board = UI.boardWrap.querySelector(".board");
   if (!board) return;
   let svg = board.querySelector("svg.threat-arrow");
@@ -2300,10 +2253,10 @@ async function renderThreatArrow() {
   if (uci === undefined) {
     const token = ++_threatToken;
     let eng; try { eng = await getHelperEngine(); } catch { return; }
-    if (token !== _threatToken || learningWorkspace?.embedded) return;
+    if (token !== _threatToken) return;
     eng.stop();
     let res; try { res = await eng.analyse(threatFen(fen), Math.min(14, S.settings.engineDepth), 1); } catch { return; }
-    if (token !== _threatToken || learningWorkspace?.embedded) return;
+    if (token !== _threatToken) return;
     uci = res && res.bestmove ? res.bestmove : null;
     S.threatCache.set(fen, uci);
     if (activePos().fen !== fen) return;          // position changed while we searched
@@ -2369,9 +2322,8 @@ function initBoardInput() {
   const wrap = UI.boardWrap;
   wrap.addEventListener("contextmenu", (e) => e.preventDefault());
   // Never let the browser start its own image/element drag on the board (the stray ghost image).
-  wrap.addEventListener("dragstart", (e) => {if (!learningWorkspace?.embedded) e.preventDefault();});
+  wrap.addEventListener("dragstart", (e) => e.preventDefault());
   wrap.addEventListener("pointerdown", (e) => {
-    if (learningWorkspace) return;
     if (e.button === 2) { rightPointerDown(e); return; }
     if (e.button !== 0) return;
     // During practice the board only accepts moves while you're actively solving (not while it's
@@ -4680,7 +4632,7 @@ const VISUAL_SETTING_KEYS = [
   "graphStyle", "barStyle", "insightFont", "showCoords", "coordSize", ...BACKGROUND_SETTING_KEYS,
   "coach", "coachPlain", "boardTheme", "pieceStyle", "boardCustomLight", "boardCustomDark",
   "sound", "soundVolume", "soundFx", ...ARROW_SETTING_KEYS,
-  "moveAnim", "animSpeed", "loaderStyle", "learningTransition",
+  "moveAnim", "animSpeed", "loaderStyle",
 ];
 function resetSettingKeys(keys) {
   for (const key of keys) S.settings[key] = structuredClone(DEFAULT_SETTINGS[key]);
@@ -4802,12 +4754,6 @@ function visualSettings() {
     section("Move animation",
       toggleRow("Animation", "moveAnim"),
       slider("Speed", "animSpeed", 1, 10, 1, { fmt: (v) => (440 - v * 40) + " ms" }),
-    ),
-    section("Learning experience",
-      el("div", {class:"learn-style-options", role:"group", "aria-label":"Learning presentation"}, ...LearningWorkspace.presentations.map(({id,label,description})=>
-        el("button", {type:"button",class:"learn-style-option", "data-presentation":id,"aria-pressed":String(S.settings.learningTransition===id),onclick:()=>setSetting("learningTransition",id)},
-          el("span", {class:"learn-style-radio","aria-hidden":"true"}),el("span",{},el("strong",{},label),el("small",{},description))))),
-      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Each morph includes its own layout and animation. Reduced motion uses an instant transition.")),
     ),
     section("Layout",
       seg("Eval", "evalView", ["both", "bar", "graph"]),
@@ -4971,7 +4917,6 @@ function positionSettings() {
   UI.settings.style.right = window.innerWidth <= 520 ? "" : "24px";
 }
 async function toggleSettings() {
-  if (learningWorkspace?.embedded) await learningWorkspace.close();
   closeArrowColorPicker();
   UI.settings.hidden = !UI.settings.hidden;
   if (!UI.settings.hidden) renderSettings();
@@ -5484,7 +5429,6 @@ function practiceBeginSolve(solvePos) {
   renderControls(); renderReview(); renderEngineCurrent();
 }
 function practiceAdvance() {
-  if (learningWorkspace) { deferredPracticeAdvance = true; return; }
   const p = S.practice; if (!p) return;
   p.i++;
   p.solving = false;
@@ -5857,10 +5801,6 @@ function variationStep(delta) {
   requestLiveEval();
 }
 function toggleFlip() {
-  if (learningWorkspace?.embedded) {
-    learningWorkspace.flipBoard();
-    return;
-  }
   S.flipped = !S.flipped; buildBoard(); renderPlayers(); renderEvalBar();
 }
 function toggleAuto() {
@@ -5872,7 +5812,6 @@ function toggleAuto() {
   renderControls();
 }
 document.addEventListener("keydown", (e) => {
-  if (learningWorkspace) return;
   if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
   // During practice the only shortcut is Escape to exit; nav keys are disabled.
   if (S.practice) { if (e.key === "Escape") exitPractice(); return; }
@@ -6293,7 +6232,7 @@ async function resetLegacyZoom() {
     const [payload, store] = await Promise.all([loadJob(), browserAPI.storage.local.get(["settings", "username", "layout", "layoutMode", "layoutVersion", "library"])]);
     S.library = Array.isArray(store.library) ? store.library : [];
     S.settings = { ...DEFAULT_SETTINGS, ...(store.settings || {}) };
-    S.settings.learningTransition = LearningWorkspace.presentationFor(store.settings || {});
+    delete S.settings.learningTransition;
     const visualAssetsMigrated = migrateVisualAssetSettings(S.settings);
     migrateEngineSettings(S.settings);
     if (visualAssetsMigrated || S.settings.enginePath !== store.settings?.enginePath) {
@@ -6334,6 +6273,7 @@ async function resetLegacyZoom() {
     // Use the saved layout if it matches the current version; otherwise the new default.
     const useStored = store.layoutVersion === LAYOUT_VERSION && store.layout;
     S.layout = useStored ? { ...structuredClone(DEFAULT_LAYOUT), ...store.layout } : structuredClone(DEFAULT_LAYOUT);
+    delete S.layout.learn; // saved layouts from the removed "Learn with Chess Review" module
     S.layoutMode = useStored && store.layoutMode === "custom" ? "custom" : "auto";
     if (!useStored) saveLayout();
     if (store.layoutVersion != null && store.layoutVersion !== LAYOUT_VERSION) await resetLegacyZoom();

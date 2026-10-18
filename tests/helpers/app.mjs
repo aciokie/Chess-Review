@@ -7,7 +7,6 @@ import { canonicalGameId, analysisCacheKey, simpleHash } from '../../gameid.js';
 import { CONCEPT_GROUPS, DEFAULT_CONCEPT_GROUPS, normalizeConceptGroups, FAST_CONCEPT_REMOVALS, CONCEPT_ITEMS, normalizeDisabledConcepts } from '../../lib/concepts/controls.js';
 import { ConceptSession, conceptKey } from '../../lib/concepts/session.js';
 import { coachInsights, coachReply } from '../../lib/coach-insights.js';
-import { LearningWorkspace } from '../../lib/learning/workspace.js';
 
 // Execute the real application in a DOM, stubbing only browser/engine boundaries.
 // Automatic startup and imports are omitted; production needs no test exports.
@@ -32,7 +31,7 @@ export function app(t) {
     location: dom.window.location, Node: dom.window.Node, HTMLElement: dom.window.HTMLElement,
     getComputedStyle: dom.window.getComputedStyle, performance, structuredClone,
     URL, TextEncoder, btoa, console, Chess, flagCodeForCountryId, countryNameForId, browserAPI,
-    canonicalGameId, analysisCacheKey, simpleHash, LearningWorkspace,
+    canonicalGameId, analysisCacheKey, simpleHash,
     ConceptSession, conceptKey, coachInsights, coachReply, CONCEPT_GROUPS, DEFAULT_CONCEPT_GROUPS,
     normalizeConceptGroups, FAST_CONCEPT_REMOVALS, CONCEPT_ITEMS, normalizeDisabledConcepts,
     Engine: class { constructor() { throw Error('Unexpected real engine'); } },

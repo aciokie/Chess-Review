@@ -42,10 +42,6 @@ Distributed by Lichess (lila); high-quality vector SVGs.
 - Platform-theme detection, palette matching, and the compatibility palettes were
   removed on 2026-09-30. Historical archives and Git history may retain them.
 
-## Learning library
-- **Puzzles:** 25,000 distinct positions and solution lines from the [Lichess puzzle database](https://database.lichess.org/#puzzles), **CC0 1.0**. Each record retains its puzzle/game sources and source-row hash. See [learning sources](data/learning/SOURCES.md) for selection and verification limits.
-- **Lessons and opening instruction:** original Chess Review text and composed teaching positions, **GPL-3.0**. Standard opening lines reuse the existing CC0 Lichess opening book for naming and position recognition.
-
 ## Country flags
 - **Files:** `flags/*.svg` (used as player avatars when a country is detected)
 - **Pack:** **Flag Pack (1.0)** by **Kenney** (www.kenney.nl) — https://www.kenney.nl/assets/flag-pack
