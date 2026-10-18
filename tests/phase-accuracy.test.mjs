@@ -37,13 +37,17 @@ test('opening lasts ten full moves, then middlegame; sparse material is endgame'
   assert.deepEqual(Array.from(a.call('phaseByPly')).slice(1), ['opening', 'opening', 'endgame', 'endgame']);
 });
 
-test('phaseAccuracy averages the per-move score by side and phase', t => {
+test('phaseAccuracy uses the same tuned aggregation as the whole-game accuracy', t => {
   const a = app(t);
   const S = loadGame(a, '1. e4 e5 2. Nf3 Nc6');
+  a.run('CALIB = { winK: 0.003, display: "winpct" };');
   S.classif = [null, 'best', 'blunder', 'good', 'excellent'];
+  S.accMove = [null, 100, 20, 80, 90];
   const acc = a.call('phaseAccuracy');
-  assert.equal(acc.w.opening, (100 + S.settings.accGood) / 2);
-  assert.equal(acc.b.opening, (S.settings.accBlunder + S.settings.accExcellent) / 2);
+  const game = a.call('sideAccuracies');
+  // A game played entirely in the opening must give the same number as the whole-game accuracy.
+  assert.equal(acc.w.opening, game.w);
+  assert.equal(acc.b.opening, game.b);
   assert.equal(acc.w.middlegame, null);
   assert.equal(acc.b.endgame, null);
 });
@@ -59,22 +63,35 @@ test('computeDerived stores phase accuracy', t => {
 
 test('phaseElo runs each phase accuracy through the whole-game estimate', t => {
   const a = app(t);
-  const S = loadGame(a, '1. e4 e5 2. Nf3 Nc6');
-  S.classif = [null, 'best', 'blunder', 'good', 'excellent'];
+  const S = loadGame(a, '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7');
+  const n = S.total, classif = new Array(n + 1).fill(null), accMove = new Array(n + 1).fill(null);
+  for (let i = 1; i <= n; i++) { classif[i] = 'good'; accMove[i] = 60 + (i % 5) * 8; }
+  S.classif = classif; S.accMove = accMove;
   S.players = { w: { name: 'White', rating: 1500 }, b: { name: 'Black' } };
   const acc = a.call('phaseAccuracy');
-  S.phaseAcc = acc;
   const elo = a.call('phaseElo');
   const expect = (v, r) => (v == null ? null : a.call('estimateElo', a.call('calAccBias', v, r), r));
   assert.equal(elo.w.opening, expect(acc.w.opening, 1500));
   assert.equal(elo.b.opening, expect(acc.b.opening, undefined));
   assert.equal(elo.w.middlegame, null);
-  assert.equal(elo.b.endgame, null);
+});
+
+test('phaseElo hides an estimate when a phase has too few moves', t => {
+  const a = app(t);
+  const S = loadGame(a, '1. e4 e5 2. Nf3 Nc6');
+  S.classif = [null, 'good', 'good', 'good', 'good'];
+  S.accMove = [null, 80, 80, 80, 80];
+  const elo = a.call('phaseElo');
+  // Only two scored moves per side in the opening (below MIN_PHASE_MOVES) → no estimate,
+  // but the accuracy itself is still reported.
+  assert.ok(a.call('phaseAccuracy').w.opening != null);
+  assert.equal(elo.w.opening, null);
+  assert.equal(elo.b.opening, null);
 });
 
 test('computeDerived stores phase Elo', t => {
   const a = app(t);
-  const S = loadGame(a, '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6');
+  const S = loadGame(a, '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7');
   a.call('computeDerived');
   assert.ok(S.phaseElo.w.opening != null);
   assert.ok(S.phaseElo.b.opening != null);

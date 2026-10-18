@@ -895,14 +895,13 @@ function powerMean(vals, wts, p, floor = 0) {
   for (let i = 0; i < vals.length; i++) { const v = Math.max(1e-6, Math.max(floor, vals[i])); sw += wts[i]; s += wts[i] * Math.pow(v, p); }
   return sw > 0 ? Math.pow(s / sw, 1 / p) : 0;
 }
-// Return { w, b } game accuracy (0–100) or null per side.
-function sideAccuracies() {
-  const N = S.total;
+// Volatility weight per ply = std.dev. of win% in a small window around the move (sharp positions
+// weigh more), clamped. Shared by the whole-game AND the per-phase aggregation so both match.
+function plyWeights(state = S) {
+  const N = state.total;
   // White-relative win% per ply (carry-forward if an eval is still missing during analysis).
   const wp = new Array(N + 1).fill(50);
-  for (let p = 0; p <= N; p++) wp[p] = S.evals[p] ? winPct(scoreToCp(S.evals[p])) : (p ? wp[p - 1] : 50);
-  // Volatility weight = std.dev. of win% in a small window around the move (sharp
-  // positions weigh more). Clamped to [0.5, 12].
+  for (let p = 0; p <= N; p++) wp[p] = state.evals[p] ? winPct(scoreToCp(state.evals[p])) : (p ? wp[p - 1] : 50);
   const win = Math.max(2, Math.min(8, Math.floor(N / 10)));
   const weight = new Array(N + 1).fill(1);
   for (let i = 1; i <= N; i++) {
@@ -910,24 +909,30 @@ function sideAccuracies() {
     for (let j = Math.max(0, i - win); j <= Math.min(N, i); j++) seg.push(wp[j]);
     weight[i] = Math.max(CALIB?.volatility?.clampMin ?? 0.5, Math.min(CALIB?.volatility?.clampMax ?? 12, stdev(seg)));
   }
+  return weight;
+}
+// The tuned aggregation family selected by calibration.json — applied identically to the game
+// accuracy and to each phase (and its Elo). Learned ridge regression on per-move features is the
+// closest match to the reference accuracy values; else tuned power-mean+floor; else the blend.
+function aggregateAccuracy(vals, wts) {
+  if (!vals.length) return null;
+  const a = CALIB?.agg;
+  if (a && a.mode === "learned" && a.learnedFeatures) return learnedAccuracy(vals, wts, a);
+  if (a && a.mode === "power") return powerMean(vals, a.useVol ? wts : vals.map(() => 1), a.p, a.floor || 0);
+  return (weightedMean(vals, wts) + harmonicMean(vals)) / 2;
+}
+// Return { w, b } game accuracy (0–100) or null per side.
+function sideAccuracies(state = S) {
+  const N = state.total;
+  const weight = plyWeights(state);
   const acc = { w: [], b: [] }, wts = { w: [], b: [] };
   for (let i = 1; i <= N; i++) {
-    if (S.accMove[i] == null) continue;
-    const mv = S.positions[i].color;
-    acc[mv].push(S.accMove[i]);
+    if (state.accMove[i] == null) continue;
+    const mv = state.positions[i].color;
+    acc[mv].push(state.accMove[i]);
     wts[mv].push(weight[i]);
   }
-  const out = {};
-  const a = CALIB?.agg;
-  for (const s of ["w", "b"]) {
-    if (!acc[s].length) { out[s] = null; continue; }
-    // learned aggregation (ridge regression on per-move features) is the closest match to the
-    // reference accuracy values; else tuned power-mean+floor; else the original blend.
-    if (a && a.mode === "learned" && a.learnedFeatures) out[s] = learnedAccuracy(acc[s], wts[s], a);
-    else if (a && a.mode === "power") out[s] = powerMean(acc[s], a.useVol ? wts[s] : acc[s].map(() => 1), a.p, a.floor || 0);
-    else out[s] = (weightedMean(acc[s], wts[s]) + harmonicMean(acc[s])) / 2;
-  }
-  return out;
+  return { w: aggregateAccuracy(acc.w, wts.w), b: aggregateAccuracy(acc.b, wts.b) };
 }
 // Features of a side's floored per-move accuracies — must match tools/dataset/score-core.mjs.
 const AGG_FEATURES = {
@@ -1379,32 +1384,44 @@ function phaseByPly(state = S) {
   }
   return out;
 }
-// { w: {opening, middlegame, endgame}, b: {...} } — each the average move score within the phase
-// (same per-move scoring as the shown accuracy), or null when that side had no scored move there.
-function phaseAccuracy(state = S) {
+// Per side/phase the scored move accuracies and their volatility weights, split by the ply's
+// phase (phaseByPly). Single source of truth for both the phase accuracy and its Elo.
+function phaseBuckets(state = S) {
   const phases = phaseByPly(state);
   const winpct = CALIB?.display === "winpct";
-  const sums = { w: {}, b: {} };
-  for (const s of ["w", "b"]) for (const p of PHASES) sums[s][p] = { t: 0, n: 0 };
+  const weight = plyWeights(state);
+  const vals = { w: {}, b: {} }, wts = { w: {}, b: {} };
+  for (const s of ["w", "b"]) for (const p of PHASES) { vals[s][p] = []; wts[s][p] = []; }
   for (let i = 1; i <= (state.total || 0); i++) {
     const c = state.classif[i];
     if (!c || !phases[i]) continue;
     const a = winpct && state.accMove[i] != null ? state.accMove[i] : catAcc(c);
     if (a == null) continue;
-    const slot = sums[state.positions[i].color][phases[i]];
-    slot.t += a; slot.n++;
+    const s = state.positions[i].color;
+    vals[s][phases[i]].push(a); wts[s][phases[i]].push(weight[i]);
   }
+  return { vals, wts };
+}
+// { w: {opening, middlegame, endgame}, b: {...} } — each phase's accuracy, aggregated with the SAME
+// tuned method as the whole-game accuracy (learned/power/weighted+harmonic), or null when the side
+// had no scored move in that phase.
+function phaseAccuracy(state = S) {
+  const { vals, wts } = phaseBuckets(state);
   const out = { w: {}, b: {} };
-  for (const s of ["w", "b"]) for (const p of PHASES) out[s][p] = sums[s][p].n ? sums[s][p].t / sums[s][p].n : null;
+  for (const s of ["w", "b"]) for (const p of PHASES) out[s][p] = aggregateAccuracy(vals[s][p], wts[s][p]);
   return out;
 }
-// Per-phase Elo estimate — same pipeline as the whole-game estimate (see estimateElo above):
-// the phase's accuracy goes through the accuracy-bias correction, then estimateElo(acc, rating)
-// anchored on the player's actual rating. Null for a phase a side had no scored move in.
+// A phase estimate is only shown once the side has played enough moves there; below this it is
+// noise (a single move would define the whole phase rating).
+const MIN_PHASE_MOVES = 5;
+// Per-phase Elo estimate — same pipeline as the whole-game estimate (see estimateElo above): the
+// phase's tuned accuracy goes through the accuracy-bias correction, then estimateElo(acc, rating)
+// anchored on the player's actual rating. Null for a phase a side had too few scored moves in.
 function phaseElo(state = S) {
+  const { vals, wts } = phaseBuckets(state);
   const out = { w: {}, b: {} };
   for (const s of ["w", "b"]) for (const p of PHASES) {
-    const a = state.phaseAcc?.[s]?.[p];
+    const a = vals[s][p].length >= MIN_PHASE_MOVES ? aggregateAccuracy(vals[s][p], wts[s][p]) : null;
     const rating = state.players?.[s]?.rating;
     out[s][p] = a == null ? null : estimateElo(calAccBias(a, rating), rating);
   }
