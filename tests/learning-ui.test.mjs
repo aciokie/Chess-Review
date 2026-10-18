@@ -222,3 +222,14 @@ test('panel morph respects reduced motion and cleans up all surfaces when resize
   dom.window.Element.prototype.animate=function(){const animation={finished:Promise.resolve(),cancelled:false,cancel(){this.cancelled=true;}};animations.push(animation);return animation;};
   await morphPanels(doc,capturePanels([old]),[next]);assert.ok(animations.every(a=>a.cancelled));assert.equal(doc.querySelector('.learn-morph-layer'),null);
 });
+
+test('lessons without prerequisites do not render a stray 0 beside the call to action', async t => {
+  const {w} = await workspace(t);
+  const lesson = LESSONS.find(l => !l.prerequisites.length);
+  assert.ok(lesson);
+  await w.startLesson(lesson.id);
+  const panel = w.root.querySelector('.learn-copy');
+  assert.ok(panel);
+  assert.ok([...panel.childNodes].every(node => node.nodeType !== 3 || node.textContent.trim() !== '0'), 'empty prerequisite list must not print 0');
+  assert.equal(panel.querySelectorAll('button').length, 1);
+});

@@ -114,3 +114,25 @@ test('Coach follows the selected move, discards stale messages, keeps all matche
   assert.ok(document.querySelector('.engine-body'));
   assert.equal(JSON.stringify([S.evals, S.classif, S.moveGrades]), scores);
 });
+
+test('one observation routed to several catalog names is listed once with aliases and merged scopes', () => {
+  const evidence = {bishop: 'f1', line: ['a6', 'b5', 'c4', 'd3', 'e2', 'f1']};
+  const same = (event, name, text) => finding(event, text, {name, context: {evidence}, scopes: [{occurrence: 'C-' + name, scope: 'Scope of ' + name}]});
+  const findings = [
+    same('open-bishop-diagonal', 'Open diagonal', 'Open diagonal: bishop f1 controls a6–f1.'),
+    same('open-bishop-diagonal', 'Diagonal control', 'Open diagonal: bishop f1 controls a6–f1.'),
+    same('opened-bishop-diagonal', 'Opening diagonals', 'Your move opens bishop f1’s a6–f1 diagonal.'),
+    same('opened-bishop-diagonal', 'Diagonal opening', 'Your move opens bishop f1’s a6–f1 diagonal.'),
+  ];
+  const before = structuredClone(findings);
+  for (const player of ['w', null]) {
+    const result = coachInsights(findings, {mover: 'w', player});
+    assert.equal(result.length, 1);
+    assert.equal(result[0].event, 'opened-bishop-diagonal');
+    assert.deepEqual(new Set(result[0].aliases), new Set(['Diagonal opening', 'Open diagonal', 'Diagonal control']));
+    assert.equal(result[0].scopes.length, 4);
+  }
+  assert.deepEqual(findings, before);
+  // Different text under the same event stays separate: it is a different observation.
+  assert.equal(coachInsights([finding('fork', 'One fork.'), finding('fork', 'Another fork.')], {mover: 'w', player: 'w'}).length, 2);
+});

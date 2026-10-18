@@ -4098,11 +4098,12 @@ function renderCoachPanel() {
       const id = JSON.stringify([finding.event, finding.name, finding.sourceText]);
       const details = el("details", {"data-insight": id, open: open.has(id)}, el("summary", {}, view === "reply" ? "Why this reply?" : "Evidence and scope"),
         el("p", {}, finding.kind), el("p", {}, "Detector explanation: " + finding.sourceText),
+        ...(finding.aliases?.length ? [el("p", {class: "coach-aliases"}, "Also matched as: " + finding.aliases.join(", "))] : []),
         ...(finding.proofNote ? [el("p", {}, finding.proofNote)] : []),
         ...finding.scopes.map(scope => el("p", {}, scope.occurrence + ": " + scope.scope)),
         ...(finding.details ? [el("pre", {class:"concept-evidence-data"}, JSON.stringify(finding.details,null,2))] : []),
         ...(finding.supporting || []).map(f => el("p", {}, f.name + ": " + f.sourceText)),
-        ...(finding.studyScopes?.length ? [el("p", {}, "Candidate study scopes (not acceptance or a per-event claim):"), ...finding.studyScopes.map(scope=>el("p", {},scope.id+": "+scope.scope))] : []));
+        ...(finding.studyScopes?.length ? [el("details", {class: "coach-study-scopes"}, el("summary", {}, `${finding.studyScopes.length} candidate study scopes (research notes, not an acceptance or per-event claim)`), ...finding.studyScopes.map(scope=>el("p", {},scope.id+": "+scope.scope)))] : []));
       list.append(el("li", {class: "coach-insight", "data-concept": finding.name},
         el("strong", {}, finding.name),
         ...(view === "all" ? [el("span", {class: "coach-perspective"}, finding.perspective)] : []),
