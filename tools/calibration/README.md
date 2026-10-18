@@ -51,9 +51,26 @@ The commands below retain the original historical smoke workflow.
    Keep both sides of a game together. Reserve final test completely from fitting
    and pilot reports. Later use larger player groups with cross-group games removed
    or connected-component splits; report attrition and rating distribution.
-   Test monotonic loss, mate behavior, forced moves, exact build compatibility,
-   repetition-aware caching, determinism, parser bounds, resumption, and leakage.
-   Reanalyze development games at 4x nodes; quantify noise and score ordering.
+Test monotonic loss, mate behavior, forced moves, exact build compatibility,
+repetition-aware caching, determinism, parser bounds, resumption, and leakage.
+Reanalyze development games at 4x nodes; quantify noise and score ordering.
+
+## Validation dataset updater (30-day cadence)
+
+`update-dataset.mjs` keeps a bounded Lichess CC0 validation sample fresh. It reads the published
+month list (`https://database.lichess.org/standard/list.txt`), compares the newest month with the
+committed lock (`dataset-lock.json`), and:
+
+- **no update needed** — newest month already held (or `--check-only`): records the check and exits 0;
+- **update needed** — rebuilds the sample from the newest month via the tested bounded sampler
+  (`recent-dataset.mjs`, evenly spaced compressed frames + per-frame SHA-256), then rewrites the lock.
+
+The heavyweight sample lives under the git-ignored `calibration-runs/validation/dataset` tree; only
+the small provenance lock is committed. Run it locally with `npm run update:dataset`
+(add `-- --check-only` to just check, or `-- --force` to rebuild even when current).
+
+The scheduled workflow `.github/workflows/update-validation-dataset.yml` runs it monthly (GitHub
+cron cannot express exactly 30 days) and commits the refreshed lock when the month changes.
 10. Only import `lib/chess.js` and the engine; no `analysis.js`, `data/calibration.json`,
     historical fitting scripts, categories, or review outputs. Store provenance
     flags, code hashes, dataset hashes, engine hashes/options, seed and Node version.

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "cadenceDays": 30,
+  "source": "https://database.lichess.org/standard/list.txt",
+  "license": "CC0-1.0",
+  "licenseDocumentation": "https://database.lichess.org/",
+  "check": null,
+  "sample": null
+}
