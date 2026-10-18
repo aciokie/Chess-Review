@@ -108,6 +108,8 @@
 .learn-square.annotated::after { content: ''; position: absolute; inset: 3px; border: 3px solid #edb44f; border-radius: 3px; pointer-events: none; }
 .learn-square.last-move { background-image: linear-gradient(#f0df4a55,#f0df4a55); }
 .learn-square .piece-img { width: 88%; height: 88%; object-fit: contain; position: static; z-index: 1; pointer-events: auto; user-select: none; animation: learn-piece .16s ease-out; }
+.learn-square.can-drag .piece-img { cursor: grab; touch-action: none; }
+.learn-drag-ghost { position: fixed; z-index: 2500; transform: translate(-50%, -50%); pointer-events: none; user-select: none; -webkit-user-drag: none; filter: drop-shadow(0 6px 10px #0006); cursor: grabbing; }
 .learn-coordinate { position: absolute; font-size: clamp(9px,1.1vw,13px); font-weight: 700; line-height: 1; z-index: 2; pointer-events: none; }
 .learn-coordinate.rank { top: 4px; left: 4px; }
 .learn-coordinate.file { bottom: 3px; right: 4px; }

@@ -233,3 +233,34 @@ test('lessons without prerequisites do not render a stray 0 beside the call to a
   assert.ok([...panel.childNodes].every(node => node.nodeType !== 3 || node.textContent.trim() !== '0'), 'empty prerequisite list must not print 0');
   assert.equal(panel.querySelectorAll('button').length, 1);
 });
+
+test('dragging a piece with the pointer plays the move, snaps back from illegal drops and leaves no ghost', async t => {
+  const {w, dom} = await workspace(t);
+  const doc = dom.window.document, win = dom.window;
+  await w.startLesson('castling'); await w.lessonTab('practise');
+  const square = name => w.root.querySelector(`[data-square="${name}"]`);
+  assert.ok(square('e1').classList.contains('can-drag'));
+  assert.equal(square('e1').querySelector('.piece-img').draggable, false);
+  assert.ok(!square('a8').classList.contains('can-drag'), 'only the side to move can be dragged');
+  const pointer = (target, type, x, y) => target.dispatchEvent(new win.MouseEvent(type, {bubbles: true, button: 0, clientX: x, clientY: y}));
+  const drag = (from, to, x = 80) => {
+    doc.elementFromPoint = () => square(to);
+    pointer(square(from), 'pointerdown', 10, 10); pointer(win, 'pointermove', x, 10);
+    const sawGhost = !!doc.querySelector('.learn-drag-ghost');
+    pointer(win, 'pointerup', x, 10);
+    return sawGhost;
+  };
+  // Illegal drop: ghost shows while dragging, then everything is restored and nothing is submitted.
+  assert.equal(drag('e1', 'e5'), true);
+  assert.equal(doc.querySelector('.learn-drag-ghost'), null);
+  assert.equal(square('e1').querySelector('.piece-img').style.visibility, '');
+  await settle(); assert.equal(w.feedback, null);
+  // Tiny movement is a click, not a drag.
+  doc.elementFromPoint = () => square('g1'); pointer(square('e1'), 'pointerdown', 10, 10); pointer(win, 'pointerup', 12, 10);
+  assert.equal(doc.querySelector('.learn-drag-ghost'), null);
+  // Legal drop plays the move and is validated like any other answer.
+  assert.equal(drag('e1', 'g1'), true);
+  for (let i = 0; i < 50 && !w.feedback; i++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(w.feedback?.status, 'correct');
+  assert.equal(doc.querySelector('.learn-drag-ghost'), null);
+});
