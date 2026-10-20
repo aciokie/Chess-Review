@@ -381,7 +381,14 @@ function el(tag, props = {}, ...kids) {
   for (const [k, v] of Object.entries(props || {})) {
     if (v == null || v === false) continue;
     if (k === "class") n.className = v;
-    else if (k === "html") n.innerHTML = v;
+    else if (k === "html") {
+      const doc = n.ownerDocument || document;
+      if (doc && doc.createRange) {
+        n.replaceChildren(doc.createRange().createContextualFragment(v));
+      } else {
+        n.innerHTML = v;
+      }
+    }
     else if (k === "style" && typeof v === "object") {
       for (const [sk, sv] of Object.entries(v)) {
         if (sk.startsWith("--")) n.style.setProperty(sk, sv);

@@ -29,6 +29,7 @@ export function app(t) {
   const context = vm.createContext({
     window: dom.window, document: dom.window.document, navigator: dom.window.navigator,
     location: dom.window.location, Node: dom.window.Node, HTMLElement: dom.window.HTMLElement,
+    DOMParser: dom.window.DOMParser,
     getComputedStyle: dom.window.getComputedStyle, performance, structuredClone,
     URL, TextEncoder, btoa, console, Chess, flagCodeForCountryId, countryNameForId, browserAPI,
     canonicalGameId, analysisCacheKey, simpleHash,
