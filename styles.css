@@ -1544,6 +1544,13 @@ button { font-family: inherit; cursor: pointer; }
   margin-left: auto; flex: none; font-size: 10px; font-weight: 700; letter-spacing: .03em;
   color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); padding: 2px 7px; border-radius: 999px;
 }
+/* brilliant badge — only rendered when the game contains a brilliant move */
+.lc-brilliant {
+  flex: none; font-family: var(--font-mono); font-size: 10px; font-weight: 800; letter-spacing: .02em;
+  color: var(--q-brilliant); background: color-mix(in oklab, var(--q-brilliant) 16%, var(--panel));
+  border: 1px solid color-mix(in oklab, var(--q-brilliant) 45%, var(--line));
+  padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+}
 /* favorite star — parked in the card's top-right corner, out of the title row's flow */
 .lc-fav {
   position: absolute; top: 8px; right: 10px; z-index: 1;

@@ -5655,7 +5655,11 @@ function saveToLibrary() {
     const opSide = S.meSide === "w" ? "b" : "w";
     // "solved" = no mistakes to practice (clean game) OR practice was already completed before.
     const noMistakes = practiceSpots().length === 0;
-    const hasBrilliant = S.classif?.some((c) => c === "brilliant") || false;
+    // Tally brilliants so the card can show a count and the library can filter to your own vs the
+    // opponent's. classif[i] rates the move into positions[i], played by positions[i].color.
+    const brilliantCount = S.classif ? S.classif.filter((c) => c === "brilliant").length : 0;
+    const hasBrilliant = brilliantCount > 0;
+    const myBrilliant = !!S.classif?.some((c, i) => c === "brilliant" && S.positions[i]?.color === S.meSide);
     const rec = {
       id, savedAt: Date.now(), pgn: S.pgn, meta: S.meta || {},
       meSide: S.meSide,
@@ -5667,7 +5671,7 @@ function saveToLibrary() {
       eco: S.opening ? S.opening.eco : "", opening: S.opening ? S.opening.name : "",
       date: S.headers.UTCDate || S.headers.Date || "",
       url: (S.meta && S.meta.url) || "",
-      hasBrilliant,
+      hasBrilliant, brilliantCount, myBrilliant,
     };
     const writes = { [analysisCacheKey(id)]: {
       pgn: S.pgn, settingsKey: analysisSettingsKey(), engineBuild: S.activeEngineBuild,
@@ -5705,8 +5709,12 @@ function libRecords() {
   if (S.libSort === "unsolved") recs = recs.filter((r) => !r.solved);
   else if (S.libSort === "favorite") recs = recs.filter((r) => r.fav);
   else if (S.libSort === "brilliant") recs = recs.filter((r) => r.hasBrilliant);
+  else if (S.libSort === "brilliantMine") recs = recs.filter((r) => r.myBrilliant);
+  else if (S.libSort === "brilliantOpp") recs = recs.filter((r) => r.hasBrilliant && !r.myBrilliant);
+  const brilliantOf = (r) => r.brilliantCount ?? (r.hasBrilliant ? 1 : 0);
   if (S.libSort === "accuracy") recs.sort((a, b) => (b.myAcc ?? -1) - (a.myAcc ?? -1));
   else if (S.libSort === "rating") recs.sort((a, b) => (b.opRating ?? -1) - (a.opRating ?? -1));
+  else if (S.libSort === "brilliantCount") recs.sort((a, b) => brilliantOf(b) - brilliantOf(a));
   else recs.sort((a, b) => b.savedAt - a.savedAt);
   return recs;
 }
@@ -5728,7 +5736,9 @@ async function rescanLibraryForBrilliants(onProgress) {
   try {
     const stored = await browserAPI.storage.local.get("library");
     const library = Array.isArray(stored.library) ? stored.library : [];
-    const pending = library.filter((rec) => typeof rec.hasBrilliant !== "boolean");
+    // A record missing the per-side tallies was scanned by an older build, so re-process it too.
+    const pending = library.filter((rec) => typeof rec.hasBrilliant !== "boolean"
+      || typeof rec.brilliantCount !== "number" || typeof rec.myBrilliant !== "boolean");
     const flags = new Map();
     let scanned = 0, skipped = 0;
     for (let n = 0; n < pending.length; n++) {
@@ -5751,17 +5761,25 @@ async function rescanLibraryForBrilliants(onProgress) {
             openingHeader: rec.opening ? { eco: rec.eco, name: rec.opening } : null,
           };
           classifyLine(state);
-          flags.set(rec.id, state.classif.some((c) => c === "brilliant"));
+          const brilliantCount = state.classif.filter((c) => c === "brilliant").length;
+          flags.set(rec.id, {
+            hasBrilliant: brilliantCount > 0,
+            brilliantCount,
+            myBrilliant: state.classif.some((c, i) => c === "brilliant" && positions[i]?.color === rec.meSide),
+          });
           scanned++;
         }
       } catch { skipped++; }
       if (n + 1 < pending.length) await new Promise((resolve) => setTimeout(resolve, 0));
       if (onProgress) onProgress(n + 1, pending.length);
     }
-    // Persist a real boolean for every scanned game (true OR false) so it is marked as done.
-    const changed = library.filter((rec) => flags.has(rec.id) && rec.hasBrilliant !== flags.get(rec.id)).length;
+    // Persist the tallies for every scanned game (real true/false) so it is marked as done.
+    const changed = library.filter((rec) => {
+      const f = flags.get(rec.id);
+      return !!f && (rec.hasBrilliant !== f.hasBrilliant || rec.brilliantCount !== f.brilliantCount || rec.myBrilliant !== f.myBrilliant);
+    }).length;
     if (changed) {
-      await updateLibrary((lib) => lib.map((r) => flags.has(r.id) ? { ...r, hasBrilliant: flags.get(r.id) } : r));
+      await updateLibrary((lib) => lib.map((r) => flags.has(r.id) ? { ...r, ...flags.get(r.id) } : r));
     }
     return { updated: changed, scanned, skipped, pending: pending.length, total: library.length, busy: false };
   } finally {
@@ -5793,12 +5811,16 @@ function libDropdown(label, value, options, onChange) {
 function libCard(r) {
   const curId = currentGameId();
   const rLetter = r.result === "win" ? "W" : r.result === "loss" ? "L" : r.result === "draw" ? "D" : "·";
+  const bc = r.brilliantCount ?? (r.hasBrilliant ? 1 : 0);
   return el("div", { class: "lib-card" + (r.id === curId ? " active" : ""), onclick: () => openLibraryGame(r) },
     el("button", { class: "lc-fav" + (r.fav ? " on" : ""), title: r.fav ? "Remove favorite" : "Favorite",
       onclick: (e) => { e.stopPropagation(); toggleFav(r.id); } }, r.fav ? "★" : "☆"),
     el("div", { class: "lc-top" },
       el("span", { class: "lc-result lc-" + (r.result || "none") }, rLetter),
       el("span", { class: "lc-opp" }, "vs " + (r.opName || "?")),
+      bc ? el("span", { class: "lc-brilliant" + (r.myBrilliant ? " mine" : ""),
+        title: `${bc} brilliant move${bc > 1 ? "s" : ""}${r.myBrilliant ? " (yours)" : ""}` },
+        "!!" + (bc > 1 ? ` ×${bc}` : "")) : null,
       r.type ? el("span", { class: "lc-type" }, r.type) : null),
     el("div", { class: "lc-bot" },
       el("span", { class: "lc-acc" }, r.myAcc == null ? "—" : r.myAcc.toFixed(1), el("i", {}, "%")),
@@ -5814,7 +5836,7 @@ function renderLibrary() {
   const setType = (v) => { S.libType = v; renderLibrary(); };
   const types = Array.from(new Set(S.library.map((r) => r.type).filter(Boolean)));
   UI.libControls.replaceChildren(
-    libDropdown("Sort", S.libSort, [["history", "Most recent"], ["accuracy", "Highest accuracy"], ["rating", "Highest rating"], ["unsolved", "Unsolved"], ["favorite", "Favorites"], ["brilliant", "Brilliants"]], setSort),
+    libDropdown("Sort", S.libSort, [["history", "Most recent"], ["accuracy", "Highest accuracy"], ["rating", "Highest rating"], ["unsolved", "Unsolved"], ["favorite", "Favorites"], ["brilliant", "Brilliants"], ["brilliantCount", "Most brilliants"], ["brilliantMine", "Brilliant (mine)"], ["brilliantOpp", "Brilliant (opponent)"]], setSort),
     libDropdown("Result", S.libResult, [["all", "All results"], ["win", "Wins"], ["loss", "Losses"], ["draw", "Draws"]], setRes),
     libDropdown("Type", S.libType, [["all", "All types"], ...types.map((t) => [t, t])], setType),
   );
