@@ -1483,6 +1483,14 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--ink-2); background: var(--panel-2); border: 1px solid var(--line);
   padding: 2px 9px; border-radius: 999px;
 }
+.lib-rescan {
+  display: inline-flex; align-items: center; gap: 4px; cursor: pointer; flex: none;
+  padding: 4px 9px; border-radius: 999px; font: inherit; font-size: 11px; font-weight: 700;
+  color: var(--ink-2); background: var(--panel-2); border: 1px solid var(--line);
+  transition: border-color .12s, color .12s;
+}
+.lib-rescan:hover:not(:disabled) { border-color: color-mix(in oklab, var(--accent) 55%, var(--line)); color: var(--ink); }
+.lib-rescan:disabled { opacity: .6; cursor: default; }
 .lib-controls { padding: 11px 16px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--line-soft); flex: none; }
 /* custom dropdown (sleek, accent-tinted hover — no native blue) */
 .lib-dd { display: flex; align-items: center; gap: 10px; }

@@ -1561,18 +1561,19 @@ function buildUI() {
   const libRail = el("aside", { class: "library-rail", id: "libraryRail" },
     el("div", { class: "lib-tab" }, icon("library"), el("span", { class: "lib-tab-txt" }, "Library")),
     el("div", { class: "lib-panel" },
-      el("div", { class: "lib-head" }, el("h3", {}, "Your games"), libCount,
+      el("div", { class: "lib-head" }, el("h3", {}, "Your games"),
         el("button", { class: "lib-rescan", title: "Re-scan all games for brilliant moves", onclick: async () => {
           const btn = document.querySelector(".lib-rescan");
           if (btn) { btn.disabled = true; btn.textContent = "Scanning…"; }
           try {
-            const { updated, scanned, errors } = await rescanLibraryForBrilliants();
-            console.log(`Library rescan: ${updated} updated, ${scanned} scanned, ${errors} errors`);
+            const { updated, scanned, skipped } = await rescanLibraryForBrilliants();
+            if (btn) btn.title = `Scanned ${scanned} game(s): ${updated} updated${skipped ? `, ${skipped} skipped` : ""}`;
+            console.log(`Library rescan: ${scanned} scanned, ${updated} updated, ${skipped} skipped`);
           } finally {
             if (btn) { btn.disabled = false; btn.textContent = "⟳ Rescan"; }
             renderLibrary();
           }
-        } }, "⟳ Rescan")),
+        } }, "⟳ Rescan"), libCount),
       libControls, libList),
   );
   // Close any open library dropdown when clicking elsewhere.
@@ -5710,46 +5711,36 @@ function libRecords() {
 async function rescanLibraryForBrilliants() {
   const stored = await browserAPI.storage.local.get("library");
   const library = Array.isArray(stored.library) ? stored.library : [];
-  if (!library.length) return { updated: 0, scanned: 0, errors: 0 };
-
-  let updated = 0, scanned = 0, errors = 0;
+  const flags = new Map();
+  let scanned = 0, skipped = 0;
   for (const rec of library) {
-    if (!rec.pgn) { errors++; continue; }
     try {
+      // Rebuild the game from its PGN and require the stored analysis to cover every position.
+      // completeAnalysis' count is the number of positions (evals/bests length), NOT a literal.
+      const positions = buildPositions(rec.pgn || "");
       const key = analysisCacheKey(rec.id);
       const s = await browserAPI.storage.local.get(key);
       const saved = s[key] || null;
-      if (!completeAnalysis(saved, 1)) { errors++; continue; }
+      if (positions.length < 2 || !completeAnalysis(saved, positions.length)) { skipped++; continue; }
 
-      // Build positions from PGN (same as when the game was originally analyzed).
-      const positions = buildPositions(rec.pgn);
-      const N = positions.length - 1;
-      if (N === 0) { errors++; continue; }
-
-      // Minimal state for classifyLine.
+      // classifyLine only reads this state; ratings and opening are cosmetic here.
       const state = {
-        total: N,
-        positions,
-        evals: saved.evals,
-        bests: saved.bests,
+        total: positions.length - 1, positions,
+        evals: saved.evals, bests: saved.bests,
         players: { w: { rating: rec.myRating || 1500 }, b: { rating: rec.opRating || 1500 } },
         settings: S.settings,
         openingHeader: rec.opening ? { eco: rec.eco, name: rec.opening } : null,
-        meta: rec.meta,
       };
       classifyLine(state);
-      const hasBrilliant = state.classif?.some((c) => c === "brilliant") || false;
-
-      if (rec.hasBrilliant !== hasBrilliant) {
-        await updateLibrary((lib) => lib.map((r) => r.id === rec.id ? { ...r, hasBrilliant } : r));
-        updated++;
-      }
+      flags.set(rec.id, state.classif.some((c) => c === "brilliant"));
       scanned++;
-    } catch {
-      errors++;
-    }
+    } catch { skipped++; }
   }
-  return { updated, scanned, errors };
+  const changed = library.filter((rec) => flags.has(rec.id) && !!rec.hasBrilliant !== flags.get(rec.id)).length;
+  if (changed) {
+    await updateLibrary((lib) => lib.map((r) => flags.has(r.id) ? { ...r, hasBrilliant: flags.get(r.id) } : r));
+  }
+  return { updated: changed, scanned, skipped };
 }
 // A sleek custom dropdown (native <select> popups can't be de-blued on Windows). `options` is
 // [[value, label], …]. Clicking outside closes it (handled by a global listener in buildUI).
