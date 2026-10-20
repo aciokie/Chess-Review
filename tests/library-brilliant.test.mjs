@@ -119,21 +119,6 @@ test('Brilliants sort shows only games flagged with a brilliant move', t => {
   assert.deepEqual([...a.call('libRecords')].map((r) => r.id), ['x']);
 });
 
-test('brilliant filters and the most-brilliants sort use the per-game counts', t => {
-  const a = app(t);
-  quiet(a);
-  a.state.library = [
-    { id: 'a', savedAt: 1, hasBrilliant: true, brilliantCount: 3, myBrilliant: true },
-    { id: 'b', savedAt: 2, hasBrilliant: true, brilliantCount: 1, myBrilliant: false },
-    { id: 'c', savedAt: 3, hasBrilliant: false, brilliantCount: 0, myBrilliant: false },
-  ];
-  const ids = (sort) => { a.state.libSort = sort; return [...a.call('libRecords')].map((r) => r.id); };
-  assert.deepEqual(ids('brilliant'), ['b', 'a']);       // both flagged, recency order
-  assert.deepEqual(ids('brilliantMine'), ['a']);        // only my own brilliant
-  assert.deepEqual(ids('brilliantOpp'), ['b']);         // only the opponent's
-  assert.deepEqual(ids('brilliantCount'), ['a', 'b', 'c']); // 3, 1, 0
-});
-
 test('a brilliant game renders a !! badge with its count', t => {
   const a = app(t);
   quiet(a);

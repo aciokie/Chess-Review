@@ -5709,12 +5709,8 @@ function libRecords() {
   if (S.libSort === "unsolved") recs = recs.filter((r) => !r.solved);
   else if (S.libSort === "favorite") recs = recs.filter((r) => r.fav);
   else if (S.libSort === "brilliant") recs = recs.filter((r) => r.hasBrilliant);
-  else if (S.libSort === "brilliantMine") recs = recs.filter((r) => r.myBrilliant);
-  else if (S.libSort === "brilliantOpp") recs = recs.filter((r) => r.hasBrilliant && !r.myBrilliant);
-  const brilliantOf = (r) => r.brilliantCount ?? (r.hasBrilliant ? 1 : 0);
   if (S.libSort === "accuracy") recs.sort((a, b) => (b.myAcc ?? -1) - (a.myAcc ?? -1));
   else if (S.libSort === "rating") recs.sort((a, b) => (b.opRating ?? -1) - (a.opRating ?? -1));
-  else if (S.libSort === "brilliantCount") recs.sort((a, b) => brilliantOf(b) - brilliantOf(a));
   else recs.sort((a, b) => b.savedAt - a.savedAt);
   return recs;
 }
@@ -5836,7 +5832,7 @@ function renderLibrary() {
   const setType = (v) => { S.libType = v; renderLibrary(); };
   const types = Array.from(new Set(S.library.map((r) => r.type).filter(Boolean)));
   UI.libControls.replaceChildren(
-    libDropdown("Sort", S.libSort, [["history", "Most recent"], ["accuracy", "Highest accuracy"], ["rating", "Highest rating"], ["unsolved", "Unsolved"], ["favorite", "Favorites"], ["brilliant", "Brilliants"], ["brilliantCount", "Most brilliants"], ["brilliantMine", "Brilliant (mine)"], ["brilliantOpp", "Brilliant (opponent)"]], setSort),
+    libDropdown("Sort", S.libSort, [["history", "Most recent"], ["accuracy", "Highest accuracy"], ["rating", "Highest rating"], ["unsolved", "Unsolved"], ["favorite", "Favorites"], ["brilliant", "Brilliants"]], setSort),
     libDropdown("Result", S.libResult, [["all", "All results"], ["win", "Wins"], ["loss", "Losses"], ["draw", "Draws"]], setRes),
     libDropdown("Type", S.libType, [["all", "All types"], ...types.map((t) => [t, t])], setType),
   );
