@@ -382,12 +382,8 @@ function el(tag, props = {}, ...kids) {
     if (v == null || v === false) continue;
     if (k === "class") n.className = v;
     else if (k === "html") {
-      const doc = n.ownerDocument || document;
-      if (doc && doc.createRange) {
-        n.replaceChildren(doc.createRange().createContextualFragment(v));
-      } else {
-        n.innerHTML = v;
-      }
+      const parsed = new DOMParser().parseFromString(String(v), "text/html");
+      n.replaceChildren(...parsed.body.childNodes);
     }
     else if (k === "style" && typeof v === "object") {
       for (const [sk, sv] of Object.entries(v)) {
