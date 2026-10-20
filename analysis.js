@@ -1561,7 +1561,18 @@ function buildUI() {
   const libRail = el("aside", { class: "library-rail", id: "libraryRail" },
     el("div", { class: "lib-tab" }, icon("library"), el("span", { class: "lib-tab-txt" }, "Library")),
     el("div", { class: "lib-panel" },
-      el("div", { class: "lib-head" }, el("h3", {}, "Your games"), libCount),
+      el("div", { class: "lib-head" }, el("h3", {}, "Your games"), libCount,
+        el("button", { class: "lib-rescan", title: "Re-scan all games for brilliant moves", onclick: async () => {
+          const btn = document.querySelector(".lib-rescan");
+          if (btn) { btn.disabled = true; btn.textContent = "Scanning…"; }
+          try {
+            const { updated, scanned, errors } = await rescanLibraryForBrilliants();
+            console.log(`Library rescan: ${updated} updated, ${scanned} scanned, ${errors} errors`);
+          } finally {
+            if (btn) { btn.disabled = false; btn.textContent = "⟳ Rescan"; }
+            renderLibrary();
+          }
+        } }, "⟳ Rescan")),
       libControls, libList),
   );
   // Close any open library dropdown when clicking elsewhere.
@@ -5691,6 +5702,54 @@ function libRecords() {
   else if (S.libSort === "rating") recs.sort((a, b) => (b.opRating ?? -1) - (a.opRating ?? -1));
   else recs.sort((a, b) => b.savedAt - a.savedAt);
   return recs;
+}
+
+// Re-scan all library games for brilliant moves.
+// Loads each game's stored analysis, re-runs classification on the saved evals/bests,
+// and updates the library record with hasBrilliant flag.
+async function rescanLibraryForBrilliants() {
+  const stored = await browserAPI.storage.local.get("library");
+  const library = Array.isArray(stored.library) ? stored.library : [];
+  if (!library.length) return { updated: 0, scanned: 0, errors: 0 };
+
+  let updated = 0, scanned = 0, errors = 0;
+  for (const rec of library) {
+    if (!rec.pgn) { errors++; continue; }
+    try {
+      const key = analysisCacheKey(rec.id);
+      const s = await browserAPI.storage.local.get(key);
+      const saved = s[key] || null;
+      if (!completeAnalysis(saved, 1)) { errors++; continue; }
+
+      // Build positions from PGN (same as when the game was originally analyzed).
+      const positions = buildPositions(rec.pgn);
+      const N = positions.length - 1;
+      if (N === 0) { errors++; continue; }
+
+      // Minimal state for classifyLine.
+      const state = {
+        total: N,
+        positions,
+        evals: saved.evals,
+        bests: saved.bests,
+        players: { w: { rating: rec.myRating || 1500 }, b: { rating: rec.opRating || 1500 } },
+        settings: S.settings,
+        openingHeader: rec.opening ? { eco: rec.eco, name: rec.opening } : null,
+        meta: rec.meta,
+      };
+      classifyLine(state);
+      const hasBrilliant = state.classif?.some((c) => c === "brilliant") || false;
+
+      if (rec.hasBrilliant !== hasBrilliant) {
+        await updateLibrary((lib) => lib.map((r) => r.id === rec.id ? { ...r, hasBrilliant } : r));
+        updated++;
+      }
+      scanned++;
+    } catch {
+      errors++;
+    }
+  }
+  return { updated, scanned, errors };
 }
 // A sleek custom dropdown (native <select> popups can't be de-blued on Windows). `options` is
 // [[value, label], …]. Clicking outside closes it (handled by a global listener in buildUI).
