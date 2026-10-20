@@ -1562,13 +1562,19 @@ function buildUI() {
     el("div", { class: "lib-tab" }, icon("library"), el("span", { class: "lib-tab-txt" }, "Library")),
     el("div", { class: "lib-panel" },
       el("div", { class: "lib-head" }, el("h3", {}, "Your games"),
-        el("button", { class: "lib-rescan", title: "Re-scan all games for brilliant moves", onclick: async () => {
+        el("button", { class: "lib-rescan", title: "Scan games for brilliant moves", onclick: async () => {
           const btn = document.querySelector(".lib-rescan");
           if (btn) { btn.disabled = true; btn.textContent = "Scanning…"; }
           try {
-            const { updated, scanned, skipped } = await rescanLibraryForBrilliants();
-            if (btn) btn.title = `Scanned ${scanned} game(s): ${updated} updated${skipped ? `, ${skipped} skipped` : ""}`;
-            console.log(`Library rescan: ${scanned} scanned, ${updated} updated, ${skipped} skipped`);
+            const res = await rescanLibraryForBrilliants((done, tot) => {
+              if (btn) btn.textContent = `Scanning ${done}/${tot}…`;
+            });
+            if (btn) btn.title = res.pending
+              ? `Scanned ${res.scanned} of ${res.pending} game(s): ${res.updated} updated${res.skipped ? `, ${res.skipped} skipped` : ""}`
+              : `All ${res.total} game(s) already scanned`;
+            console.log("Library rescan:", res);
+          } catch (err) {
+            console.error("Library rescan failed", err);
           } finally {
             if (btn) { btn.disabled = false; btn.textContent = "⟳ Rescan"; }
             renderLibrary();
@@ -5705,42 +5711,62 @@ function libRecords() {
   return recs;
 }
 
-// Re-scan all library games for brilliant moves.
-// Loads each game's stored analysis, re-runs classification on the saved evals/bests,
-// and updates the library record with hasBrilliant flag.
-async function rescanLibraryForBrilliants() {
-  const stored = await browserAPI.storage.local.get("library");
-  const library = Array.isArray(stored.library) ? stored.library : [];
-  const flags = new Map();
-  let scanned = 0, skipped = 0;
-  for (const rec of library) {
-    try {
-      // Rebuild the game from its PGN and require the stored analysis to cover every position.
-      // completeAnalysis' count is the number of positions (evals/bests length), NOT a literal.
-      const positions = buildPositions(rec.pgn || "");
-      const key = analysisCacheKey(rec.id);
-      const s = await browserAPI.storage.local.get(key);
-      const saved = s[key] || null;
-      if (positions.length < 2 || !completeAnalysis(saved, positions.length)) { skipped++; continue; }
-
-      // classifyLine only reads this state; ratings and opening are cosmetic here.
-      const state = {
-        total: positions.length - 1, positions,
-        evals: saved.evals, bests: saved.bests,
-        players: { w: { rating: rec.myRating || 1500 }, b: { rating: rec.opRating || 1500 } },
-        settings: S.settings,
-        openingHeader: rec.opening ? { eco: rec.eco, name: rec.opening } : null,
-      };
-      classifyLine(state);
-      flags.set(rec.id, state.classif.some((c) => c === "brilliant"));
-      scanned++;
-    } catch { skipped++; }
+// Re-scan library games for brilliant moves. Rebuilds each game from its stored PGN + analysis and
+// re-runs the exact classifier the review uses, so the flag matches what the board already shows.
+//
+// Classification is CPU-bound (~100ms/game), so this MUST NOT run as a tight synchronous loop: doing
+// so froze the tab for ~30s and the button looked stuck on "Scanning…". We therefore yield to the
+// event loop between games (progress stays visible and the panel stays responsive).
+//
+// Every game saved by the current version already carries an explicit boolean hasBrilliant, and only
+// games saved before the flag existed lack it — so we process just those. The first run migrates the
+// back-catalogue; later runs are instant. A scanned game is always written with a real true/false so
+// it is marked done (never re-scanned) even when it has no brilliant.
+async function rescanLibraryForBrilliants(onProgress) {
+  if (S._rescanning) return { updated: 0, scanned: 0, skipped: 0, pending: 0, total: 0, busy: true };
+  S._rescanning = true;
+  try {
+    const stored = await browserAPI.storage.local.get("library");
+    const library = Array.isArray(stored.library) ? stored.library : [];
+    const pending = library.filter((rec) => typeof rec.hasBrilliant !== "boolean");
+    const flags = new Map();
+    let scanned = 0, skipped = 0;
+    for (let n = 0; n < pending.length; n++) {
+      const rec = pending[n];
+      try {
+        // Rebuild the game and require the stored analysis to cover every position.
+        // completeAnalysis' count is the number of positions (evals/bests length), NOT a literal.
+        const positions = buildPositions(rec.pgn || "");
+        const key = analysisCacheKey(rec.id);
+        const s = await browserAPI.storage.local.get(key);
+        const saved = s[key] || null;
+        if (positions.length < 2 || !completeAnalysis(saved, positions.length)) skipped++;
+        else {
+          // classifyLine only reads this state; ratings and opening are cosmetic here.
+          const state = {
+            total: positions.length - 1, positions,
+            evals: saved.evals, bests: saved.bests,
+            players: { w: { rating: rec.myRating || 1500 }, b: { rating: rec.opRating || 1500 } },
+            settings: S.settings,
+            openingHeader: rec.opening ? { eco: rec.eco, name: rec.opening } : null,
+          };
+          classifyLine(state);
+          flags.set(rec.id, state.classif.some((c) => c === "brilliant"));
+          scanned++;
+        }
+      } catch { skipped++; }
+      if (n + 1 < pending.length) await new Promise((resolve) => setTimeout(resolve, 0));
+      if (onProgress) onProgress(n + 1, pending.length);
+    }
+    // Persist a real boolean for every scanned game (true OR false) so it is marked as done.
+    const changed = library.filter((rec) => flags.has(rec.id) && rec.hasBrilliant !== flags.get(rec.id)).length;
+    if (changed) {
+      await updateLibrary((lib) => lib.map((r) => flags.has(r.id) ? { ...r, hasBrilliant: flags.get(r.id) } : r));
+    }
+    return { updated: changed, scanned, skipped, pending: pending.length, total: library.length, busy: false };
+  } finally {
+    S._rescanning = false;
   }
-  const changed = library.filter((rec) => flags.has(rec.id) && !!rec.hasBrilliant !== flags.get(rec.id)).length;
-  if (changed) {
-    await updateLibrary((lib) => lib.map((r) => flags.has(r.id) ? { ...r, hasBrilliant: flags.get(r.id) } : r));
-  }
-  return { updated: changed, scanned, skipped };
 }
 // A sleek custom dropdown (native <select> popups can't be de-blued on Windows). `options` is
 // [[value, label], …]. Clicking outside closes it (handled by a global listener in buildUI).
