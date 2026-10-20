@@ -1,0 +1,18 @@
+{
+  "//": "Example configuration for the Chess Review native engine helper. Copy to 'config.json' next to ChessReviewHost.exe (native/install.ps1 writes this for you).",
+  "enginePath": "C:\\Tools\\Stockfish\\stockfish-windows-x86-64-avx2.exe",
+  "engineArgs": [],
+  "evalFile": "",
+  "threads": 1,
+  "hashMb": 16,
+  "searchTimeoutMs": 120000,
+  "logFile": "",
+  "_enginePath": "REQUIRED. Absolute path to a genuine Stockfish 19 Windows executable (x86-64). Stockfish 16+ embeds its default NNUE network, so no separate .nnue file is needed for official builds. The helper never pretends: it reports the engine's own 'id name' and flags it unverified if it is not Stockfish.",
+  "_engineArgs": "Optional array of extra command-line arguments for the engine. They are passed straight to the process (never through a shell) and each argument is quoted, so an argument cannot break out of the list.",
+  "_evalFile": "Optional absolute path to an external .nnue network, for builds that do not embed one. Ignored when the file does not exist.",
+  "_threads": "UCI Threads for the engine (1-64). Keep this at 1: the extension already runs several engine instances in parallel (Settings > Engine > Workers) and every native worker is its own helper process.",
+  "_hashMb": "UCI Hash in MB (1-4096). The extension's own Hash setting is applied on top of this, per engine.",
+  "_searchTimeoutMs": "Watchdog (500-600000): if a searching engine produces no output for this long the helper reports a fatal error, reaps the engine and exits. The extension applies its own, independent timeouts and falls back to the bundled WASM engine.",
+  "_logFile": "Optional absolute path to a diagnostic log. Diagnostics also always go to stderr; stdout is reserved for the Native Messaging protocol.",
+  "note": "The helper also honours the CHESS_REVIEW_ENGINE_PATH environment variable as an override for enginePath (portable setups and testing)."
+}

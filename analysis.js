@@ -5,6 +5,7 @@
 
 import { Chess } from "./lib/chess.js";
 import { Engine } from "./engine/uci.js";
+import { NativeEngine, nativeMessagingSupported, probeNativeHost } from "./engine/native.js";
 import { flagCodeForCountryId, countryNameForId } from "./flags.js";
 import { browserAPI } from "./browser-compat.js";
 import { canonicalGameId, analysisCacheKey } from "./gameid.js";
@@ -145,7 +146,7 @@ const ENGINE_INFO = {
   engineDepth:   "How many plies (half-moves) deep Stockfish searches each position. Higher depth gives more accurate evaluations and fewer false mistakes, but takes longer.",
   engineWorkers: "Number of Stockfish instances analysing positions in parallel. More workers finish the game faster on multi-core CPUs; the results are identical.",
   fastAnalysis:  "Trades quality for speed: the classification pass uses fewer engine lines. ~1.3×/1.6× faster, but evals shift slightly and clean games can pick up a few false minor missteps.",
-  enginePath:    "Stockfish 18 NNUE is the default. Stockfish 19 Full is the strongest build. Stockfish 19 Lite uses a smaller evaluation network for a compact alternative. Both run locally; Lite is not the full-strength Stockfish 19 build.",
+  enginePath:    "Stockfish 18 NNUE is the default. Stockfish 19 Full is the strongest bundled build. Stockfish 19 Lite uses a smaller evaluation network for a compact alternative. Stockfish 19 (Native) runs a Stockfish 19 executable you installed on Windows through a small local helper — faster than WASM, and it falls back to the bundled builds if the helper isn't installed.",
   engineSkill:   "Caps the engine's playing strength (Stockfish 'Skill Level'). Max (20) = full strength. Lower values play deliberately weaker — useful for more human-like suggestions.",
   engineHash:    "Recommended: 16 MB for most reviews (the default). Try 32–64 MB for deeper analysis if your computer has spare memory. Each parallel worker uses its own hash table, so memory use is roughly Hash × Workers.",
   clsGood:       "A move that loses at least this much eval (in pawns) can be no better than \"Decent\". Below it, the move is \"Near best\". Lower = stricter.",
@@ -299,11 +300,21 @@ const ENGINE_BUILDS = {
   sf19full: "engine/stockfish-19-single.js",
   sf19lite: "engine/stockfish-19-lite-single.js"
 };
+// The native build is not a bundled WASM file: it runs a genuine Stockfish 19 executable that the
+// user installed, through an optional per-user Native Messaging helper (see native/README.md). It is
+// never selected automatically — picking it only ever falls back DOWN to the bundled WASM builds,
+// and a WASM build never silently switches to native.
+const NATIVE_BUILD = "native19";
 const ENGINE_FALLBACK_ORDER = ["nnue", "sf19full", "sf19lite"];
+// Every selectable build, bundled or native. Saved analyses record the build they were made with,
+// and a cached analysis may only be restored while that build is still known.
+function isKnownEngineBuild(key) {
+  return Object.hasOwn(ENGINE_BUILDS, key) || key === NATIVE_BUILD;
+}
 
 function migrateEngineSettings(settings) {
   if (settings.enginePath === "sf19") settings.enginePath = "sf19lite";
-  if (!Object.hasOwn(ENGINE_BUILDS, settings.enginePath)) settings.enginePath = DEFAULT_SETTINGS.enginePath;
+  if (!isKnownEngineBuild(settings.enginePath)) settings.enginePath = DEFAULT_SETTINGS.enginePath;
 }
 // The engine panel shows up to this many candidate lines (searched on demand for the viewed position).
 const ENGINE_MAX_LINES = 4;
@@ -662,6 +673,9 @@ const S = {
   // The build that is ACTUALLY running (set by createEngine; may differ from settings.enginePath if
   // the chosen build failed to load and we fell back). The Engine tab shows this, not the selection.
   activeEngineBuild: null, engineFallbackBuild: null,
+  // Native helper availability, for the Build row hint. `nativeStatus` is the last probe result
+  // (null = not probed yet), `nativeProbe` the in-flight promise so we never probe twice.
+  nativeStatus: null, nativeProbe: null,
   // "Play best moves from here": auto-walk that re-analyzes each position and plays the engine's
   // best move until mate/draw or the user takes over. Token invalidates an in-flight walk.
   bestWalkToken: 0, bestWalking: false,
@@ -2198,13 +2212,25 @@ function refreshArrows() { renderBestArrow(); renderUserArrows(); renderThreatAr
 // the UCI options (Hash / Skill Level); applying them also awaits the handshake, which now REJECTS
 // on a dead build (timeout / worker error) instead of hanging forever.
 let _engineFellBack = false; // warn once per page if we ever leave the preferred build
+// Native engine support is optional: a browser may lack Native Messaging, and the test harness
+// strips imports — so check before touching it, and leave the WASM path completely untouched.
+function nativeEngineSupported() {
+  return typeof NativeEngine === "function"
+    && typeof nativeMessagingSupported === "function"
+    && nativeMessagingSupported();
+}
 async function createEngine(opts = {}) {
-  const preferred = ENGINE_BUILDS[S.settings.enginePath] ? S.settings.enginePath : DEFAULT_SETTINGS.enginePath;
+  const preferred = isKnownEngineBuild(S.settings.enginePath) ? S.settings.enginePath : DEFAULT_SETTINGS.enginePath;
   const order = [preferred, ...ENGINE_FALLBACK_ORDER.filter(key => key !== preferred)];
   let lastErr = null;
   for (const key of order) {
-    const eng = new Engine(ENGINE_BUILDS[key]);
+    if (key === NATIVE_BUILD && !nativeEngineSupported()) {
+      lastErr = lastErr || new Error("the native engine helper is not available");
+      continue;
+    }
+    let eng = null;
     try {
+      eng = key === NATIVE_BUILD ? new NativeEngine({ uciOptions: opts }) : new Engine(ENGINE_BUILDS[key]);
       await eng.setOptions(opts); // awaits the handshake; throws if this build failed to load
       eng.buildKey = key;
       if (S.settings.enginePath === preferred) {
@@ -2219,7 +2245,7 @@ async function createEngine(opts = {}) {
       return eng;
     } catch (e) {
       lastErr = e;
-      try { eng.terminate(); } catch {}
+      try { eng?.terminate(); } catch {}
     }
   }
   throw lastErr || new Error("No Stockfish build could be started.");
@@ -4192,7 +4218,7 @@ async function requestPanelLines() {
   S._panelCache = { idx: i, fen, lines: res.lines };
   renderEngineCurrent();
 }
-const ENGINE_NAME = { nnue: "Stockfish 18 NNUE", sf19full: "Stockfish 19 Full", sf19lite: "Stockfish 19 Lite" };
+const ENGINE_NAME = { nnue: "Stockfish 18 NNUE", sf19full: "Stockfish 19 Full", sf19lite: "Stockfish 19 Lite", native19: "Stockfish 19 (Native)" };
 // Keep all candidate lines and the action visible. Only the bottom edge moves, including
 // when narrowing a custom panel wraps its heading/button or extra lines are selected.
 function fitEnginePanel() {
@@ -4860,6 +4886,45 @@ function fxSlider(ev, field, label, min, max, step, fmt) {
     }),
   );
 }
+// Availability of the optional native-engine helper, for the Build row. Probed once per page (the
+// probe only waits for the helper's `hello` — it never starts Stockfish), then re-rendered in place.
+// Returns the cached result, or null while the first probe is in flight.
+function ensureNativeStatus() {
+  if (S.nativeStatus) return S.nativeStatus;
+  if (S.nativeProbe) return null;
+  if (typeof probeNativeHost !== "function") { // imports are stripped in the test harness
+    S.nativeStatus = { available: false, reason: "unsupported" };
+    return S.nativeStatus;
+  }
+  S.nativeProbe = probeNativeHost()
+    .then((status) => { S.nativeStatus = status; })
+    .catch((e) => { S.nativeStatus = { available: false, reason: "probe-failed", message: e?.message }; })
+    .finally(() => {
+      S.nativeProbe = null;
+      if (UI.settings && !UI.settings.hidden && S.settingsTab === "engine") { try { renderSettings(); } catch {} }
+    });
+  return null;
+}
+function recheckNativeStatus() {
+  if (S.nativeProbe) return;
+  S.nativeStatus = null;
+  if (UI.settings && !UI.settings.hidden && S.settingsTab === "engine") { try { renderSettings(); } catch {} }
+}
+// One hint line that states plainly what the user gets with the native build right now — including
+// when it ISN'T available, so we never imply native Stockfish is running when only WASM is.
+function nativeStatusRow(status) {
+  const note = !status.available
+    ? "⚠ Native helper not detected — reviews use the bundled Stockfish 18 NNUE instead. On Windows you can install it (see native/README.md), then press Recheck."
+    : status.engineConfigured === false
+      ? "⚠ Native helper found, but no Stockfish executable is configured for it yet (see native/README.md). Reviews use the bundled Stockfish 18 NNUE until then."
+      : status.engine && status.engine.verified === false
+        ? `⚠ Native helper is running "${status.engine.name || "an unidentified engine"}" — that is not a verified Stockfish build. Configure a genuine Stockfish 19 executable (see native/README.md).`
+        : `Native helper detected${status.engine && status.engine.name ? ` — ${status.engine.name}` : ""}.`;
+  return el("div", { class: "set-row hint" },
+    el("span", { class: "set-note" }, note),
+    el("button", { class: "set-reset inline", onclick: recheckNativeStatus }, "Recheck"),
+  );
+}
 function motorSettings() {
   return el("div", {},
     section("Search",
@@ -4897,8 +4962,13 @@ function motorSettings() {
           el("button", { class: S.settings.enginePath === "nnue" ? "on" : "", onclick: () => setEngineSetting("enginePath", "nnue") }, "Stockfish 18 NNUE"),
           el("button", { class: S.settings.enginePath === "sf19full" ? "on" : "", onclick: () => setEngineSetting("enginePath", "sf19full") }, "Stockfish 19 Full"),
           el("button", { class: S.settings.enginePath === "sf19lite" ? "on" : "", onclick: () => setEngineSetting("enginePath", "sf19lite") }, "Stockfish 19 Lite"),
+          el("button", { class: S.settings.enginePath === "native19" ? "on" : "", onclick: () => setEngineSetting("enginePath", "native19") }, "Stockfish 19 (Native)"),
         ),
       ),
+      // The native helper is an optional per-user install; say plainly whether it was found and what
+      // happens otherwise, and let the user re-check after installing it without reloading the page.
+      ensureNativeStatus() ? nativeStatusRow(ensureNativeStatus()) : el("div", { class: "set-row hint" },
+        el("span", { class: "set-note" }, "Checking the native helper …")),
       // Keep the warning visible when any analysis worker had to use a fallback.
       (S.engineFallbackBuild && S.engineFallbackBuild !== S.settings.enginePath)
         ? el("div", { class: "set-row hint" },
@@ -5610,7 +5680,7 @@ function completeAnalysis(saved, count) {
 
 function canRestoreAnalysis(saved) {
   return completeAnalysis(saved, S.total + 1) && saved.pgn === S.pgn
-    && (!saved.engineBuild || Object.hasOwn(ENGINE_BUILDS, saved.engineBuild))
+    && (!saved.engineBuild || isKnownEngineBuild(saved.engineBuild))
     && saved.settingsKey === analysisSettingsKey();
 }
 

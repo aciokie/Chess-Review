@@ -25,6 +25,15 @@ not been recalibrated for 19 Lite. Full-19 saved settings migrate to `sf19lite`,
 also prevents restoring full-19 evaluations as if they came from Lite. Removed legacy
 engine settings migrate to the default 18 NNUE.
 
+## Native Stockfish 19 (Windows, optional)
+
+A fourth build, `native19`, is not bundled at all: it drives a Stockfish 19 **executable** on the
+user's machine through a Native Messaging helper, which is faster than WebAssembly. The helper,
+its installer and its tests live in [`../native/`](../native/README.md). If the helper is not
+installed or fails, `createEngine()` falls back to the bundled builds in the usual order — native is
+only ever tried first when the user selects it. Native results carry the `native19` build key, so
+they are cached separately from WASM evaluations and never mixed.
+
 ## Sources and licenses
 
 Stockfish.js by Nathan Rugg (nmrugg), copyright 2026 Chess.com, LLC, under GPLv3:

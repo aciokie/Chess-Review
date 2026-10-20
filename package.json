@@ -13,6 +13,7 @@
     "start:chrome": "web-ext run --target=chromium --source-dir=.",
     "test": "node --test tests/*.test.mjs",
     "test:browsers": "node scripts/browser-smoke.mjs",
+    "test:native-host": "node scripts/native-host-smoke.mjs",
     "update:dataset": "node tools/calibration/update-dataset.mjs"
   },
   "devDependencies": {

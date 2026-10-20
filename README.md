@@ -32,6 +32,9 @@ immediately when disabled. Existing scores and coach comments are unchanged.
   as the played moves. Exploring does not change the original game or its accuracy.
 - **Stockfish 18 NNUE is the default**, with **Stockfish 19 Lite** as a compact
   alternative. Both are bundled locally and available in Settings.
+- **Optional native Stockfish 19 on Windows** — install the small per-user helper from
+  [`native/`](native/README.md) and pick *Build: Stockfish 19 (Native)* to review with a native
+  Stockfish 19 executable instead of WASM. Falls back to the bundled engines automatically.
 - **Recoverable analysis errors** with a Retry button; unfinished reviews are not
   saved as completed games.
 - **Analysis runs on your machine** — game lookup requests go directly to the chess platforms; no developer backend or analytics.
@@ -57,6 +60,15 @@ NNUE and has not been re-benchmarked for 19 Lite. Both builds use a single threa
 per worker; the Workers setting already distributes positions across multiple workers.
 The redundant Stockfish 10 and asm.js engines have been removed. Their saved
 preferences migrate to 18; existing full-19 preferences migrate to 19 Lite.
+
+### Native Stockfish 19 (Windows, optional)
+
+Besides the bundled WASM builds, Windows users can review with a **native Stockfish 19 executable**
+through a small per-user Native Messaging helper — see [`native/README.md`](native/README.md) for
+download, one-command install, configuration, troubleshooting and uninstall. The helper is started by
+the browser on demand, exits when the review is done, and always reaps its engine. If it is missing
+or fails, reviews automatically use the bundled engines; the Engine tab always names the build that
+is actually running, and cached reviews are never shared between native and WASM builds.
 
 ## Install
 

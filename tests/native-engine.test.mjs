@@ -1,0 +1,470 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { NativeEngine, probeNativeHost, nativeMessagingSupported } from '../engine/native.js';
+import { app, loadGame, settle } from './helpers/app.mjs';
+
+/* ---------------- Native Messaging runtime test double ---------------- */
+
+function fakeRuntime(behavior = {}) {
+  const ports = [];
+  const runtime = {
+    lastError: null,
+    connectNative(name) {
+      if (behavior.throwOnConnect) throw new Error('Specified native messaging host not found.');
+      const port = {
+        name, sent: [], listeners: [], disconnectListeners: [], disconnected: false,
+        postMessage(message) {
+          if (behavior.postThrows) throw new Error('Attempt to postMessage on disconnected port');
+          port.sent.push(message);
+        },
+        disconnect() {
+          if (port.disconnected) return;
+          port.disconnected = true;
+          for (const listener of [...port.disconnectListeners]) listener();
+        },
+        onMessage: { addListener(listener) { port.listeners.push(listener); } },
+        onDisconnect: { addListener(listener) { port.disconnectListeners.push(listener); } },
+        emit(message) { for (const listener of [...port.listeners]) listener(message); },
+      };
+      ports.push(port);
+      return port;
+    },
+  };
+  return { runtime, ports };
+}
+
+/** Take an engine through the helper's hello + ready handshake. */
+function handshake(port, { engine = { name: 'Stockfish 19', verified: true }, engineConfigured = true } = {}) {
+  port.emit({ type: 'hello', version: '1.0.0', engineConfigured });
+  port.emit({ type: 'ready', engine, engineConfigured, enginePid: 4242 });
+}
+
+const sentOf = (port, type) => port.sent.filter((message) => message.type === type);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/* ---------------- Availability / discovery ---------------- */
+
+test('native messaging is reported unsupported without a runtime', () => {
+  assert.equal(nativeMessagingSupported(undefined), false);
+  assert.equal(nativeMessagingSupported({}), false);
+  assert.equal(nativeMessagingSupported({ connectNative() {} }), true);
+});
+
+test('a missing helper is not an error: setOptions rejects so the caller can fall back', async () => {
+  const { runtime, ports } = fakeRuntime({ throwOnConnect: true });
+  const eng = new NativeEngine({ runtime });
+  await assert.rejects(eng.setOptions(), /could not be started/);
+  assert.equal(eng.dead, true);
+  assert.equal(ports.length, 0);
+});
+
+test('a browser without Native Messaging never touches connectNative', async () => {
+  const eng = new NativeEngine({ runtime: undefined });
+  await assert.rejects(eng.setOptions(), /unavailable/);
+  assert.equal(eng.dead, true);
+});
+
+test('a helper that never answers the handshake is failed by the timeout', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime, initTimeoutMs: 40 });
+  await assert.rejects(eng.setOptions(), /handshake timed out/);
+  assert.equal(eng.dead, true);
+  assert.equal(ports[0].disconnected, true);
+  // A late ready must not resurrect a dead engine.
+  handshake(ports[0]);
+  await sleep(10);
+  assert.equal(eng.dead, true);
+});
+
+test('a helper that dies before init reports the browser error', async () => {
+  const { runtime, ports } = fakeRuntime();
+  runtime.lastError = { message: 'Native host has exited.' };
+  const eng = new NativeEngine({ runtime, initTimeoutMs: 5000 });
+  const pending = assert.rejects(eng.setOptions(), /disconnected: Native host has exited\./);
+  ports[0].disconnect();
+  await pending;
+  assert.equal(eng.dead, true);
+});
+
+test('the host is sent sanitized init options and readiness is awaited', async (t) => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime, uciOptions: { Hash: 32, 'Skill Level': 20, 'Bad\nName': 'x' } });
+  t.after(() => eng.terminate());
+  // The init frame goes out immediately (the helper reads it as soon as it is up), before ready.
+  assert.deepEqual(sentOf(ports[0], 'init'), [{ type: 'init', options: { Hash: '32', 'Skill Level': '20' } }]);
+  handshake(ports[0]);
+  await eng.setOptions();
+  assert.equal(eng.dead, false);
+  assert.equal(eng.engineInfo.name, 'Stockfish 19');
+  assert.equal(eng.engineInfo.verified, true);
+});
+
+test('setOptions after the handshake forwards plain UCI option messages', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0]);
+  await eng.setOptions({ Hash: 64 });
+  const option = sentOf(ports[0], 'setoption')[0];
+  assert.deepEqual(option, { type: 'setoption', name: 'Hash', value: '64' });
+});
+
+/* ---------------- Analysis ---------------- */
+
+test('analyse posts the position and resolves bestmove, score, pv and sorted lines', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0]);
+  await eng.setOptions();
+  const pending = eng.analyse('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 12, 1, null);
+  await settle();
+  const analyse = sentOf(ports[0], 'analyse')[0];
+  assert.equal(analyse.id, 1);
+  assert.equal(analyse.depth, 12);
+  assert.equal(analyse.multipv, 1);
+  assert.equal(analyse.fen, 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+  assert.equal(analyse.history, null);
+
+  ports[0].emit({ type: 'info', id: 1, lines: [{ score: { cp: 40 }, pv: 'e2e4 e7e5', depth: 12, bound: 'exact', multipv: 1 }] });
+  ports[0].emit({ type: 'bestmove', id: 1, bestmove: 'e2e4', score: { cp: 0 }, pv: '', lines: [] });
+  const result = await pending;
+  assert.deepEqual(result, {
+    bestmove: 'e2e4',
+    score: { cp: 40 },
+    pv: 'e2e4 e7e5',
+    lines: [{ score: { cp: 40 }, pv: 'e2e4 e7e5', depth: 12, bound: 'exact', multipv: 1 }],
+  });
+});
+
+test('a game history is forwarded so the engine can replay the position', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0]);
+  await eng.setOptions();
+  const pending = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 8, 1, { initialFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', moves: ['e2e4', 'e7e5'] });
+  await settle();
+  const analyse = sentOf(ports[0], 'analyse')[0];
+  assert.deepEqual(analyse.history, { initialFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', moves: ['e2e4', 'e7e5'] });
+  ports[0].emit({ type: 'bestmove', id: 1, bestmove: 'a1a2', score: { cp: 0 }, lines: [{ score: { cp: 0 }, pv: 'a1a2', depth: 8, multipv: 1 }] });
+  assert.equal((await pending).bestmove, 'a1a2');
+});
+
+test('MultiPV is applied through setoption before the search starts', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0]);
+  await eng.setOptions();
+  const pending = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 10, 3, null);
+  await settle();
+  const order = ports[0].sent.map((message) => message.type);
+  assert.deepEqual(order, ['hello?', 'init', 'setoption', 'analyse'].slice(1));
+  assert.deepEqual(sentOf(ports[0], 'setoption')[0], { type: 'setoption', name: 'MultiPV', value: '3' });
+
+  ports[0].emit({ type: 'info', id: 1, lines: [
+    { score: { cp: 30 }, pv: 'a1a2', depth: 10, multipv: 1 },
+    { score: { cp: 10 }, pv: 'b1b2', depth: 10, multipv: 2 },
+    { score: { cp: -5 }, pv: 'c1c2', depth: 10, multipv: 3 },
+  ] });
+  ports[0].emit({ type: 'bestmove', id: 1, bestmove: 'a1a2', score: { cp: 30 }, lines: [] });
+  const result = await pending;
+  assert.equal(result.lines.length, 3);
+  assert.deepEqual(result.lines.map((line) => line.multipv), [1, 2, 3]);
+  assert.equal(result.score.cp, 30);
+});
+
+test('MultiPV is not re-sent when the requested line count did not change', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0]);
+  await eng.setOptions();
+  for (const id of [1, 2]) {
+    const pending = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 6, 2, null);
+    await settle();
+    ports[0].emit({ type: 'bestmove', id, bestmove: 'a1a2', score: { cp: 0 }, lines: [{ score: { cp: 0 }, pv: 'a1a2', depth: 6, multipv: 1 }] });
+    await pending;
+  }
+  assert.equal(sentOf(ports[0], 'setoption').length, 1);
+});
+
+test('stop asks the helper to interrupt the running search', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0]);
+  await eng.setOptions();
+  const pending = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 30, 1, null);
+  await settle();
+  eng.stop();
+  const stop = sentOf(ports[0], 'stop')[0];
+  assert.deepEqual(stop, { type: 'stop', id: 1 });
+  ports[0].emit({ type: 'bestmove', id: 1, bestmove: 'a1a2', score: { cp: 5 }, lines: [{ score: { cp: 5 }, pv: 'a1a2', depth: 8, multipv: 1 }] });
+  assert.equal((await pending).bestmove, 'a1a2');
+});
+
+test('cancelPending rejects only the queued searches, not the running one', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0]);
+  await eng.setOptions();
+  const first = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 8, 1, null);
+  const second = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 8, 1, null);
+  const third = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 8, 1, null);
+  await settle();
+  eng.cancelPending();
+  await assert.rejects(second, /superseded/);
+  await assert.rejects(third, /superseded/);
+  assert.equal(sentOf(ports[0], 'analyse').length, 1, 'queued searches must never reach the helper');
+  ports[0].emit({ type: 'bestmove', id: 1, bestmove: 'a1a2', score: { cp: 0 }, lines: [] });
+  assert.equal((await first).bestmove, 'a1a2');
+});
+
+test('terminate quits the helper, disconnects and rejects everything in flight', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  const pendingHandshake = assert.rejects(eng.setOptions(), /terminated/);
+  const pendingSearch = assert.rejects(eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 8), /terminated/);
+  eng.terminate();
+  await Promise.all([pendingHandshake, pendingSearch]);
+  assert.deepEqual(sentOf(ports[0], 'quit'), [{ type: 'quit' }]);
+  assert.equal(ports[0].disconnected, true);
+  assert.equal(eng.dead, true);
+});
+
+test('terminate is safe on an engine that never connected', () => {
+  const eng = new NativeEngine({ runtime: undefined });
+  assert.doesNotThrow(() => eng.terminate());
+});
+
+test('a non-fatal error rejects only its own search and the helper stays usable', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0]);
+  await eng.setOptions();
+  const bad = eng.analyse('not a fen', 8, 1, null);
+  await settle();
+  ports[0].emit({ type: 'error', id: 1, message: 'rejected an invalid position' });
+  await assert.rejects(bad, /invalid position/);
+  assert.equal(eng.dead, false);
+
+  const good = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 8, 1, null);
+  await settle();
+  ports[0].emit({ type: 'bestmove', id: 2, bestmove: 'a1a2', score: { cp: 0 }, lines: [] });
+  assert.equal((await good).bestmove, 'a1a2');
+});
+
+test('a fatal error fails the whole engine (and the caller falls back)', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0]);
+  await eng.setOptions();
+  const pending = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 8, 1, null);
+  await settle();
+  ports[0].emit({ type: 'error', message: 'the native Stockfish process exited unexpectedly', fatal: true });
+  await assert.rejects(pending, /exited unexpectedly/);
+  assert.equal(eng.dead, true);
+  assert.equal(ports[0].disconnected, true);
+});
+
+test('a silent search trips the watchdog instead of waiting forever', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime, silenceMs: 40 });
+  handshake(ports[0]);
+  await eng.setOptions();
+  const pending = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 8, 1, null);
+  await settle();
+  await assert.rejects(pending, /search timed out/);
+  assert.equal(eng.dead, true);
+});
+
+test('malformed host messages are dropped without breaking the engine', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0]);
+  await eng.setOptions();
+  for (const junk of [null, undefined, 42, 'x', [], {}, { type: 'unknown' }, { type: 'bestmove' }, { type: 'bestmove', id: 99, bestmove: 'zzzz' }]) {
+    ports[0].emit(junk);
+  }
+  assert.equal(eng.dead, false);
+  const pending = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 8, 1, null);
+  await settle();
+  ports[0].emit({ type: 'bestmove', id: 1, bestmove: 'a1a2', score: { cp: 0 }, lines: [{ score: { cp: 1 }, pv: 'a1a2', depth: 8, multipv: 1 }] });
+  assert.equal((await pending).bestmove, 'a1a2');
+});
+
+test('consecutive searches on one engine reuse the single helper connection', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0]);
+  await eng.setOptions();
+  for (let i = 1; i <= 6; i++) {
+    const pending = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 6, 1, null);
+    await settle();
+    ports[0].emit({ type: 'bestmove', id: i, bestmove: 'a1a2', score: { cp: i }, lines: [] });
+    assert.equal((await pending).score.cp, i);
+  }
+  assert.equal(ports.length, 1, 'one engine instance must mean one helper process');
+  assert.equal(sentOf(ports[0], 'init').length, 1, 'the engine is initialized exactly once');
+  assert.equal(sentOf(ports[0], 'analyse').length, 6);
+  eng.terminate();
+  assert.deepEqual(sentOf(ports[0], 'quit'), [{ type: 'quit' }]);
+});
+
+/* ---------------- Availability probe ---------------- */
+
+test('probeNativeHost resolves available on hello, without starting an engine', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const pending = probeNativeHost({ runtime, hostName: 'test.host' });
+  await settle();
+  ports[0].emit({ type: 'hello', version: '1.0.0', engineConfigured: true, engine: { name: 'Stockfish 19', verified: true } });
+  const status = await pending;
+  assert.deepEqual(status, { available: true, engineConfigured: true, version: '1.0.0', engine: { name: 'Stockfish 19', verified: true } });
+  assert.equal(ports[0].disconnected, true, 'the probe must not leave the helper running');
+  assert.deepEqual(ports[0].sent, [], 'the probe must never start an engine');
+});
+
+test('probeNativeHost reports an unconfigured helper', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const pending = probeNativeHost({ runtime });
+  await settle();
+  ports[0].emit({ type: 'hello', version: '1.0.0', engineConfigured: false });
+  const status = await pending;
+  assert.equal(status.available, true);
+  assert.equal(status.engineConfigured, false);
+});
+
+test('probeNativeHost reports a missing helper', async () => {
+  const { runtime } = fakeRuntime({ throwOnConnect: true });
+  const status = await probeNativeHost({ runtime });
+  assert.equal(status.available, false);
+  assert.match(status.message, /not found/);
+});
+
+test('probeNativeHost reports a hung helper via its timeout', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const status = await probeNativeHost({ runtime, timeoutMs: 40 });
+  assert.equal(status.available, false);
+  assert.equal(status.reason, 'timeout');
+  assert.equal(ports[0].disconnected, true);
+});
+
+test('probeNativeHost reports a helper that dies immediately', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const pending = probeNativeHost({ runtime });
+  await settle();
+  ports[0].disconnect();
+  const status = await pending;
+  assert.equal(status.available, false);
+  assert.equal(status.reason, 'disconnected');
+});
+
+/* ---------------- App integration: selection, fallback, caches ---------------- */
+
+function wasmStub(path) {
+  return {
+    path, dead: false,
+    async setOptions() {},
+    async analyse() { return { bestmove: 'e2e4', score: { cp: 0 }, lines: [] }; },
+    stop() {}, cancelPending() {},
+    terminate() { this.dead = true; },
+  };
+}
+
+test('a review picks the native helper when it is installed and reports it as the active build', async (t) => {
+  const a = app(t);
+  const created = [];
+  a.context.Engine = class { constructor() { throw Error('Unexpected real engine'); } };
+  a.context.nativeMessagingSupported = () => true;
+  a.context.NativeEngine = class {
+    constructor({ uciOptions }) { this.uciOptions = uciOptions; this.dead = false; created.push(this); }
+    async setOptions() {}
+    stop() {} cancelPending() {}
+    terminate() { this.dead = true; }
+  };
+  a.state.settings.enginePath = 'native19';
+  const eng = await a.call('createEngine', { Hash: 16 });
+  assert.equal(eng.buildKey, 'native19');
+  assert.equal(created.length, 1, 'exactly one native engine for one createEngine call');
+  assert.deepEqual(created[0].uciOptions, { Hash: 16 });
+  assert.equal(a.state.activeEngineBuild, 'native19');
+  assert.equal(a.state.engineFallbackBuild, null);
+  assert.equal(a.call('activeEngineName'), 'Stockfish 19 (Native)');
+});
+
+test('a missing helper falls back to the bundled WASM engine and says so', async (t) => {
+  const a = app(t);
+  a.context.nativeMessagingSupported = () => true;
+  a.context.NativeEngine = class {
+    constructor() { this.dead = false; }
+    async setOptions() { throw new Error('native host could not be started (com.chessreview.native_engine)'); }
+    terminate() { this.dead = true; }
+  };
+  a.context.Engine = wasmStub;
+  a.state.settings.enginePath = 'native19';
+  const eng = await a.call('createEngine', { Hash: 16 });
+  assert.equal(eng.buildKey, 'nnue');
+  assert.match(eng.path, /stockfish-nnue\.js$/);
+  assert.equal(a.state.activeEngineBuild, 'nnue');
+  assert.equal(a.state.engineFallbackBuild, 'nnue');
+  assert.equal(a.call('activeEngineName'), 'Stockfish 18 NNUE (fallback)');
+});
+
+test('a browser without Native Messaging skips the native build entirely', async (t) => {
+  const a = app(t);
+  a.context.nativeMessagingSupported = () => false;
+  a.context.NativeEngine = class { constructor() { throw Error('must not be constructed'); } };
+  a.context.Engine = wasmStub;
+  a.state.settings.enginePath = 'native19';
+  const eng = await a.call('createEngine', { Hash: 16 });
+  assert.equal(eng.buildKey, 'nnue');
+  assert.equal(a.state.engineFallbackBuild, 'nnue');
+});
+
+test('the wasm builds are untouched: nnue still prefers nnue and never goes native', async (t) => {
+  const a = app(t);
+  a.context.nativeMessagingSupported = () => true;
+  a.context.NativeEngine = class { constructor() { throw Error('must not be constructed for a wasm build'); } };
+  a.context.Engine = wasmStub;
+  a.state.settings.enginePath = 'nnue';
+  const eng = await a.call('createEngine', { Hash: 16 });
+  assert.equal(eng.buildKey, 'nnue');
+  assert.equal(a.state.engineFallbackBuild, null);
+});
+
+test('saved settings keep native19, old keys still migrate, and unknown keys reset', async (t) => {
+  const a = app(t);
+  a.call('migrateEngineSettings', a.state.settings);
+  assert.equal(a.state.settings.enginePath, 'nnue'); // the default stays the default
+  a.state.settings.enginePath = 'native19';
+  a.call('migrateEngineSettings', a.state.settings);
+  assert.equal(a.state.settings.enginePath, 'native19');
+  for (const [legacy, expected] of [['sf19', 'sf19lite'], ['wasm', 'nnue'], ['made-up', 'nnue']]) {
+    a.state.settings.enginePath = legacy;
+    a.call('migrateEngineSettings', a.state.settings);
+    assert.equal(a.state.settings.enginePath, expected, `${legacy} migrates to ${expected}`);
+  }
+});
+
+test('a cached review made with the native build can be restored, and only for known builds', async (t) => {
+  const a = app(t);
+  const S = loadGame(a, '1. e4');
+  a.state.settings.enginePath = 'native19';
+  const saved = { pgn: S.pgn, settingsKey: a.call('analysisSettingsKey'), bests: S.bests, evals: S.evals, engineBuild: 'native19' };
+  assert.equal(a.call('canRestoreAnalysis', saved), true);
+  assert.equal(a.call('canRestoreAnalysis', { ...saved, engineBuild: 'sf19' }), false);
+  assert.equal(a.call('canRestoreAnalysis', { ...saved, engineBuild: 'wasm' }), false);
+  // Native and WASM results must never be mixed: the settings key changes with the build.
+  const nativeKey = a.call('analysisSettingsKey');
+  a.state.settings.enginePath = 'nnue';
+  assert.notEqual(a.call('analysisSettingsKey'), nativeKey);
+});
+
+test('the settings hint probes the helper once and never starts an engine', async (t) => {
+  const a = app(t);
+  let probes = 0;
+  a.context.probeNativeHost = () => { probes += 1; return Promise.resolve({ available: true, engineConfigured: true, engine: { name: 'Stockfish 19', verified: true } }); };
+  a.call('motorSettings');
+  assert.equal(probes, 1);
+  assert.equal(a.state.nativeStatus, null, 'no result while the probe is in flight');
+  await settle();
+  a.call('motorSettings');
+  assert.equal(probes, 1, 'the probe is cached for the page');
+  assert.equal(a.state.nativeStatus.available, true);
+});

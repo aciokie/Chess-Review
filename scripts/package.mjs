@@ -46,7 +46,9 @@ const snapshotDir = path.join(releaseDir, 'source');
 await mkdir(snapshotDir);
 const sourceFiles = [...files, 'manifest.json', 'package.json', 'package-lock.json',
   'STORE_LISTING.md', 'CONTRIBUTING.md', 'SECURITY.md'];
-await copyInputs(root, snapshotDir, [...sourceFiles, ...directories, 'scripts', 'tests']);
+// 'native' (the optional Windows helper sources) goes into the source snapshot only: the browser
+// packages below copy `files` + `directories`, which never include it.
+await copyInputs(root, snapshotDir, [...sourceFiles, ...directories, 'scripts', 'tests', 'native']);
 const sha256 = async file => createHash('sha256').update(await readFile(file)).digest('hex');
 async function fileHashes(dir, base = dir) {
   const hashes = {};
