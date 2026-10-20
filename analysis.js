@@ -5637,6 +5637,7 @@ function saveToLibrary() {
     const opSide = S.meSide === "w" ? "b" : "w";
     // "solved" = no mistakes to practice (clean game) OR practice was already completed before.
     const noMistakes = practiceSpots().length === 0;
+    const hasBrilliant = S.classif?.some((c) => c === "brilliant") || false;
     const rec = {
       id, savedAt: Date.now(), pgn: S.pgn, meta: S.meta || {},
       meSide: S.meSide,
@@ -5648,6 +5649,7 @@ function saveToLibrary() {
       eco: S.opening ? S.opening.eco : "", opening: S.opening ? S.opening.name : "",
       date: S.headers.UTCDate || S.headers.Date || "",
       url: (S.meta && S.meta.url) || "",
+      hasBrilliant,
     };
     const writes = { [analysisCacheKey(id)]: {
       pgn: S.pgn, settingsKey: analysisSettingsKey(), engineBuild: S.activeEngineBuild,
@@ -5681,9 +5683,10 @@ function libRecords() {
   let recs = S.library.slice();
   if (S.libResult !== "all") recs = recs.filter((r) => r.result === S.libResult);
   if (S.libType !== "all") recs = recs.filter((r) => r.type === S.libType);
-  // "Unsolved" and "Favorites" live in the Sort dropdown — they filter, then fall back to recency order.
+  // "Unsolved", "Favorites", and "Brilliants" live in the Sort dropdown — they filter, then fall back to recency order.
   if (S.libSort === "unsolved") recs = recs.filter((r) => !r.solved);
   else if (S.libSort === "favorite") recs = recs.filter((r) => r.fav);
+  else if (S.libSort === "brilliant") recs = recs.filter((r) => r.hasBrilliant);
   if (S.libSort === "accuracy") recs.sort((a, b) => (b.myAcc ?? -1) - (a.myAcc ?? -1));
   else if (S.libSort === "rating") recs.sort((a, b) => (b.opRating ?? -1) - (a.opRating ?? -1));
   else recs.sort((a, b) => b.savedAt - a.savedAt);
@@ -5735,7 +5738,7 @@ function renderLibrary() {
   const setType = (v) => { S.libType = v; renderLibrary(); };
   const types = Array.from(new Set(S.library.map((r) => r.type).filter(Boolean)));
   UI.libControls.replaceChildren(
-    libDropdown("Sort", S.libSort, [["history", "Most recent"], ["accuracy", "Highest accuracy"], ["rating", "Highest rating"], ["unsolved", "Unsolved"], ["favorite", "Favorites"]], setSort),
+    libDropdown("Sort", S.libSort, [["history", "Most recent"], ["accuracy", "Highest accuracy"], ["rating", "Highest rating"], ["unsolved", "Unsolved"], ["favorite", "Favorites"], ["brilliant", "Brilliants"]], setSort),
     libDropdown("Result", S.libResult, [["all", "All results"], ["win", "Wins"], ["loss", "Losses"], ["draw", "Draws"]], setRes),
     libDropdown("Type", S.libType, [["all", "All types"], ...types.map((t) => [t, t])], setType),
   );
