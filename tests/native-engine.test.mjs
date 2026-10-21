@@ -474,6 +474,25 @@ test('the settings hint probes the helper once and never starts an engine', asyn
   assert.equal(a.state.nativeStatus.available, true);
 });
 
+test('a missing helper offers a small install button whose steps are the one thing the browser cannot do', async (t) => {
+  const a = app(t);
+  a.context.probeNativeHost = () => Promise.resolve({ available: false, reason: 'disconnected' });
+  a.state.settingsTab = 'engine';
+  a.state.nativeStatus = { available: false, reason: 'disconnected' };
+  a.state.nativeInstallOpen = true; // as if the user pressed the button
+  const row = a.call('nativeStatusRow', a.state.nativeStatus);
+  const text = row.textContent;
+  assert.match(text, /Install Native Engine\.bat/, 'the steps name the one-click installer');
+  assert.match(text, /rechecks by itself/, 'the user is told the tab rechecks on its own');
+  assert.ok(row.querySelector('button'), 'the row carries small buttons (install steps + Recheck)');
+  // Reset for the next probe (focus watcher does this).
+  a.state.nativeStatus = null;
+  a.context.probeNativeHost = () => Promise.resolve({ available: true, engineConfigured: true, engine: { name: 'Stockfish 19', verified: true } });
+  a.call('ensureNativeStatus');
+  await settle();
+  assert.equal(a.state.nativeStatus.available, true, 'coming back after installing flips the status without Recheck');
+});
+
 test('a native review obeys the Depth setting like any other build', async (t) => {
   const a = app(t);
   const S = loadGame(a, '1. e4 e5 2. Nf3');

@@ -676,6 +676,8 @@ const S = {
   // Native helper availability, for the Build row hint. `nativeStatus` is the last probe result
   // (null = not probed yet), `nativeProbe` the in-flight promise so we never probe twice.
   nativeStatus: null, nativeProbe: null,
+  // Open state of the "Install native engine" helper-steps card (transient).
+  nativeInstallOpen: false,
   // What the native helper really launched ({name, verified}) and why the last native start failed.
   nativeEngineInfo: null, nativeFailure: null,
   // "Play best moves from here": auto-walk that re-analyzes each position and plays the engine's
@@ -4951,12 +4953,15 @@ function nativeFailureHint(status, failure) {
   }
   return raw ? `Browser said: ${raw.slice(0, 200)}` : "";
 }
-// One hint line that states plainly what the user gets with the native build right now — including
+// One hint line that states plainly what the user gets with the native build right now, including
 // when it ISN'T available, so we never imply native Stockfish is running when only WASM is.
+// When the helper is missing, a small "Install native engine" button opens the one step the browser
+// cannot do itself (Windows only lets a browser-launched helper register native messaging, so the
+// first install has to happen outside the page), then rechecks automatically on window focus.
 function nativeStatusRow(status) {
   const hint = nativeFailureHint(status, S.nativeFailure);
   const note = !status.available
-    ? `⚠ Native helper not detected — reviews use the bundled Stockfish 18 NNUE instead. ${hint || "One-time Windows install: double-click \"Install Native Engine.bat\" in the Chess Review folder, then press Recheck."}`
+    ? (`⚠ Native helper not detected — reviews use the bundled Stockfish 18 NNUE instead. ${hint || ""}`).trim()
     : status.engineConfigured === false
       ? "⚠ Native helper found, but no Stockfish executable is configured for it yet (see native/README.md). Reviews use the bundled Stockfish 18 NNUE until then."
       : S.nativeFailure
@@ -4964,10 +4969,53 @@ function nativeStatusRow(status) {
         : status.engine && status.engine.verified === false
           ? `⚠ Native helper is running "${status.engine.name || "an unidentified engine"}" — that is not a verified Stockfish 19 build. Configure the official Stockfish 19 executable (see native/README.md).`
           : `Native helper detected${status.engine && status.engine.name ? ` — ${status.engine.name}` : ""}.`;
-  return el("div", { class: "set-row hint" },
-    el("span", { class: "set-note" }, note),
-    el("button", { class: "set-reset inline", onclick: recheckNativeStatus }, "Recheck"),
-  );
+  const kids = [el("span", { class: "set-note" }, note)];
+  if (!status.available) {
+    kids.push(el("button", {
+      class: "set-reset inline",
+      onclick: () => {
+        S.nativeInstallOpen = !S.nativeInstallOpen;
+        if (S.nativeInstallOpen) watchNativeInstall(); else stopWatchNativeInstall();
+        if (UI.settings && !UI.settings.hidden && S.settingsTab === "engine") { try { renderSettings(); } catch {} }
+      },
+    }, S.nativeInstallOpen ? "Hide install steps" : "Install native engine"));
+  }
+  kids.push(el("button", { class: "set-reset inline", onclick: recheckNativeStatus }, "Recheck"));
+  if (!status.available && S.nativeInstallOpen) {
+    kids.push(el("div", { class: "set-note" },
+      "The browser is not allowed to start installers itself, so this one step happens outside the page:",
+      el("div", { style: { margin: "6px 0 0 12px" } },
+        "1. Open the Chess Review folder on your PC (the folder the extension was loaded from)."),
+      el("div", { style: { margin: "3px 0 0 12px" } },
+        "2. Double-click ", el("b", {}, "Install Native Engine.bat"),
+        " — it installs the official Stockfish 19 and registers the helper (per user, no admin rights)."),
+      el("div", { style: { margin: "3px 0 0 12px" } },
+        "3. Come back to this tab — it rechecks by itself and switches to Stockfish 19 (Native)."),
+      el("div", { style: { margin: "6px 0 0 12px" } },
+        el("span", { class: "set-note" },
+          "Chrome Web Store copies do not include the helper; download the Chess Review folder from the GitHub releases page and run the same file.")),
+    ));
+  }
+  return el("div", { class: "set-row hint" }, ...kids);
+}
+// While the install steps are open, re-probe whenever the user returns to this tab: after a
+// successful install the row flips to "detected" without them having to press Recheck.
+let _nativeInstallWatch = null;
+function watchNativeInstall() {
+  if (_nativeInstallWatch) return;
+  const onFocus = () => {
+    if (S.nativeStatus && S.nativeStatus.available) { stopWatchNativeInstall(); try { renderSettings(); } catch {} return; }
+    S.nativeStatus = null;
+    ensureNativeStatus();
+  };
+  window.addEventListener("focus", onFocus);
+  _nativeInstallWatch = { onFocus };
+}
+function stopWatchNativeInstall() {
+  if (!_nativeInstallWatch) return;
+  window.removeEventListener("focus", _nativeInstallWatch.onFocus);
+  _nativeInstallWatch = null;
+  S.nativeInstallOpen = false;
 }
 function motorSettings() {
   return el("div", {},
