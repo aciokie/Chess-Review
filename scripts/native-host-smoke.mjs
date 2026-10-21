@@ -86,7 +86,10 @@ async function boot(options = {}) {
   };
   await fs.writeFile(path.join(buildDir, 'config.json'), JSON.stringify(config));
 
-  const child = spawn(hostExe, [], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, cwd: buildDir });
+  const child = spawn(hostExe, [], {
+    stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, cwd: buildDir,
+    env: Object.assign({}, process.env, options.env || {}),
+  });
   const state = { messages: [], logs: '', exited: null, buffer: Buffer.alloc(0) };
   const waiters = [];
   const flush = () => waiters.splice(0).forEach((waiter) => waiter());
@@ -203,7 +206,7 @@ await check('init performs the UCI handshake and reports the engine identity', a
   host.send({ type: 'init', options: { Hash: 16, 'Skill Level': 20 } });
   const ready = await host.waitFor((message) => message.type === 'ready', 60000, 'ready');
   assert(ready.engine && /Stockfish/.test(ready.engine.name), `engine name not reported: ${JSON.stringify(ready)}`);
-  assert(ready.engine.verified === true, 'a Stockfish id name must be reported as verified');
+  assert(ready.engine.verified === true, 'a Stockfish 19 id name must be reported as verified');
   enginePid = ready.enginePid;
   assert(await waitForEngine(enginePid, true) === true, 'the reported engine pid should be running');
 });
@@ -409,6 +412,26 @@ await check('a "(none)" bestmove is passed through as an empty move', async () =
   assert(result.bestmove === '', `expected an empty bestmove, got ${JSON.stringify(result.bestmove)}`);
   await host.close();
   host = null;
+});
+
+await check('only a Stockfish 19 id name is reported as verified', async () => {
+  const cases = [
+    ['Stockfish 19', true],
+    ['Stockfish 19.1', true],
+    ['Stockfish 18', false],
+    ['Stockfish 17.1', false],
+    ['Stockfish dev-20260905-abcdef', false],
+    ['Some Other Engine 19', false],
+  ];
+  for (const [idName, expected] of cases) {
+    host = await boot({ env: { CHESS_REVIEW_FAKE_ID_NAME: idName } });
+    host.send({ type: 'init', options: {} });
+    const ready = await host.waitFor((message) => message.type === 'ready', 60000, 'ready');
+    assert(ready.engine && ready.engine.name === idName, `engine name not passed through for "${idName}": ${JSON.stringify(ready.engine)}`);
+    assert(ready.engine.verified === expected, `"${idName}" should be verified=${expected}, got ${ready.engine.verified}`);
+    await host.close();
+    host = null;
+  }
 });
 
 /* ---------------- Report ---------------- */

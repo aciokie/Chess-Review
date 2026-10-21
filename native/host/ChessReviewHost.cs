@@ -601,11 +601,19 @@ namespace ChessReview.NativeHost
             return true;
         }
 
+        // "Verified" means the executable's OWN `id name` says Stockfish 19 (e.g. "Stockfish 19" or
+        // "Stockfish 19.1"). Another Stockfish version, a dev build or a different engine is still
+        // started - the extension just shows what it really is instead of calling it Stockfish 19.
+        private static bool IsVerifiedStockfish19(string idName)
+        {
+            return Regex.IsMatch(idName ?? "", @"^\s*Stockfish\s+19(\.\d+)*(\s|$)", RegexOptions.IgnoreCase);
+        }
+
         private void SendReady()
         {
             Dictionary<string, object> engine = new Dictionary<string, object> {
                 { "name", _uciIdName },
-                { "verified", Regex.IsMatch(_uciIdName ?? "", @"\bStockfish\b", RegexOptions.IgnoreCase) },
+                { "verified", IsVerifiedStockfish19(_uciIdName) },
             };
             SendObject(new Dictionary<string, object> {
                 { "type", "ready" },

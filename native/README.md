@@ -31,8 +31,8 @@ anywhere, e.g. `C:\Tools\Stockfish\`.
 * Stockfish 16 and newer **embed the default NNUE network**, so no separate `.nnue` file is needed.
   If your build is an exception, pass its network with `-EvalFile` (below).
 * Keep the download URL/checksum of the file you chose. The helper reports the engine's own
-  `id name`, and the extension flags anything that is not Stockfish as **unverified** — it never
-  silently substitutes a different engine.
+  `id name`, and the extension flags anything that does not identify itself as **Stockfish 19** as
+  unverified and shows its real name — it never silently passes a different engine off as Stockfish 19.
 
 ## 2. Install (per user, no administrator rights)
 
@@ -51,11 +51,17 @@ This:
 4. registers it **for your user only** (`HKCU\Software\...\NativeMessagingHosts\com.chessreview.native_engine`)
    for Chrome, Chromium, Brave and Edge. Pass `-Firefox` to register it for Firefox too.
 
+At the end the installer runs a **self-test**: it starts the helper exactly like the browser does, waits
+for its reply, asks it to start Stockfish once and prints the engine's own `id name`. If antivirus is
+holding the new files, or the engine is not Stockfish 19, you see it right there instead of discovering
+it later as a silent fallback.
+
 Extra options:
 
 | Option | Meaning |
 | --- | --- |
-| `-ExtensionId "id1","id2"` | allow additional Chrome extension ids — the Chrome Web Store id is always allowed; **pass your unpacked-development id here** (find it on `chrome://extensions` after loading this folder; it is derived from the folder path, so it differs per machine) |
+| `-ExtensionId "id1","id2"` | allow additional Chrome extension ids — the Chrome Web Store id is always allowed. **An unpacked (developer-mode) copy of this folder is found automatically** in your Brave / Chrome / Edge / Chromium profiles, so you normally don't need this; pass it only for an extension loaded from a different folder (find the id on the extensions page) |
+| `-SkipSelfTest` | skip the final self-test (see below) |
 | `-EvalFile "C:\path\nn-….nnue"` | external evaluation network for builds that don't embed one |
 | `-Threads 1 -HashMb 16` | engine `Threads`/`Hash`. Keep `Threads` at 1: the extension already runs several engine instances in parallel, each with its own helper process |
 | `-KeepConfig` | re-register without touching an existing `config.json` |
@@ -115,9 +121,9 @@ portable setups.
 
 | Symptom | Fix |
 | --- | --- |
-| “Native helper not detected” | Re-run `native\install.ps1`; make sure you reloaded the extension after installing it for the first time; press **Recheck** |
+| “Native helper not detected” | The line under the Build row now says *why* (the browser's own error). Re-run `native\install.ps1`, reload the extension (it needs the `nativeMessaging` permission) and press **Recheck**. *“Access … forbidden”* means this copy of the extension is not on the helper's allowed list — the installer now finds your unpacked extension id by itself (it must already be loaded in the browser when you run it); *“not found”* means the helper is not registered for this browser |
 | Detected, but “no Stockfish executable is configured” | Re-run the installer with `-EnginePath`, or edit `config.json` |
-| Engine shown as “unverified” | The configured file is not Stockfish (or is a different version). Point `enginePath` at a genuine Stockfish 19 Windows build |
+| Engine shown as “unverified” / labelled “(native, not Stockfish 19)” | The helper marks an engine verified only when its own `id name` reports **Stockfish 19** (for example `Stockfish 19` or `Stockfish 19.1`). Any other version, a dev build or another engine still runs but is shown under its real name. Point `enginePath` at the official Stockfish 19 Windows build |
 | First native review is slow or times out | Antivirus scans newly created executables on first run. Wait for one review to succeed, or add an exclusion for `%LOCALAPPDATA%\ChessReview\native-host` |
 | Antivirus quarantines the helper | Restore it and exclude `%LOCALAPPDATA%\ChessReview\native-host`. The helper is plain C# compiled locally; `host\ChessReviewHost.cs` is the entire source |
 | Reviews still say “Stockfish 18 NNUE (fallback)” | The helper ran but the engine failed to start — set `logFile` in `config.json` and check the log, then check that the engine runs from a terminal (`stockfish.exe`, then `uci`) |

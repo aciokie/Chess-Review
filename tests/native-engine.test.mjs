@@ -503,3 +503,44 @@ test('a native review obeys the Depth setting like any other build', async (t) =
   // And the stored analysis records it, so the cache key changes with the depth.
   assert.equal(S.bests[0].lines[0].depth, 19);
 });
+
+test('a failed native start tells the user why, instead of silently falling back', async (t) => {
+  const a = app(t);
+  a.context.nativeMessagingSupported = () => true;
+  a.context.NativeEngine = class {
+    constructor() { this.dead = false; }
+    async setOptions() { throw new Error('native engine disconnected: Access to the specified native messaging host is forbidden.'); }
+    terminate() { this.dead = true; }
+  };
+  a.context.Engine = wasmStub;
+  a.state.settings.enginePath = 'native19';
+  const eng = await a.call('createEngine', { Hash: 16 });
+  assert.equal(eng.buildKey, 'nnue');
+  assert.match(a.state.nativeFailure, /forbidden/, 'the reason for the fallback is kept for the Engine tab');
+});
+
+test('browser Native Messaging errors are turned into actionable hints', (t) => {
+  const a = app(t);
+  const hint = (status, failure = null) => a.call('nativeFailureHint', status, failure);
+  assert.match(hint({ available: false, reason: 'disconnected', message: 'Access to the specified native messaging host is forbidden.' }), /allowed list/);
+  assert.match(hint({ available: false, reason: 'disconnected', message: 'Specified native messaging host not found.' }), /not registered/);
+  assert.match(hint({ available: false, reason: 'timeout' }), /antivirus/);
+  assert.match(hint({ available: false, reason: 'unsupported' }), /nativeMessaging/);
+  assert.equal(hint({ available: true }), '');
+});
+
+test('an engine that is not Stockfish 19 is never labelled "Stockfish 19 (Native)"', async (t) => {
+  const a = app(t);
+  a.context.Engine = class { constructor() { throw Error('Unexpected real engine'); } };
+  a.context.nativeMessagingSupported = () => true;
+  a.context.NativeEngine = class {
+    constructor() { this.dead = false; this.engineInfo = { name: 'Stockfish 18', verified: false }; }
+    async setOptions() {}
+    stop() {} cancelPending() {}
+    terminate() { this.dead = true; }
+  };
+  a.state.settings.enginePath = 'native19';
+  await a.call('createEngine', { Hash: 16 });
+  assert.equal(a.state.activeEngineBuild, 'native19');
+  assert.equal(a.call('activeEngineName'), 'Stockfish 18 (native, not Stockfish 19)');
+});

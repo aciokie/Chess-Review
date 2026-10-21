@@ -20,7 +20,10 @@ import { browserAPI } from "../browser-compat.js";
 export const NATIVE_HOST_NAME = "com.chessreview.native_engine";
 // The helper answers `hello` immediately on start — before it launches Stockfish — so the settings
 // tab can show availability without paying for (or accidentally starting) an engine.
-export const NATIVE_HELLO_TIMEOUT_MS = 4000;
+// 15 s, not a few seconds: antivirus (Avast CyberCapture, Defender) can hold a never-seen .exe for
+// several seconds on its first launch, and a probe that gives up too early reports a perfectly
+// installed helper as "not detected".
+export const NATIVE_HELLO_TIMEOUT_MS = 15000;
 // Host start + Stockfish `uci`/`isready` handshake. This is a PER-PHASE budget: one phase for the
 // helper process to come up, then a fresh phase for the engine it launches. The first launch on a
 // machine with antivirus can be blocked for a long time while the executables are scanned (the

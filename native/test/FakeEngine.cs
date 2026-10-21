@@ -62,7 +62,11 @@ internal static class FakeEngine
         {
             if (line == "uci")
             {
-                Out("id name Stockfish 19 (Chess Review test double)");
+                // The identity is overridable so the smoke test can prove that only a Stockfish 19
+                // `id name` is reported as verified.
+                string idName = Environment.GetEnvironmentVariable("CHESS_REVIEW_FAKE_ID_NAME");
+                if (String.IsNullOrEmpty(idName)) idName = "Stockfish 19 (Chess Review test double)";
+                Out("id name " + idName);
                 Out("id author Chess Review tests");
                 Out("option name Hash type spin default 16 min 1 max 4096");
                 Out("option name Threads type spin default 1 min 1 max 64");

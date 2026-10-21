@@ -676,6 +676,8 @@ const S = {
   // Native helper availability, for the Build row hint. `nativeStatus` is the last probe result
   // (null = not probed yet), `nativeProbe` the in-flight promise so we never probe twice.
   nativeStatus: null, nativeProbe: null,
+  // What the native helper really launched ({name, verified}) and why the last native start failed.
+  nativeEngineInfo: null, nativeFailure: null,
   // "Play best moves from here": auto-walk that re-analyzes each position and plays the engine's
   // best move until mate/draw or the user takes over. Token invalidates an in-flight walk.
   bestWalkToken: 0, bestWalking: false,
@@ -2223,9 +2225,11 @@ async function createEngine(opts = {}) {
   const preferred = isKnownEngineBuild(S.settings.enginePath) ? S.settings.enginePath : DEFAULT_SETTINGS.enginePath;
   const order = [preferred, ...ENGINE_FALLBACK_ORDER.filter(key => key !== preferred)];
   let lastErr = null;
+  let preferredErr = null; // why the user's chosen build could not start (shown instead of hiding it)
   for (const key of order) {
     if (key === NATIVE_BUILD && !nativeEngineSupported()) {
       lastErr = lastErr || new Error("the native engine helper is not available");
+      if (key === preferred) preferredErr = lastErr;
       continue;
     }
     let eng = null;
@@ -2233,18 +2237,27 @@ async function createEngine(opts = {}) {
       eng = key === NATIVE_BUILD ? new NativeEngine({ uciOptions: opts }) : new Engine(ENGINE_BUILDS[key]);
       await eng.setOptions(opts); // awaits the handshake; throws if this build failed to load
       eng.buildKey = key;
+      if (key === NATIVE_BUILD) {
+        // Remember what the helper REALLY launched, so an engine that is not Stockfish 19 is never
+        // shown under the "Stockfish 19 (Native)" name.
+        S.nativeEngineInfo = eng.engineInfo || null;
+        S.nativeFailure = null;
+      }
       if (S.settings.enginePath === preferred) {
         if (key !== preferred) S.engineFallbackBuild = key;
         setActiveEngineBuild(key);
       }
       if (key !== preferred && !_engineFellBack) {
         _engineFellBack = true;
-        console.warn(`[Chess Review] engine build '${preferred}' failed to load — fell back to '${key}'. ` +
+        const why = preferredErr && preferredErr.message ? ` Reason: ${preferredErr.message}` : "";
+        console.warn(`[Chess Review] engine build '${preferred}' failed to load — fell back to '${key}'.${why} ` +
           `The Engine tab now shows the build that's actually running.`);
       }
       return eng;
     } catch (e) {
       lastErr = e;
+      if (key === preferred) preferredErr = e;
+      if (key === NATIVE_BUILD) S.nativeFailure = (e && e.message) ? String(e.message).slice(0, 300) : "unknown error";
       try { eng?.terminate(); } catch {}
     }
   }
@@ -2261,7 +2274,12 @@ function setActiveEngineBuild(key) {
 // The build name to display: what's actually running if known, else the user's selection.
 function activeEngineName() {
   const key = S.engineFallbackBuild || S.activeEngineBuild || S.settings.enginePath;
-  const name = ENGINE_NAME[key] || "Stockfish";
+  let name = ENGINE_NAME[key] || "Stockfish";
+  // A native helper pointed at something that is not Stockfish 19 must never be shown under the
+  // "Stockfish 19 (Native)" name — say what it really is.
+  if (key === NATIVE_BUILD && S.nativeEngineInfo && S.nativeEngineInfo.verified === false) {
+    name = `${S.nativeEngineInfo.name || "Unidentified engine"} (native, not Stockfish 19)`;
+  }
   // Flag a fallback explicitly so it's obvious the chosen build isn't the one in use.
   return (S.engineFallbackBuild && S.engineFallbackBuild !== S.settings.enginePath) ? `${name} (fallback)` : name;
 }
@@ -4910,16 +4928,42 @@ function recheckNativeStatus() {
   S.nativeStatus = null;
   if (UI.settings && !UI.settings.hidden && S.settingsTab === "engine") { try { renderSettings(); } catch {} }
 }
+// Turn the browser's terse Native Messaging error into something a person can act on. `status` is
+// the probe result, `failure` the message from the last failed native start (either may be empty).
+function nativeFailureHint(status, failure) {
+  const raw = String((status && status.message) || failure || "").trim();
+  const text = raw.toLowerCase();
+  const reason = status && status.reason;
+  if (reason === "unsupported") {
+    return "This page has no Native Messaging access. Reload the extension on the browser's extensions page (the new version needs the \"nativeMessaging\" permission), then press Recheck.";
+  }
+  if (text.includes("forbidden") || text.includes("does not have permission")) {
+    return "The browser refused the connection: this copy of the extension is not on the helper's allowed list. Re-run native\\install.ps1 (it now finds your extension id by itself), then press Recheck.";
+  }
+  if (text.includes("not found") || text.includes("no such native application")) {
+    return "The helper is not registered for this browser. Run native\\install.ps1, then press Recheck.";
+  }
+  if (reason === "timeout" || text.includes("timed out")) {
+    return "The helper did not answer in time — antivirus is probably scanning it. Allow it (or exclude %LOCALAPPDATA%\\ChessReview\\native-host), then press Recheck.";
+  }
+  if (text.includes("exited") || reason === "disconnected") {
+    return `The helper started but closed straight away${raw ? ` (browser said: ${raw.slice(0, 160)})` : ""}. Re-run native\\install.ps1 and check that its self-test passes.`;
+  }
+  return raw ? `Browser said: ${raw.slice(0, 200)}` : "";
+}
 // One hint line that states plainly what the user gets with the native build right now — including
 // when it ISN'T available, so we never imply native Stockfish is running when only WASM is.
 function nativeStatusRow(status) {
+  const hint = nativeFailureHint(status, S.nativeFailure);
   const note = !status.available
-    ? "⚠ Native helper not detected — reviews use the bundled Stockfish 18 NNUE instead. On Windows you can install it (see native/README.md), then press Recheck."
+    ? `⚠ Native helper not detected — reviews use the bundled Stockfish 18 NNUE instead. ${hint || "On Windows you can install it (see native/README.md), then press Recheck."}`
     : status.engineConfigured === false
       ? "⚠ Native helper found, but no Stockfish executable is configured for it yet (see native/README.md). Reviews use the bundled Stockfish 18 NNUE until then."
-      : status.engine && status.engine.verified === false
-        ? `⚠ Native helper is running "${status.engine.name || "an unidentified engine"}" — that is not a verified Stockfish build. Configure a genuine Stockfish 19 executable (see native/README.md).`
-        : `Native helper detected${status.engine && status.engine.name ? ` — ${status.engine.name}` : ""}.`;
+      : S.nativeFailure
+        ? `⚠ Native helper found, but its Stockfish failed to start: ${S.nativeFailure}. Check enginePath in config.json (see native/README.md). Reviews use the bundled Stockfish 18 NNUE until then.`
+        : status.engine && status.engine.verified === false
+          ? `⚠ Native helper is running "${status.engine.name || "an unidentified engine"}" — that is not a verified Stockfish 19 build. Configure the official Stockfish 19 executable (see native/README.md).`
+          : `Native helper detected${status.engine && status.engine.name ? ` — ${status.engine.name}` : ""}.`;
   return el("div", { class: "set-row hint" },
     el("span", { class: "set-note" }, note),
     el("button", { class: "set-reset inline", onclick: recheckNativeStatus }, "Recheck"),
