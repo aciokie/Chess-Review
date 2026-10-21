@@ -4956,7 +4956,7 @@ function nativeFailureHint(status, failure) {
 function nativeStatusRow(status) {
   const hint = nativeFailureHint(status, S.nativeFailure);
   const note = !status.available
-    ? `⚠ Native helper not detected — reviews use the bundled Stockfish 18 NNUE instead. ${hint || "On Windows you can install it (see native/README.md), then press Recheck."}`
+    ? `⚠ Native helper not detected — reviews use the bundled Stockfish 18 NNUE instead. ${hint || "One-time Windows install: double-click \"Install Native Engine.bat\" in the Chess Review folder, then press Recheck."}`
     : status.engineConfigured === false
       ? "⚠ Native helper found, but no Stockfish executable is configured for it yet (see native/README.md). Reviews use the bundled Stockfish 18 NNUE until then."
       : S.nativeFailure

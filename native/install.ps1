@@ -21,8 +21,9 @@
 
 [CmdletBinding()]
 param(
-  # Absolute path to a genuine Stockfish 19 Windows executable. Required on a first install; a
-  # re-install may omit it to keep the existing configuration.
+  # Absolute path to a custom Stockfish 19 Windows executable. OPTIONAL: when omitted, the installer
+  # uses the official Stockfish 19 build bundled in native\engine (verified against its recorded
+  # SHA-256, copied into the install folder and hash-pinned automatically).
   [string]$EnginePath = "",
   # Optional external NNUE network, for builds that do not embed one.
   [string]$EvalFile = "",
@@ -41,8 +42,9 @@ param(
   [switch]$NoCompile,
   # Skip the final self-test (it starts the helper and Stockfish once, then closes them).
   [switch]$SkipSelfTest,
-  # Optional SHA-256 of the Stockfish .exe. When set, the helper checks the binary itself at every
-  # start, so "verified Stockfish 19" means a hash match, not just the engine's own claim.
+  # Optional SHA-256 of the engine executable. When set (it is set automatically for the bundled
+  # engine), the helper checks the binary itself at every start, so "verified Stockfish 19" means a
+  # hash match, not just the engine's own claim.
   # Get the hash with:  Get-FileHash "D:\Downlaods\Stockfish19\stockfish-windows-x86-64-*.exe" -Algorithm SHA256
   [string]$ExpectedSha256 = ""
 )
@@ -105,11 +107,14 @@ function Find-UnpackedExtensionIds([string]$ExtensionDir) {
           $serializer.MaxJsonLength = [int]::MaxValue
           $serializer.RecursionLimit = 1000
           $data = $serializer.DeserializeObject($text)
-          $settings = $data["extensions"]["settings"]
+            $extensions = $data["extensions"]
+            $settings = $null
+            if ($extensions -is [System.Collections.IDictionary] -and $extensions.ContainsKey("settings")) { $settings = $extensions["settings"] }
+            if ($null -eq $settings -or -not ($settings -is [System.Collections.IDictionary])) { continue }
           foreach ($id in @($settings.Keys)) {
             $entry = $settings[$id]
             if (-not ($entry -is [System.Collections.IDictionary])) { continue }
-            if (-not $entry.Contains("path")) { continue }
+            if (-not $entry.ContainsKey("path")) { continue }
             $entryPath = [string]$entry["path"]
             if ($entryPath.TrimEnd('\', '/') -ieq $wanted -and $id -match '^[a-p]{32}$') { $found += [string]$id }
           }
@@ -220,6 +225,44 @@ if (-not $NoCompile -or -not (Test-Path -LiteralPath $HostExe)) {
     /r:System.dll /r:System.Core.dll /r:System.Web.Extensions.dll $Source
   if ($LASTEXITCODE -ne 0) { throw "Compilation failed." }
   $compiled = $true
+}
+Unblock-File -LiteralPath $HostExe -ErrorAction SilentlyContinue
+
+# 1b. Engine ------------------------------------------------------------------------------
+# By default the helper runs the OFFICIAL Stockfish 19 build bundled in this repository, copied into
+# the install folder (so the install keeps working even if this repo folder is later moved or
+# deleted) and hash-pinned automatically. -EnginePath still selects a custom executable.
+$BundledEngine = Join-Path $PSScriptRoot "engine\stockfish-windows-x86-64-universal.exe"
+$BundledChecksums = Join-Path $PSScriptRoot "engine\checksums.json"
+if ([String]::IsNullOrWhiteSpace($EnginePath)) {
+  if (-not (Test-Path -LiteralPath $BundledEngine)) {
+    throw "No -EnginePath given and the bundled engine is missing: $BundledEngine"
+  }
+  # The repo records the official binary's SHA-256 (native/engine/checksums.json). Never install a
+  # bundled engine whose bytes do not match that record.
+  $recorded = ""
+  try {
+    $manifest = Get-Content -LiteralPath $BundledChecksums -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($entry in @($manifest)) {
+      if ($entry.file -eq (Split-Path -Leaf $BundledEngine)) { $recorded = [string]$entry.sha256 }
+    }
+  } catch { $recorded = "" }
+  $bundledHash = (Get-FileHash -LiteralPath $BundledEngine -Algorithm SHA256).Hash.ToLowerInvariant()
+  if (-not [String]::IsNullOrWhiteSpace($recorded)) {
+    if ($bundledHash -ne $recorded.ToLowerInvariant()) {
+      throw "The bundled Stockfish executable does not match the SHA-256 recorded in native\engine\checksums.json.`n" +
+            "  recorded: $($recorded.ToLowerInvariant())`n  actual:   $bundledHash`n" +
+            "Do not install it. Re-download the repository (or the official release) and try again."
+    }
+    Write-Host "Bundled engine verified against native\engine\checksums.json"
+  }
+  $InstalledEngine = Join-Path $InstallDir "stockfish.exe"
+  Copy-Item -LiteralPath $BundledEngine -Destination $InstalledEngine -Force
+  Unblock-File -LiteralPath $InstalledEngine -ErrorAction SilentlyContinue
+  $EnginePath = $InstalledEngine
+  # Pin automatically: "verified Stockfish 19" then means the official binary, byte for byte.
+  if ([String]::IsNullOrWhiteSpace($ExpectedSha256)) { $ExpectedSha256 = $bundledHash }
+  Write-Host "Using the bundled official Stockfish 19 (installed to $InstalledEngine)"
 }
 
 # 2. Configuration -----------------------------------------------------------------------

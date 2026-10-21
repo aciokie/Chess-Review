@@ -1,0 +1,11 @@
+[
+  {
+    "file": "stockfish-windows-x86-64-universal.exe",
+    "version": "19.0.0",
+    "source": "https://stockfishchess.org/download/",
+    "url": "https://github.com/official-stockfish/Stockfish (official-release asset: stockfish-windows-x86-64-universal.zip)",
+    "sha256": "45bc8e4969147db9c2eb533810637994619bff0eacc81ccfd9854394901bcbd0",
+    "id-name": "Stockfish 19",
+    "note": "Official Windows universal build; the NNUE network is embedded, so no separate .nnue file is needed. native/install.ps1 verifies this hash before installing and pins it in config.json, so the helper re-checks the binary at every start."
+  }
+]

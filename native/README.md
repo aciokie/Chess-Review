@@ -36,9 +36,27 @@ anywhere, e.g. `C:\Tools\Stockfish\`.
   make verification cryptographic, pin the binary's SHA-256 with `-ExpectedSha256` (step 2): the
   helper then hashes the actual file at every start and only reports *verified* when it matches.
 
-## 2. Install (per user, no administrator rights)
+## 2. Install - one double-click, no commands
 
-From the repository root in PowerShell:
+In the Chess Review folder, **double-click `Install Native Engine.bat`** (repo root). That is the
+whole install. It runs `native\install.ps1` with everything defaulted:
+
+* the **official Stockfish 19 build bundled in `native\engine`** - verified against the SHA-256
+  recorded in `native\engine\checksums.json`, copied into `%LOCALAPPDATA%\ChessReview\native-host`,
+  and **hash-pinned automatically** (so "verified Stockfish 19" is a byte-for-byte check),
+* your unpacked (developer-mode) extension id is found automatically in Brave / Chrome / Edge /
+  Chromium profiles; the Chrome Web Store id is always allowed,
+* a final **self-test** starts the helper and Stockfish once and prints the verdict.
+
+Prefer PowerShell instead of the bat?
+
+```powershell
+powershell -ExecutionPolicy Bypass -File native\install.ps1
+```
+
+Everything (helper + engine) installs **per user** - no administrator rights.
+
+Using your own Stockfish build instead of the bundled one (optional):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File native\install.ps1 -EnginePath "C:\Tools\Stockfish\stockfish-windows-x86-64-avx2.exe"
@@ -48,9 +66,11 @@ This:
 
 1. compiles `host\ChessReviewHost.cs` with the `csc.exe` that ships with Windows (.NET Framework 4.x
    — no SDK, no NuGet, nothing downloaded),
-2. writes `%LOCALAPPDATA%\ChessReview\native-host\config.json`,
-3. writes the Native Messaging host manifest next to it, and
-4. registers it **for your user only** (`HKCU\Software\...\NativeMessagingHosts\com.chessreview.native_engine`)
+2. installs the engine: with no `-EnginePath`, the bundled official Stockfish 19 is verified against
+   `native\engine\checksums.json`, copied into the install folder and hash-pinned,
+3. writes `%LOCALAPPDATA%\ChessReview\native-host\config.json`,
+4. writes the Native Messaging host manifest next to it, and
+5. registers it **for your user only** (`HKCU\Software\...\NativeMessagingHosts\com.chessreview.native_engine`)
    for Chrome, Chromium, Brave and Edge. Pass `-Firefox` to register it for Firefox too.
 
 At the end the installer runs a **self-test**: it starts the helper exactly like the browser does, waits
@@ -58,17 +78,26 @@ for its reply, asks it to start Stockfish once and prints the engine's own `id n
 SHA-256**. If antivirus is holding the new files, or the engine is not Stockfish 19, you see it right
 there instead of discovering it later as a silent fallback.
 
-**Proving the binary (recommended).** Pin the hash so "verified" means a cryptographic match, not a
-self-declaration:
+**Verification.** The bundled engine is pinned automatically, so "verified" already means a
+byte-for-byte SHA-256 match with the official release recorded in `native/engine/checksums.json`.
+Only if you install your own `-EnginePath` should you pin its hash too, so "verified" stays a
+cryptographic match instead of a self-declaration:
 
 ```powershell
 $hash = (Get-FileHash "D:\Downlaods\Stockfish19\stockfish-windows-x86-64-universal.exe" -Algorithm SHA256).Hash
 powershell -ExecutionPolicy Bypass -File native\install.ps1 -EnginePath "D:\Downlaods\Stockfish19\stockfish-windows-x86-64-universal.exe" -ExpectedSha256 $hash
 ```
 
-Compare the hash against the one published with the release you downloaded. The installer refuses a
-mismatched binary outright, and from then on the helper re-checks the file at every start: a
-swapped or tampered `enginePath` is reported as unverified and the extension labels it honestly.
+The installer refuses a mismatched binary outright, and from then on the helper re-checks the file at
+every start: a swapped or tampered `enginePath` is reported as unverified and the extension labels it
+honestly.
+
+**Antivirus notes.** The bundled engine is the official release, so its bytes are already known to most
+antivirus vendors; the installer also removes the "downloaded from the internet" mark (`Unblock-File`),
+which avoids most SmartScreen/Avast first-run prompts. What can still prompt is the helper, which every
+machine compiles locally (a brand-new file each time): if Avast asks, choose Allow, or add an exception
+for `%LOCALAPPDATA%\ChessReview\native-host`. The long-term fix is one prebuilt, signed helper binary
+shared by everyone - a deliberate change we have not made yet.
 
 Extra options:
 
@@ -99,7 +128,7 @@ Selecting the native build can only ever **fall back to the bundled builds** (St
 
 | Key | Meaning |
 | --- | --- |
-| `enginePath` | absolute path to the Stockfish executable (required) |
+| `enginePath` | absolute path to the Stockfish executable. **You normally never write this**: the installer defaults to the official Stockfish 19 build bundled in `native\engine`, copies it into the install folder and pins its hash |
 | `engineArgs` | extra engine command-line arguments (passed directly to the process, never via a shell) |
 | `evalFile` | external `.nnue` network, if your build needs one |
 | `threads` / `hashMb` | `Threads` / `Hash` defaults clamped to sane ranges |

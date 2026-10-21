@@ -13,7 +13,9 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const stageRoot = path.join(root, 'web-ext-artifacts');
 const stage = path.join(stageRoot, 'lint-source');
 const webExt = path.join(root, 'node_modules', 'web-ext', 'bin', 'web-ext.js');
-const skip = new Set(['.git', 'node_modules', 'web-ext-artifacts', 'calibration-runs', 'manifest.json']);
+// 'native' holds the optional Windows native-engine helper (its sources and the bundled Stockfish
+// executable): it is not part of any browser package, so web-ext lint must not scan it.
+const skip = new Set(['.git', 'node_modules', 'web-ext-artifacts', 'calibration-runs', 'native', 'manifest.json']);
 
 async function stageDir(rel) {
   const fromDir = path.join(root, rel);

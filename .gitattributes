@@ -1,3 +1,4 @@
 # Preserve official release checksums, including on Windows.
 engine/stockfish*.js -text
 engine/*.wasm binary
+native/engine/*.exe binary
