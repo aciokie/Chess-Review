@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import { NativeEngine, probeNativeHost, nativeMessagingSupported } from '../engine/native.js';
 import { app, loadGame, settle } from './helpers/app.mjs';
 
+function quiet(a) {
+  for (const name of ['paintBoard', 'renderEvalBar', 'renderMoves', 'renderPlayers', 'renderControls',
+    'renderReview', 'renderStats', 'renderEngineCurrent', 'renderBestArrow', 'renderGraph', 'renderLibrary']) a.replace(name, () => {});
+}
+
 /* ---------------- Native Messaging runtime test double ---------------- */
 
 function fakeRuntime(behavior = {}) {
@@ -467,4 +472,34 @@ test('the settings hint probes the helper once and never starts an engine', asyn
   a.call('motorSettings');
   assert.equal(probes, 1, 'the probe is cached for the page');
   assert.equal(a.state.nativeStatus.available, true);
+});
+
+test('a native review obeys the Depth setting like any other build', async (t) => {
+  const a = app(t);
+  const S = loadGame(a, '1. e4 e5 2. Nf3');
+  quiet(a);
+  S.settings.enginePath = 'native19';
+  S.settings.engineDepth = 19;
+  S.settings.engineWorkers = 1;
+  let saved = 0;
+  a.replace('saveToLibrary', () => { saved += 1; });
+  const calls = [];
+  a.context.nativeMessagingSupported = () => true;
+  a.context.NativeEngine = class {
+    constructor() { this.dead = false; }
+    async setOptions() {}
+    // Record exactly what the review pipeline asks the helper for.
+    async analyse(fen, depth, multipv, history) {
+      calls.push({ fen, depth, multipv, history });
+      return { bestmove: 'e2e4', score: { cp: 20 }, pv: 'e2e4', lines: [{ score: { cp: 20 }, pv: 'e2e4', depth, bound: 'exact', multipv: 1 }] };
+    }
+    stop() {} cancelPending() {}
+    terminate() { this.dead = true; }
+  };
+  await a.call('startAnalysis');
+  assert.equal(saved, 1, 'the native review completed');
+  assert.equal(calls.length, S.total + 1, 'every position was searched');
+  assert.ok(calls.every((call) => call.depth === 19), `the Depth setting (19) must reach the native engine, got ${calls.map((call) => call.depth).join(',')}`);
+  // And the stored analysis records it, so the cache key changes with the depth.
+  assert.equal(S.bests[0].lines[0].depth, 19);
 });

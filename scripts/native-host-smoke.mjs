@@ -221,8 +221,10 @@ await check('a position is analysed and returns bestmove, score and lines', asyn
   assert(result.bestmove === 'e2e4', `unexpected bestmove ${result.bestmove}`);
   assert(Number.isFinite(result.score.cp), 'score.cp missing');
   assert(Array.isArray(result.lines) && result.lines.length === 1, `expected 1 line, got ${JSON.stringify(result.lines)}`);
-  assert(result.lines[0].multipv === 1 && result.lines[0].depth > 0 && result.lines[0].bound === 'exact', 'line metadata wrong');
+  assert(result.lines[0].multipv === 1 && result.lines[0].bound === 'exact', 'line metadata wrong');
   assert(result.lines[0].pv.startsWith('e2e4'), 'pv missing');
+  // The requested depth must have reached the engine: the test double searches to exactly that depth.
+  assert(result.lines[0].depth === 6, `the engine searched to depth ${result.lines[0].depth}, expected 6 (the requested search limit must reach Stockfish)`);
 });
 
 await check('search limits are honoured: MultiPV yields one line per requested line', async () => {
