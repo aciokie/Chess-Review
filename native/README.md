@@ -64,8 +64,12 @@ powershell -ExecutionPolicy Bypass -File native\install.ps1 -EnginePath "C:\Tool
 
 This:
 
-1. compiles `host\ChessReviewHost.cs` with the `csc.exe` that ships with Windows (.NET Framework 4.x
-   — no SDK, no NuGet, nothing downloaded),
+1. installs the helper: the repo ships a **prebuilt `ChessReviewHost.exe`** (hash-recorded in
+   `host/checksums.json`) - the installer verifies and copies it, so one stable binary (and hash)
+   serves every user and antivirus reputation accumulates instead of resetting. It falls back to
+   compiling `host/ChessReviewHost.cs` with the `csc.exe` that ships with Windows (.NET Framework
+   4.x - no SDK, no NuGet, nothing downloaded) only when the prebuilt file is missing or fails
+   verification. CI rebuilds and republishes it on every release,
 2. installs the engine: with no `-EnginePath`, the bundled official Stockfish 19 is verified against
    `native\engine\checksums.json`, copied into the install folder and hash-pinned,
 3. writes `%LOCALAPPDATA%\ChessReview\native-host\config.json`,
@@ -94,10 +98,7 @@ honestly.
 
 **Antivirus notes.** The bundled engine is the official release, so its bytes are already known to most
 antivirus vendors; the installer also removes the "downloaded from the internet" mark (`Unblock-File`),
-which avoids most SmartScreen/Avast first-run prompts. What can still prompt is the helper, which every
-machine compiles locally (a brand-new file each time): if Avast asks, choose Allow, or add an exception
-for `%LOCALAPPDATA%\ChessReview\native-host`. The long-term fix is one prebuilt, signed helper binary
-shared by everyone - a deliberate change we have not made yet.
+which avoids most SmartScreen/Avast first-run prompts. The helper is now a **prebuilt binary shared by every user** (hash-recorded in `host/checksums.json`), so one stable hash builds antivirus reputation instead of resetting per install. During the first weeks - until that reputation exists - some users may still see one prompt: choose Allow, add an exception for `%LOCALAPPDATA%\ChessReview\native-host`, or use "More info > Run anyway" on SmartScreen. The complete fix is a signed helper (SignPath Foundation provides this free for open-source projects); not set up yet.
 
 Extra options:
 

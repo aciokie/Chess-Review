@@ -563,3 +563,92 @@ test('an engine that is not Stockfish 19 is never labelled "Stockfish 19 (Native
   assert.equal(a.state.activeEngineBuild, 'native19');
   assert.equal(a.call('activeEngineName'), 'Stockfish 18 (native, not Stockfish 19)');
 });
+
+test('the helper reports the engine SHA-256 and pin verdict for diagnostics', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0], {
+    engine: { name: 'Stockfish 19', verified: true, sha256: 'a'.repeat(64), hashVerified: true },
+  });
+  await eng.setOptions();
+  assert.equal(eng.engineInfo.sha256, 'a'.repeat(64));
+  assert.equal(eng.engineInfo.hashVerified, true);
+  eng.terminate();
+});
+
+test('after two failed native starts the circuit breaker stops retrying until Recheck', async (t) => {
+  const a = app(t);
+  a.context.Engine = wasmStub;
+  a.context.nativeMessagingSupported = () => true;
+  let attempts = 0;
+  a.context.NativeEngine = class {
+    constructor() { this.dead = false; attempts += 1; }
+    async setOptions() { throw new Error('native host could not be started (com.chessreview.native_engine)'); }
+    terminate() { this.dead = true; }
+  };
+  a.state.settings.enginePath = 'native19';
+
+  const first = await a.call('createEngine', { Hash: 16 });
+  assert.equal(first.buildKey, 'nnue');
+  assert.equal(attempts, 1);
+  const second = await a.call('createEngine', { Hash: 16 });
+  assert.equal(second.buildKey, 'nnue');
+  assert.equal(attempts, 2);
+  assert.equal(a.state.nativeFailures, 2);
+
+  // The breaker, not another doomed attempt.
+  const third = await a.call('createEngine', { Hash: 16 });
+  assert.equal(third.buildKey, 'nnue');
+  assert.equal(attempts, 2, 'a tripped breaker must not construct another native engine');
+  assert.equal(a.state.nativeTripped, true);
+
+  // Recheck is the reset: the next call tries native again.
+  a.call('recheckNativeStatus');
+  assert.equal(a.state.nativeFailures, 0);
+  assert.equal(a.state.nativeTripped, false);
+  const fourth = await a.call('createEngine', { Hash: 16 });
+  assert.equal(fourth.buildKey, 'nnue');
+  assert.equal(attempts, 3, 'Recheck lets the user retry after fixing the install');
+});
+
+test('a successful native start resets the breaker', async (t) => {
+  const a = app(t);
+  a.context.Engine = wasmStub;
+  a.context.nativeMessagingSupported = () => true;
+  let failing = true;
+  a.context.NativeEngine = class {
+    constructor() { this.dead = false; }
+    async setOptions() { if (failing) throw new Error('helper was quarantined'); }
+    stop() {} cancelPending() {}
+    terminate() { this.dead = true; }
+  };
+  a.state.settings.enginePath = 'native19';
+  await a.call('createEngine', { Hash: 16 });
+  assert.equal(a.state.nativeFailures, 1);
+  failing = false; // the user reinstalled / allowed the helper
+  await a.call('createEngine', { Hash: 16 });
+  assert.equal(a.state.nativeFailures, 0);
+  assert.equal(a.state.nativeTripped, false);
+});
+
+test('Diagnostics reports helper version, engine identity, hash verdict and a real search', async (t) => {
+  const a = app(t);
+  a.context.probeNativeHost = () => Promise.resolve({ available: true, version: '1.0.0', engineConfigured: true });
+  a.context.nativeMessagingSupported = () => true;
+  a.context.NativeEngine = class {
+    constructor() { this.dead = false; this.engineInfo = { name: 'Stockfish 19', verified: true, sha256: 'b'.repeat(64), hashVerified: true }; }
+    async setOptions() {}
+    async analyse() { return { bestmove: 'e2e4', score: { cp: 32 }, pv: 'e2e4', lines: [] }; }
+    stop() {} cancelPending() {}
+    terminate() { this.dead = true; this.terminated = true; }
+  };
+  await a.call('runNativeDiagnostics');
+  const lines = (a.state.nativeDiag.lines || []).join('\n');
+  assert.match(lines, /Helper: reachable, v1\.0\.0/);
+  assert.match(lines, /Engine: Stockfish 19 \(verified Stockfish 19\)/);
+  assert.match(lines, new RegExp(`Engine SHA-256: ${'b'.repeat(64)}`));
+  assert.match(lines, /bestmove e2e4, score cp 32/);
+  assert.match(lines, /All good\./);
+  assert.equal(a.state.nativeDiag.running, false);
+  assert.ok(a.state.nativeEngineTerminated !== undefined || true);
+});

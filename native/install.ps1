@@ -208,23 +208,55 @@ Write-Host "== Chess Review native engine helper =="
 # 1. Install directory + helper executable -----------------------------------------------
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
+# The repo ships a PREBUILT helper (native/host/ChessReviewHost.exe, hash-recorded in
+# native/host/checksums.json): one stable binary and hash for every user, so antivirus reputation
+# accumulates instead of resetting on each install. It is used when its hash matches; compiling
+# locally with the in-box csc.exe is only the fallback (missing prebuilt, or hash mismatch).
+$PrebuiltExe = Join-Path $PSScriptRoot "host\ChessReviewHost.exe"
+$PrebuiltChecksums = Join-Path $PSScriptRoot "host\checksums.json"
 $compiled = $false
-if (-not $NoCompile -or -not (Test-Path -LiteralPath $HostExe)) {
+$usedPrebuilt = $false
+if ($NoCompile -and (Test-Path -LiteralPath $HostExe)) {
+  Write-Host "Keeping the installed helper ($HostExe)"
+} else {
   # A helper currently held open by a running browser cannot be overwritten; stop exactly our own
   # exe (matched by its installed path, never by name) so an update/re-install works in place.
   Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
     Where-Object { $_.ExecutablePath -eq $HostExe } |
     ForEach-Object { Write-Host "Stopping the running helper (pid $($_.ProcessId))"; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   Start-Sleep -Milliseconds 400
-
-  $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-  if (-not (Test-Path -LiteralPath $csc)) { $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe" }
-  if (-not (Test-Path -LiteralPath $csc)) { throw "csc.exe not found - the .NET Framework 4.x compiler is missing." }
-  Write-Host "Compiling the helper with $csc"
-  & $csc /nologo /target:exe /optimize+ /platform:anycpu "/out:$HostExe" `
-    /r:System.dll /r:System.Core.dll /r:System.Web.Extensions.dll $Source
-  if ($LASTEXITCODE -ne 0) { throw "Compilation failed." }
-  $compiled = $true
+  
+  $prebuiltOk = $false
+  if (Test-Path -LiteralPath $PrebuiltExe) {
+    $recorded = ""
+    try {
+      $manifest = Get-Content -LiteralPath $PrebuiltChecksums -Raw -Encoding UTF8 | ConvertFrom-Json
+      foreach ($entry in @($manifest)) {
+        if ($entry.file -eq (Split-Path -Leaf $PrebuiltExe)) { $recorded = [string]$entry.sha256 }
+      }
+    } catch { $recorded = "" }
+    if (-not [String]::IsNullOrWhiteSpace($recorded)) {
+      $actual = (Get-FileHash -LiteralPath $PrebuiltExe -Algorithm SHA256).Hash.ToLowerInvariant()
+      if ($actual -eq $recorded.ToLowerInvariant()) { $prebuiltOk = $true }
+      else { Write-Warning "The prebuilt helper does not match the hash recorded in host\checksums.json - it will be rebuilt from source." }
+    } else {
+      Write-Warning "No hash recorded for the prebuilt helper (host\checksums.json) - it will be rebuilt from source."
+    }
+  }
+  if ($prebuiltOk) {
+    Copy-Item -LiteralPath $PrebuiltExe -Destination $HostExe -Force
+    $usedPrebuilt = $true
+    Write-Host "Using the prebuilt helper (SHA-256 verified against host\checksums.json)"
+  } else {
+    $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+    if (-not (Test-Path -LiteralPath $csc)) { $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe" }
+    if (-not (Test-Path -LiteralPath $csc)) { throw "csc.exe not found - the .NET Framework 4.x compiler is missing." }
+    Write-Host "Compiling the helper with $csc"
+    & $csc /nologo /target:exe /optimize+ /platform:anycpu "/out:$HostExe" `
+      /r:System.dll /r:System.Core.dll /r:System.Web.Extensions.dll $Source
+    if ($LASTEXITCODE -ne 0) { throw "Compilation failed." }
+    $compiled = $true
+  }
 }
 Unblock-File -LiteralPath $HostExe -ErrorAction SilentlyContinue
 

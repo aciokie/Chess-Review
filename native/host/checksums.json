@@ -1,0 +1,10 @@
+[
+  {
+    "file": "ChessReviewHost.exe",
+    "version": "1.0.0",
+    "source": "native/host/ChessReviewHost.cs",
+    "build": "csc /nologo /target:exe /optimize+ /platform:anycpu /out:ChessReviewHost.exe /r:System.dll /r:System.Core.dll /r:System.Web.Extensions.dll ChessReviewHost.cs (in-box .NET Framework 4.8 compiler; also built on windows-latest CI)",
+    "sha256": "53da21bb583d78c32d1ac475c1c8a8bdb16b91b601728ed84d379577aa6dd768",
+    "note": "Prebuilt helper: one stable binary (and hash) for all users, so antivirus reputation accumulates instead of resetting on every install. native/install.ps1 verifies this hash, prefers the prebuilt exe, and only falls back to compiling locally when it is missing or fails verification. Refresh this file and its hash whenever ChessReviewHost.cs changes."
+  }
+]

@@ -678,6 +678,10 @@ const S = {
   nativeStatus: null, nativeProbe: null,
   // Open state of the "Install native engine" helper-steps card (transient).
   nativeInstallOpen: false,
+  // Circuit breaker for repeated native start failures in this session (reset by Recheck/success).
+  nativeFailures: 0, nativeTripped: false,
+  // Diagnostics self-test state (transient): { running, lines[], error }.
+  nativeDiag: null,
   // What the native helper really launched ({name, verified}) and why the last native start failed.
   nativeEngineInfo: null, nativeFailure: null,
   // "Play best moves from here": auto-walk that re-analyzes each position and plays the engine's
@@ -2229,6 +2233,17 @@ async function createEngine(opts = {}) {
   let lastErr = null;
   let preferredErr = null; // why the user's chosen build could not start (shown instead of hiding it)
   for (const key of order) {
+    if (key === NATIVE_BUILD && S.nativeFailures >= 2) {
+      // Circuit breaker: two failed native starts in a row mean a broken install (missing helper,
+      // AV quarantine, bad enginePath). Stop retrying on every review - each retry costs a
+      // handshake timeout before the WASM fallback - until the user presses Recheck after fixing it.
+      lastErr = lastErr || new Error("native engine failed repeatedly this session");
+      if (key === preferred) {
+        preferredErr = lastErr;
+        S.nativeTripped = true;
+      }
+      continue;
+    }
     if (key === NATIVE_BUILD && !nativeEngineSupported()) {
       lastErr = lastErr || new Error("the native engine helper is not available");
       if (key === preferred) preferredErr = lastErr;
@@ -2244,6 +2259,7 @@ async function createEngine(opts = {}) {
         // shown under the "Stockfish 19 (Native)" name.
         S.nativeEngineInfo = eng.engineInfo || null;
         S.nativeFailure = null;
+        S.nativeFailures = 0; S.nativeTripped = false;
       }
       if (S.settings.enginePath === preferred) {
         if (key !== preferred) S.engineFallbackBuild = key;
@@ -2260,6 +2276,7 @@ async function createEngine(opts = {}) {
       lastErr = e;
       if (key === preferred) preferredErr = e;
       if (key === NATIVE_BUILD) S.nativeFailure = (e && e.message) ? String(e.message).slice(0, 300) : "unknown error";
+      S.nativeFailures = (S.nativeFailures || 0) + 1;
       try { eng?.terminate(); } catch {}
     }
   }
@@ -4928,6 +4945,7 @@ function ensureNativeStatus() {
 function recheckNativeStatus() {
   if (S.nativeProbe) return;
   S.nativeStatus = null;
+  S.nativeFailures = 0; S.nativeTripped = false;
   if (UI.settings && !UI.settings.hidden && S.settingsTab === "engine") { try { renderSettings(); } catch {} }
 }
 // Turn the browser's terse Native Messaging error into something a person can act on. `status` is
@@ -4960,7 +4978,7 @@ function nativeFailureHint(status, failure) {
 // first install has to happen outside the page), then rechecks automatically on window focus.
 function nativeStatusRow(status) {
   const hint = nativeFailureHint(status, S.nativeFailure);
-  const note = !status.available
+  let note = !status.available
     ? (`⚠ Native helper not detected — reviews use the bundled Stockfish 18 NNUE instead. ${hint || ""}`).trim()
     : status.engineConfigured === false
       ? "⚠ Native helper found, but no Stockfish executable is configured for it yet (see native/README.md). Reviews use the bundled Stockfish 18 NNUE until then."
@@ -4968,7 +4986,9 @@ function nativeStatusRow(status) {
         ? `⚠ Native helper found, but its Stockfish failed to start: ${S.nativeFailure}. Check enginePath in config.json (see native/README.md). Reviews use the bundled Stockfish 18 NNUE until then.`
         : status.engine && status.engine.verified === false
           ? `⚠ Native helper is running "${status.engine.name || "an unidentified engine"}" — that is not a verified Stockfish 19 build. Configure the official Stockfish 19 executable (see native/README.md).`
-          : `Native helper detected${status.engine && status.engine.name ? ` — ${status.engine.name}` : ""}.`;
+          : `Native helper detected${status.engine && status.engine.name ? ` — ${status.engine.name}` : ""}${status.version ? ` (helper v${status.version})` : ""}.`;
+  if (status.available && S.nativeTripped) note += " ⚠ Native failed repeatedly this session — WASM is used until you press Recheck.";
+  if (status.available && S.settings.enginePath === "native19" && !S.nativeTripped) note += " Native is much faster than WASM — 2-4 Workers are usually plenty.";
   const kids = [el("span", { class: "set-note" }, note)];
   if (!status.available) {
     kids.push(el("button", {
@@ -4981,6 +5001,10 @@ function nativeStatusRow(status) {
     }, S.nativeInstallOpen ? "Hide install steps" : "Install native engine"));
   }
   kids.push(el("button", { class: "set-reset inline", onclick: recheckNativeStatus }, "Recheck"));
+  kids.push(el("button", {
+    class: "set-reset inline",
+    onclick: () => { try { runNativeDiagnostics(); } catch {} },
+  }, S.nativeDiag && S.nativeDiag.running ? "Testing…" : "Diagnostics"));
   if (!status.available && S.nativeInstallOpen) {
     kids.push(el("div", { class: "set-note" },
       "The browser is not allowed to start installers itself, so this one step happens outside the page:",
@@ -4996,9 +5020,15 @@ function nativeStatusRow(status) {
           "Chrome Web Store copies do not include the helper; download the Chess Review folder from the GitHub releases page and run the same file.")),
     ));
   }
+  if (S.nativeDiag) {
+    kids.push(el("div", { class: "set-note" },
+      el("b", {}, "Native diagnostics"),
+      ...(S.nativeDiag.lines || []).map((line) => el("div", { style: { margin: "2px 0 0 12px" } }, line)),
+      S.nativeDiag.running ? el("div", { style: { margin: "2px 0 0 12px" } }, "…") : null,
+    ));
+  }
   return el("div", { class: "set-row hint" }, ...kids);
-}
-// While the install steps are open, re-probe whenever the user returns to this tab: after a
+}// While the install steps are open, re-probe whenever the user returns to this tab: after a
 // successful install the row flips to "detected" without them having to press Recheck.
 let _nativeInstallWatch = null;
 function watchNativeInstall() {
@@ -5017,6 +5047,43 @@ function stopWatchNativeInstall() {
   _nativeInstallWatch = null;
   S.nativeInstallOpen = false;
 }
+// One-shot self-test the user can paste into a bug report: helper version, engine identity, the
+// pinned-hash verdict and a real search with timings. Runs on a throwaway engine, changes nothing.
+async function runNativeDiagnostics() {
+  if (S.nativeDiag && S.nativeDiag.running) return;
+  const lines = [];
+  S.nativeDiag = { running: true, lines };
+  const render = () => { if (UI.settings && !UI.settings.hidden && S.settingsTab === "engine") { try { renderSettings(); } catch {} } };
+  render();
+  const push = (text) => { lines.push(text); render(); };
+  try {
+    push("Probing the helper…");
+    const probe = typeof probeNativeHost === "function" ? await probeNativeHost() : { available: false, reason: "unsupported" };
+    if (!probe.available) { push(`Helper: NOT reachable (${probe.reason}${probe.message ? ` — ${probe.message}` : ""}).`); return; }
+    push(`Helper: reachable, v${probe.version || "?"}.`);
+    const started = performance.now();
+    const eng = new NativeEngine({ uciOptions: {} });
+    try {
+      await eng.setOptions();
+      const info = eng.engineInfo || {};
+      push(`Engine: ${info.name || "unnamed"}${info.verified === false ? " (NOT a verified Stockfish 19)" : " (verified Stockfish 19)"}`);
+      if (info.sha256) push(`Engine SHA-256: ${info.sha256}${info.hashVerified === false ? " (does NOT match the pinned hash!)" : ""}`);
+      const t0 = performance.now();
+      const res = await eng.analyse("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 8, 1, null);
+      const score = res.score && res.score.cp != null ? `cp ${res.score.cp}` : res.score && res.score.mate != null ? `mate ${res.score.mate}` : "?";
+      push(`Search: depth 8 in ${Math.round(performance.now() - t0)} ms — bestmove ${res.bestmove || "(none)"}, score ${score}.`);
+      push(`Total: ${Math.round(performance.now() - started)} ms including engine startup. All good.`);
+    } finally {
+      try { eng.terminate(); } catch {}
+    }
+  } catch (e) {
+    push(`FAILED: ${(e && e.message) || e}`);
+  } finally {
+    S.nativeDiag.running = false;
+    render();
+  }
+}
+
 function motorSettings() {
   return el("div", {},
     section("Search",

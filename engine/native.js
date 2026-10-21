@@ -91,6 +91,10 @@ function normalizeHostMessage(raw) {
       name: typeof raw.engine.name === "string" ? raw.engine.name.slice(0, 120) : null,
       verified: raw.engine.verified === true,
     };
+    // Diagnostics material from the helper: the engine binary's SHA-256 and whether it matches the
+    // hash pinned in config.json. Optional — older helpers simply omit them.
+    if (typeof raw.engine.sha256 === "string") out.engine.sha256 = raw.engine.sha256.slice(0, 64);
+    if (typeof raw.engine.hashVerified === "boolean") out.engine.hashVerified = raw.engine.hashVerified;
   }
   if (raw.type === "info" && Array.isArray(raw.lines)) {
     out.lines = raw.lines.slice(0, 32).map(normalizeLine).filter(Boolean);

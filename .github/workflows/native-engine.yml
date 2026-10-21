@@ -1,0 +1,90 @@
+# Native engine CI: builds the helper with the in-box csc.exe (the same compiler install.ps1 uses),
+# runs the full Node test suite and the real-protocol host smoke test on every push, and on version
+# tags publishes ChessReview-NativeEngine-Windows.zip (prebuilt helper + bundled Stockfish 19 +
+# one-click installer) as a GitHub release asset for non-developer users.
+#
+# Everything here is free: windows-latest is a public-repo runner, csc.exe ships with Windows, and
+# release assets have no bandwidth quota.
+
+name: Native engine
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Node test suite
+        run: |
+          npm ci
+          npm test
+
+      - name: Native host smoke test (real protocol, real processes)
+        run: node scripts/native-host-smoke.mjs
+
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile the helper (same in-box csc.exe as install.ps1)
+        shell: cmd
+        run: >
+          "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          /nologo /target:exe /optimize+ /platform:anycpu
+          /out:native\host\ChessReviewHost.exe
+          /r:System.dll /r:System.Core.dll /r:System.Web.Extensions.dll
+          native\host\ChessReviewHost.cs
+
+      - name: Verify the freshly built helper runs
+        shell: powershell
+        run: |
+          $exe = "native\host\ChessReviewHost.exe"
+          if (-not (Test-Path $exe)) { throw "helper was not produced" }
+          Write-Host ("Built {0} bytes" -f (Get-Item $exe).Length)
+          Write-Host ("SHA256 {0}" -f (Get-FileHash $exe -Algorithm SHA256).Hash)
+
+      - name: Package ChessReview-NativeEngine-Windows.zip
+        shell: powershell
+        run: |
+          $stage = "package\ChessReview-NativeEngine"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item native\host\ChessReviewHost.exe          $stage\
+          Copy-Item native\host\ChessReviewHost.cs           $stage\
+          Copy-Item native\host\checksums.json               $stage\
+          Copy-Item native\engine\stockfish-windows-x86-64-universal.exe $stage\
+          Copy-Item native\engine\checksums.json             $stage\
+          Copy-Item native\install.ps1                       $stage\
+          Copy-Item native\uninstall.ps1                     $stage\
+          Copy-Item "Install Native Engine.bat"              $stage\
+          Copy-Item native\host\Config.example.json          $stage\
+          Copy-Item native\README.md                         $stage\
+          Copy-Item LICENSE                                  $stage\
+          Compress-Archive -Path $stage -DestinationPath ChessReview-NativeEngine-Windows.zip -Force
+          $hash = (Get-FileHash ChessReview-NativeEngine-Windows.zip -Algorithm SHA256).Hash
+          "zip-sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Package SHA256: $hash"
+
+      - name: Publish to the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ChessReview-NativeEngine-Windows.zip
