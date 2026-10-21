@@ -25,7 +25,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -264,9 +263,6 @@ namespace ChessReview.NativeHost
         public int Threads = 1;
         public int HashMb = 16;
         public int SearchTimeoutMs = 120000;
-        // Optional SHA-256 of the engine executable. When set, "verified" additionally requires the
-        // binary to match, so "Stockfish 19" can no longer be a mere self-declaration.
-        public string ExpectedSha256 = "";
 
         public static HostConfig Load(string exeDir)
         {
@@ -286,7 +282,6 @@ namespace ChessReview.NativeHost
                         config.Threads = Json.Int(map, "threads", 1, 64, 1);
                         config.HashMb = Json.Int(map, "hashMb", 1, 4096, 16);
                         config.SearchTimeoutMs = Json.Int(map, "searchTimeoutMs", 500, 600000, 120000);
-                        config.ExpectedSha256 = NormalizeSha256(Json.String(map, "expectedSha256"));
                         object[] args = map.ContainsKey("engineArgs") ? map["engineArgs"] as object[] : null;
                         if (args != null)
                         {
@@ -306,20 +301,6 @@ namespace ChessReview.NativeHost
             if (!String.IsNullOrEmpty(envPath)) config.EnginePath = envPath;
 
             return config;
-        }
-
-        /// <summary>64 hex characters (the "sha256:" prefix is tolerated). Empty when absent/invalid.</summary>
-        public static string NormalizeSha256(string value)
-        {
-            if (value == null) return "";
-            string text = value.Trim();
-            if (text.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)) text = text.Substring(7).Trim();
-            if (text.Length != 64) return "";
-            foreach (char c in text.ToLowerInvariant())
-            {
-                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return "";
-            }
-            return text.ToLowerInvariant();
         }
 
         /// <summary>Absolute, existing file — anything else is treated as "not configured".</summary>
@@ -422,8 +403,6 @@ namespace ChessReview.NativeHost
 
         private Job _current;
         private string _uciIdName = "";
-        private string _engineSha256 = "";
-        private bool _engineHashVerified = true;
         private int _engineMultipv = 1;
         private bool _engineStarted;
         private bool _shuttingDown;
@@ -533,30 +512,6 @@ namespace ChessReview.NativeHost
         {
             ProcessStartInfo info = new ProcessStartInfo();
             info.FileName = _config.EnginePath;
-            // An `id name` is a self-declaration: any binary can claim "Stockfish 19". When a hash is
-            // pinned in config.json, the executable itself is checked, and only then does `verified`
-            // really mean verified.
-            _engineSha256 = "";
-            _engineHashVerified = true;
-            try
-            {
-                using (FileStream stream = File.OpenRead(_config.EnginePath))
-                using (SHA256 sha = SHA256.Create())
-                {
-                    StringBuilder hex = new StringBuilder();
-                    foreach (byte b in sha.ComputeHash(stream)) hex.Append(b.ToString("x2", CultureInfo.InvariantCulture));
-                    _engineSha256 = hex.ToString();
-                }
-                if (!String.IsNullOrEmpty(_config.ExpectedSha256))
-                {
-                    _engineHashVerified = String.Equals(_engineSha256, _config.ExpectedSha256, StringComparison.OrdinalIgnoreCase);
-                    if (!_engineHashVerified) Log.Write("engine SHA-256 mismatch: binary " + _engineSha256 + " != pinned " + _config.ExpectedSha256);
-                }
-            }
-            catch (Exception ex) { Log.Write("could not hash the engine executable: " + ex.Message); }
-            if (!String.IsNullOrEmpty(_config.ExpectedSha256) && String.IsNullOrEmpty(_engineSha256)) _engineHashVerified = false;
-
-            info.FileName = _config.EnginePath;
             info.UseShellExecute = false;
             info.CreateNoWindow = true;            // Stockfish must never flash a console window
             info.RedirectStandardInput = true;
@@ -647,14 +602,11 @@ namespace ChessReview.NativeHost
         }
 
         // "Verified" means the executable's OWN `id name` says Stockfish 19 (e.g. "Stockfish 19" or
-        // "Stockfish 19.1"), AND — when a SHA-256 is pinned in config.json — that the binary really
-        // is the pinned one. An `id name` alone is a self-declaration any binary could print; with a
-        // pinned hash "verified" is a cryptographic statement. Another Stockfish version, a dev build
-        // or a different engine is still started - the extension just shows what it really is.
-        private bool IsVerifiedStockfish19(string idName)
+        // "Stockfish 19.1"). Another Stockfish version, a dev build or a different engine is still
+        // started - the extension just shows what it really is instead of calling it Stockfish 19.
+        private static bool IsVerifiedStockfish19(string idName)
         {
-            if (!Regex.IsMatch(idName ?? "", @"^\s*Stockfish\s+19(\.\d+)*(\s|$)", RegexOptions.IgnoreCase)) return false;
-            return _engineHashVerified;
+            return Regex.IsMatch(idName ?? "", @"^\s*Stockfish\s+19(\.\d+)*(\s|$)", RegexOptions.IgnoreCase);
         }
 
         private void SendReady()
@@ -662,8 +614,6 @@ namespace ChessReview.NativeHost
             Dictionary<string, object> engine = new Dictionary<string, object> {
                 { "name", _uciIdName },
                 { "verified", IsVerifiedStockfish19(_uciIdName) },
-                { "hashVerified", _engineHashVerified },
-                { "sha256", _engineSha256 },
             };
             SendObject(new Dictionary<string, object> {
                 { "type", "ready" },

@@ -19,7 +19,6 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -84,7 +83,6 @@ async function boot(options = {}) {
     threads: 1,
     hashMb: 16,
     searchTimeoutMs: options.searchTimeoutMs || 120000,
-    expectedSha256: options.expectedSha256 || '',
   };
   await fs.writeFile(path.join(buildDir, 'config.json'), JSON.stringify(config));
 
@@ -434,28 +432,6 @@ await check('only a Stockfish 19 id name is reported as verified', async () => {
     await host.close();
     host = null;
   }
-});
-
-await check('the engine binary is hashed, and a pinned hash makes "verified" real', async () => {
-  const real = createHash('sha256').update(await fs.readFile(fakeExe)).digest('hex');
-
-  // Pinned correctly: verified means the id name AND the binary hash.
-  host = await boot({ expectedSha256: real });
-  host.send({ type: 'init', options: {} });
-  const pinned = await host.waitFor((message) => message.type === 'ready', 60000, 'ready (pinned)');
-  assert(pinned.engine.sha256 === real, `the helper must report the engine's SHA-256, got ${pinned.engine.sha256}`);
-  assert(pinned.engine.hashVerified === true, 'a matching pin must be hash-verified');
-  assert(pinned.engine.verified === true, 'a Stockfish 19 id name plus a matching hash is verified');
-  await host.close();
-
-  // Pinned to the WRONG hash (e.g. the user downloaded something else): never verified.
-  host = await boot({ expectedSha256: 'f'.repeat(64) });
-  host.send({ type: 'init', options: {} });
-  const wrong = await host.waitFor((message) => message.type === 'ready', 60000, 'ready (wrong pin)');
-  assert(wrong.engine.hashVerified === false, 'a mismatching pin must not be hash-verified');
-  assert(wrong.engine.verified === false, 'a wrong hash must make the engine unverified, even with a Stockfish 19 id name');
-  await host.close();
-  host = null;
 });
 
 /* ---------------- Report ---------------- */

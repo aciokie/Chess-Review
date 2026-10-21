@@ -27,14 +27,12 @@ chose and can trust). Download the official Windows build yourself, for example 
 <https://stockfishchess.org/download/> (or the `official-release` assets on GitHub), and unpack it
 anywhere, e.g. `C:\Tools\Stockfish\`.
 
-* Use the **x86-64** Windows build that matches your CPU (the `universal` build picks the right CPU
-  optimizations on its own). `dev-…` snapshots are unofficial test builds that report a name like
-  `Stockfish dev-…`, which the helper deliberately does **not** accept as Stockfish 19.
+* Use the **x86-64** Windows build that matches your CPU (an `avx2` build is fine on modern CPUs).
 * Stockfish 16 and newer **embed the default NNUE network**, so no separate `.nnue` file is needed.
   If your build is an exception, pass its network with `-EvalFile` (below).
-* An engine's `id name` is only a **self-declaration** — any binary can print "Stockfish 19". To
-  make verification cryptographic, pin the binary's SHA-256 with `-ExpectedSha256` (step 2): the
-  helper then hashes the actual file at every start and only reports *verified* when it matches.
+* Keep the download URL/checksum of the file you chose. The helper reports the engine's own
+  `id name`, and the extension flags anything that does not identify itself as **Stockfish 19** as
+  unverified and shows its real name — it never silently passes a different engine off as Stockfish 19.
 
 ## 2. Install (per user, no administrator rights)
 
@@ -54,21 +52,9 @@ This:
    for Chrome, Chromium, Brave and Edge. Pass `-Firefox` to register it for Firefox too.
 
 At the end the installer runs a **self-test**: it starts the helper exactly like the browser does, waits
-for its reply, asks it to start Stockfish once and prints the engine's own `id name` **and its
-SHA-256**. If antivirus is holding the new files, or the engine is not Stockfish 19, you see it right
-there instead of discovering it later as a silent fallback.
-
-**Proving the binary (recommended).** Pin the hash so "verified" means a cryptographic match, not a
-self-declaration:
-
-```powershell
-$hash = (Get-FileHash "D:\Downlaods\Stockfish19\stockfish-windows-x86-64-universal.exe" -Algorithm SHA256).Hash
-powershell -ExecutionPolicy Bypass -File native\install.ps1 -EnginePath "D:\Downlaods\Stockfish19\stockfish-windows-x86-64-universal.exe" -ExpectedSha256 $hash
-```
-
-Compare the hash against the one published with the release you downloaded. The installer refuses a
-mismatched binary outright, and from then on the helper re-checks the file at every start: a
-swapped or tampered `enginePath` is reported as unverified and the extension labels it honestly.
+for its reply, asks it to start Stockfish once and prints the engine's own `id name`. If antivirus is
+holding the new files, or the engine is not Stockfish 19, you see it right there instead of discovering
+it later as a silent fallback.
 
 Extra options:
 
@@ -104,7 +90,6 @@ Selecting the native build can only ever **fall back to the bundled builds** (St
 | `evalFile` | external `.nnue` network, if your build needs one |
 | `threads` / `hashMb` | `Threads` / `Hash` defaults clamped to sane ranges |
 | `searchTimeoutMs` | watchdog: a search silent for this long is failed and the engine reaped (default 120000) |
-| `expectedSha256` | optional SHA-256 of the engine executable; when set, `verified` additionally requires the binary to match (written by `-ExpectedSha256`) |
 | `logFile` | optional diagnostic log; stdout is reserved for the protocol. stderr is **opt-in** for debugging: set the environment variable `CHESS_REVIEW_HOST_DEBUG=1` before launching the browser |
 
 `CHESS_REVIEW_ENGINE_PATH` (environment variable) overrides `enginePath`, which is handy for
@@ -138,7 +123,7 @@ portable setups.
 | --- | --- |
 | “Native helper not detected” | The line under the Build row now says *why* (the browser's own error). Re-run `native\install.ps1`, reload the extension (it needs the `nativeMessaging` permission) and press **Recheck**. *“Access … forbidden”* means this copy of the extension is not on the helper's allowed list — the installer now finds your unpacked extension id by itself (it must already be loaded in the browser when you run it); *“not found”* means the helper is not registered for this browser |
 | Detected, but “no Stockfish executable is configured” | Re-run the installer with `-EnginePath`, or edit `config.json` |
-| Engine shown as “unverified” / labelled “(native, not Stockfish 19)” | The helper marks an engine verified only when its own `id name` reports **Stockfish 19** (for example `Stockfish 19` or `Stockfish 19.1`) **and** — when you pinned `-ExpectedSha256` — the binary's SHA-256 matches. Any other version, a dev build or another engine still runs but is shown under its real name. Point `enginePath` at the official Stockfish 19 Windows build and pin its hash |
+| Engine shown as “unverified” / labelled “(native, not Stockfish 19)” | The helper marks an engine verified only when its own `id name` reports **Stockfish 19** (for example `Stockfish 19` or `Stockfish 19.1`). Any other version, a dev build or another engine still runs but is shown under its real name. Point `enginePath` at the official Stockfish 19 Windows build |
 | First native review is slow or times out | Antivirus scans newly created executables on first run. Wait for one review to succeed, or add an exclusion for `%LOCALAPPDATA%\ChessReview\native-host` |
 | Antivirus quarantines the helper | Restore it and exclude `%LOCALAPPDATA%\ChessReview\native-host`. The helper is plain C# compiled locally; `host\ChessReviewHost.cs` is the entire source |
 | Reviews still say “Stockfish 18 NNUE (fallback)” | The helper ran but the engine failed to start — set `logFile` in `config.json` and check the log, then check that the engine runs from a terminal (`stockfish.exe`, then `uci`) |

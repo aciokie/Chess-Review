@@ -1,4 +1,4 @@
-﻿# native/install.ps1 - per-user install of the Chess Review native engine helper.
+# native/install.ps1 — per-user install of the Chess Review native engine helper.
 #
 # What it does (no administrator rights needed, everything under HKCU + %LOCALAPPDATA%):
 #   1. Compiles native/host/ChessReviewHost.cs with the csc.exe that ships with Windows
@@ -40,11 +40,7 @@ param(
   # Skip compilation (the helper exe from a previous install is reused).
   [switch]$NoCompile,
   # Skip the final self-test (it starts the helper and Stockfish once, then closes them).
-  [switch]$SkipSelfTest,
-  # Optional SHA-256 of the Stockfish .exe. When set, the helper checks the binary itself at every
-  # start, so "verified Stockfish 19" means a hash match, not just the engine's own claim.
-  # Get the hash with:  Get-FileHash "D:\Downlaods\Stockfish19\stockfish-windows-x86-64-*.exe" -Algorithm SHA256
-  [string]$ExpectedSha256 = ""
+  [switch]$SkipSelfTest
 )
 
 $ErrorActionPreference = "Stop"
@@ -148,7 +144,7 @@ function Read-HostFrame($Stream, [DateTime]$Deadline) {
 # Start the installed helper exactly like the browser does, wait for its "hello" and, when an engine
 # is configured, ask it to start Stockfish and report what it is. Always stops what it started.
 function Test-Helper([string]$Exe, [bool]$StartEngine) {
-  $summary = [pscustomobject]@{ Ok = $false; Detail = ""; EngineName = ""; Verified = $false; HashVerified = $true; EngineSha256 = "" }
+  $summary = [pscustomobject]@{ Ok = $false; Detail = ""; EngineName = ""; Verified = $false }
   $proc = $null
   try {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -179,8 +175,6 @@ function Test-Helper([string]$Exe, [bool]$StartEngine) {
         if ($frame.type -eq "ready") {
           $summary.EngineName = [string]$frame.engine.name
           $summary.Verified = ($frame.engine.verified -eq $true)
-          $summary.HashVerified = ($frame.engine.hashVerified -ne $false)
-          $summary.EngineSha256 = [string]$frame.engine.sha256
           break
         }
         if ($frame.type -eq "error") { $summary.Ok = $false; $summary.Detail = [string]$frame.message; break }
@@ -224,40 +218,14 @@ if (-not $NoCompile -or -not (Test-Path -LiteralPath $HostExe)) {
 
 # 2. Configuration -----------------------------------------------------------------------
 $ConfigPath = Join-Path $InstallDir "config.json"
-# Normalise the pinned hash (accepts "SHA256:" prefixed output from Get-FileHash).
-$ExpectedSha = ""
-if (-not [String]::IsNullOrWhiteSpace($ExpectedSha256)) {
-  $ExpectedSha = ([string]$ExpectedSha256).Trim()
-  if ($ExpectedSha -match '^(?i)sha256:') { $ExpectedSha = $ExpectedSha.Substring(7) }
-  $ExpectedSha = $ExpectedSha.Trim().ToLowerInvariant()
-  if ($ExpectedSha -notmatch '^[0-9a-f]{64}$') {
-    throw "-ExpectedSha256 must be the 64 hex characters of the engine's SHA-256 (see Get-FileHash). Got: '$ExpectedSha256'"
-  }
-  if ([String]::IsNullOrWhiteSpace($EnginePath)) { throw "-ExpectedSha256 needs -EnginePath too (the hash is pinned against that file)." }
-  $actual = (Get-FileHash -LiteralPath ([System.IO.Path]::GetFullPath($EnginePath)) -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($actual -ne $ExpectedSha) {
-    throw "The engine .exe does NOT match the SHA-256 you pinned:`n  pinned: $ExpectedSha`n  actual: $actual`n" +
-          "Do not install this binary. Download Stockfish 19 again from stockfishchess.org and re-check."
-  }
-  Write-Host "Engine SHA-256 verified against your pin: $ExpectedSha"
-}
 if ($KeepConfig -and (Test-Path -LiteralPath $ConfigPath)) {
   Write-Host "Keeping the existing config.json"
-  if (-not [String]::IsNullOrWhiteSpace($ExpectedSha)) {
-    # Still record the pin: -KeepConfig refreshes the registration, and a new pin must land too.
-    try {
-      $existing = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
-      $existing.expectedSha256 = $ExpectedSha
-      Write-Utf8NoBom $ConfigPath ($existing | ConvertTo-Json -Depth 5)
-    } catch { Write-Warning "Could not record the pinned hash into the existing config.json: $($_.Exception.Message)" }
-  }
 } else {
   $engine = $EnginePath
   if ([String]::IsNullOrWhiteSpace($engine) -and (Test-Path -LiteralPath $ConfigPath)) {
     try {
       $existing = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
       $engine = $existing.enginePath
-      if ([String]::IsNullOrWhiteSpace($ExpectedSha) -and $existing.expectedSha256) { $ExpectedSha = [string]$existing.expectedSha256 }
     } catch { $engine = "" }
   }
   $engineValue = ""
@@ -271,7 +239,6 @@ if ($KeepConfig -and (Test-Path -LiteralPath $ConfigPath)) {
     threads = [Math]::Max(1, [Math]::Min(64, $Threads))
     hashMb = [Math]::Max(1, [Math]::Min(4096, $HashMb))
     searchTimeoutMs = 120000
-    expectedSha256 = $ExpectedSha
     logFile = ""
   }
   Write-Utf8NoBom $ConfigPath ($config | ConvertTo-Json)
@@ -363,20 +330,10 @@ if (-not $SkipSelfTest) {
   } else {
     Write-Host "Self-test OK ($($test.Detail))"
     if ($hasEngine) {
-      Write-Host "Engine SHA-256: $($test.EngineSha256)"
       if ($test.Verified) {
-        if ($test.HashVerified) {
-          Write-Host "Engine identifies itself as: $($test.EngineName)  [verified Stockfish 19 - id name AND SHA-256 match your pin]"
-        } else {
-          # Cannot happen today (a pin is validated before install), kept for honesty if a hash is
-          # added to an existing config without -EnginePath.
-          Write-Host "Engine identifies itself as: $($test.EngineName)  [Stockfish 19 by id name; SHA-256 not pinned]"
-        }
-      } elseif ($test.HashVerified -eq $false) {
-        Write-Warning "The engine binary does NOT match the pinned SHA-256 - this is not the executable you pinned. Re-download Stockfish 19 from stockfishchess.org and re-run this script."
+        Write-Host "Engine identifies itself as: $($test.EngineName)  [verified Stockfish 19]"
       } else {
-        Write-Warning "The engine identifies itself as '$($test.EngineName)', which is NOT Stockfish 19 (its id name is a self-declaration). Download the official Stockfish 19 build and re-run this script with -EnginePath."
-        Write-Warning "To prove the binary itself, add: -ExpectedSha256 (Get-FileHash '<engine>.exe' -Algorithm SHA256).Hash"
+        Write-Warning "The engine identifies itself as '$($test.EngineName)', which is NOT Stockfish 19. It will still run, but the extension will label it honestly. Download the official Stockfish 19 build and re-run this script with -EnginePath."
       }
     }
   }
