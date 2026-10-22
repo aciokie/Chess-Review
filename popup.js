@@ -258,18 +258,20 @@ function renderRecentList(viewer) {
     sub.className = "sub";
     sub.textContent = [date, entry.timeClass, entry.opening ? `${entry.eco} ${entry.opening}` : ""].filter(Boolean).join(" | ");
     row.append(top, sub);
-    row.addEventListener("click", () => reviewRecentGame(entry));
+    row.addEventListener("click", () => reviewRecentGame(entry, viewer));
     return row;
   }));
 }
 
-async function reviewRecentGame(entry) {
+async function reviewRecentGame(entry, viewer) {
+  // Tell the analysis page which player is the user, so the board opens from their side and the
+  // result/accuracy are theirs. Without it the page guesses from the stored chess.com handle only.
   recentStatus("Opening analysis …");
   try {
     if (entry.source === "lichess") {
-      await openAnalysisTab({ pgn: entry.pgn, meta: { url: entry.url, gameId: entry.gameId }, source: "recent-lichess" });
+      await openAnalysisTab({ pgn: entry.pgn, meta: { url: entry.url, gameId: entry.gameId, myName: viewer }, source: "recent-lichess" });
     } else {
-      await openAnalysisTab({ pgn: entry.pgn, meta: { ...gameMeta(entry.raw) }, source: "recent-chesscom" });
+      await openAnalysisTab({ pgn: entry.pgn, meta: { ...gameMeta(entry.raw), myName: viewer }, source: "recent-chesscom" });
     }
     window.close();
   } catch (err) {
