@@ -245,15 +245,19 @@ function renderRecentList(viewer) {
     const row = document.createElement("button");
     row.className = "recent-row";
     row.type = "button";
-    row.append(
-      Object.assign(document.createElement("div"), { className: "top" },
-        Object.assign(document.createElement("span"), { className: `badge ${badgeClass}`, textContent: mine || entry.result }),
-        Object.assign(document.createElement("span"), { className: "who", textContent: who }),
-      ),
-      Object.assign(document.createElement("div"), { className: "sub" },
-        document.createTextNode([date, entry.timeClass, entry.opening ? `${entry.eco} ${entry.opening}` : ""].filter(Boolean).join(" | ")),
-      ),
-    );
+    const badge = document.createElement("span");
+    badge.className = `badge ${badgeClass}`;
+    badge.textContent = mine || entry.result;
+    const whoEl = document.createElement("span");
+    whoEl.className = "who";
+    whoEl.textContent = who;
+    const top = document.createElement("div");
+    top.className = "top";
+    top.append(badge, whoEl);
+    const sub = document.createElement("div");
+    sub.className = "sub";
+    sub.textContent = [date, entry.timeClass, entry.opening ? `${entry.eco} ${entry.opening}` : ""].filter(Boolean).join(" | ");
+    row.append(top, sub);
     row.addEventListener("click", () => reviewRecentGame(entry));
     return row;
   }));
