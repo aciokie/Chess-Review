@@ -45,6 +45,9 @@ immediately when disabled. Existing scores and coach comments are unchanged.
 2. Click the extension icon → **Analyze this game**, or press `Ctrl+Shift+Y`.
 3. The game opens in an analysis tab where Stockfish reviews every position.
 
+No game open? Open the popup and type any **Lichess or Chess.com username** under **Recent games**
+— it pulls that account's last 30 public games (from the official APIs); click one to review it.
+
 For older games you don't have open, paste a game URL or PGN into the popup. Your username is
 detected automatically from the board; if it can't be found, enter it once in the popup and it's
 remembered.

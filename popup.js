@@ -2,6 +2,7 @@
 import { openAnalysisTab, analyzeActiveTab, reloadActiveAndAnalyze, isSupportedChessUrl } from "./analyze-flow.js";
 import { findGameById, parseGameId, parseFlip, gameMeta } from "./chesscom.js";
 import { parseLichessGameId, parseLichessFlip, fetchGamePgn as fetchLichessPgn } from "./lichess.js";
+import { fetchRecentGames, describeEntry, isValidUsername } from "./recent-games.js";
 import { browserAPI } from "./browser-compat.js";
 
 const $ = (id) => document.getElementById(id);
@@ -169,4 +170,108 @@ $("analyzeManual").addEventListener("click", async () => {
   }
 });
 
+
+/* ---------------- Recent games by username ---------------- */
+
+const RECENT_KEY = (site) => `recentUser:${site}`;
+let recentSite = "lichess";
+let recentGames = [];
+
+function recentStatus(msg, isError = false) {
+  const el = $("recentStatus");
+  el.textContent = msg || "";
+  el.style.color = isError ? "#f5746a" : "var(--ink-2)";
+}
+
+function setRecentSite(site) {
+  recentSite = site === "chesscom" ? "chesscom" : "lichess";
+  for (const btn of document.querySelectorAll("#sitePicker .site-btn")) {
+    btn.classList.toggle("on", btn.dataset.site === recentSite);
+  }
+}
+
+async function initRecent() {
+  try {
+    const stored = await browserAPI.storage.local.get(["recentSite", RECENT_KEY("lichess"), RECENT_KEY("chesscom"), "username"]);
+    setRecentSite(stored.recentSite || "lichess");
+    $("recentUser").value = stored[RECENT_KEY(recentSite)] || (recentSite === "chesscom" ? stored.username || "" : "");
+  } catch {}
+  // Username → game list is the main path when the current tab is not a game, so open it there.
+  let tab = null;
+  try { [tab] = await browserAPI.tabs.query({ active: true, currentWindow: true }); } catch {}
+  if (!isSupportedChessUrl(tab && tab.url)) $("recent").open = true;
+}
+
+for (const btn of document.querySelectorAll("#sitePicker .site-btn")) {
+  btn.addEventListener("click", async () => {
+    setRecentSite(btn.dataset.site);
+    try { await browserAPI.storage.local.set({ recentSite }); } catch {}
+    try {
+      const stored = await browserAPI.storage.local.get([RECENT_KEY(recentSite), "username"]);
+      $("recentUser").value = stored[RECENT_KEY(recentSite)] || (recentSite === "chesscom" ? stored.username || "" : "");
+    } catch {}
+    recentStatus("");
+  });
+}
+
+$("fetchRecent").addEventListener("click", async () => {
+  const btn = $("fetchRecent");
+  const user = $("recentUser").value.trim();
+  if (!isValidUsername(user, recentSite)) {
+    recentStatus(`Type a ${recentSite === "lichess" ? "Lichess" : "Chess.com"} username.`, true);
+    return;
+  }
+  btn.disabled = true;
+  recentStatus(`Fetching ${user}'s last 30 games from ${recentSite === "lichess" ? "Lichess" : "Chess.com"} …`);
+  $("recentList").replaceChildren();
+  try {
+    recentGames = await fetchRecentGames(user, recentSite);
+    try { await browserAPI.storage.local.set({ [RECENT_KEY(recentSite)]: user }); } catch {}
+    recentStatus(`${recentGames.length} games. Click one to review it.`);
+    renderRecentList(user);
+  } catch (err) {
+    recentStatus(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function renderRecentList(viewer) {
+  const list = $("recentList");
+  list.replaceChildren(...recentGames.map((entry) => {
+    const { who, mine } = describeEntry(entry, viewer);
+    const date = entry.playedAt ? new Date(entry.playedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    const badgeClass = mine === "Win" ? "win" : mine === "Loss" ? "loss" : mine === "Draw" ? "draw" : "";
+    const row = document.createElement("button");
+    row.className = "recent-row";
+    row.type = "button";
+    row.append(
+      Object.assign(document.createElement("div"), { className: "top" },
+        Object.assign(document.createElement("span"), { className: `badge ${badgeClass}`, textContent: mine || entry.result }),
+        Object.assign(document.createElement("span"), { className: "who", textContent: who }),
+      ),
+      Object.assign(document.createElement("div"), { className: "sub" },
+        document.createTextNode([date, entry.timeClass, entry.opening ? `${entry.eco} ${entry.opening}` : ""].filter(Boolean).join(" | ")),
+      ),
+    );
+    row.addEventListener("click", () => reviewRecentGame(entry));
+    return row;
+  }));
+}
+
+async function reviewRecentGame(entry) {
+  recentStatus("Opening analysis …");
+  try {
+    if (entry.source === "lichess") {
+      await openAnalysisTab({ pgn: entry.pgn, meta: { url: entry.url, gameId: entry.gameId }, source: "recent-lichess" });
+    } else {
+      await openAnalysisTab({ pgn: entry.pgn, meta: { ...gameMeta(entry.raw) }, source: "recent-chesscom" });
+    }
+    window.close();
+  } catch (err) {
+    recentStatus(err.message, true);
+  }
+}
+
 init();
+initRecent();
