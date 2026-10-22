@@ -40,6 +40,12 @@ export function splitMultiGamePgn(text) {
   return games.filter((g) => g && /\[\s*\w+\s+"/.test(g));
 }
 
+/** True for ordinary chess: no Variant tag, "Standard", "Chess" or "From Position". */
+export function isStandardVariant(name) {
+  const v = String(name || "").trim();
+  return !v || /^(standard|chess|from position)$/i.test(v);
+}
+
 /** Read one header tag from a single-game PGN. */
 export function pgnHeader(pgn, tag) {
   const m = new RegExp(`^\\s*\\[${tag}\\s+"([^"]*)"\\]`, "m").exec(pgn || "");
@@ -63,6 +69,7 @@ export function lichessGameToEntry(pgn) {
   const site = pgnHeader(pgn, "Site");
   const gameId = (parseLichessSiteId(site) || pgnHeader(pgn, "GameId") || "").slice(0, 8);
   if (!gameId) return null;
+  if (!isStandardVariant(pgnHeader(pgn, "Variant"))) return null; // the analyzer only handles standard chess
   const date = pgnHeader(pgn, "UTCDate");
   const time = pgnHeader(pgn, "UTCTime");
   const playedAt = /^\d{4}\.\d{2}\.\d{2}$/.test(date)
@@ -98,7 +105,7 @@ function parseLichessSiteId(site) {
  * N games) with clocks/evals off so the movetext stays clean for the analyzer.
  */
 export async function fetchLichessRecentGames(username, { max = RECENT_MAX, fetchImpl = fetch } = {}) {
-  const url = `${LICHESS_SITE}/api/games/user/${encodeURIComponent(username.trim())}?max=${max}&clocks=false&evals=false&literate=false&opening=true`;
+  const url = `${LICHESS_SITE}/api/games/user/${encodeURIComponent(username.trim())}?max=${max}&clocks=false&evals=false&literate=false&opening=true&perfType=ultraBullet,bullet,blitz,rapid,classical,correspondence`; // perfType = standard chess only (variants have their own perf types)
   const res = await fetchImpl(url, { headers: { Accept: "application/x-chess-pgn" } });
   if (res.status === 404) throw new Error("Lichess user not found (or no public games).");
   if (res.status === 429) throw new Error("Lichess rate-limited the request — try again in a minute.");
@@ -121,6 +128,9 @@ export function chessComResult(whiteResult, blackResult) {
 /** One Chess.com API game object → a list entry shaped like the Lichess ones. */
 export function chessComGameToEntry(game) {
   if (!game || !game.pgn) return null;
+  // `rules` is "chess" for standard games; chess960, bughouse, crazyhouse … are not reviewable.
+  if (game.rules && game.rules !== "chess") return null;
+  if (!isStandardVariant(pgnHeader(game.pgn, "Variant"))) return null;
   const url = game.url || "";
   return {
     source: "chesscom",

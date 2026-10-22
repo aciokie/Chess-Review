@@ -10,7 +10,7 @@ console.log("[Chess Analyzer] lichess content script active on", location.href);
 const browserAPI = typeof browser !== "undefined" ? browser : chrome;
 
 // 8-char first-path segments that are routes, not games.
-const RESERVED = /^(training|analysis|practice|streamer|tournament|broadcast)$/i;
+const RESERVED = /^(training|analysis|practice|streamer|tournament|broadcast|insights|database|feedback|settings)$/i;
 
 // ---- Game id ----------------------------------------------------------------
 // The first path segment of a game URL is the 8-char id (sometimes 12 with a player token):

@@ -761,7 +761,17 @@ function parseClocks(pgn) {
   }
   return out;
 }
+// Variant games (Chess960, Crazyhouse, Atomic …) use rules chess.js and the engine setup here do not
+// implement, so they would load wrongly or fail midway. Refuse them up front with a clear message.
+// "Standard" and "From Position" are ordinary chess; a missing Variant tag means standard.
+function assertStandardChess(pgn) {
+  const variant = (parseHeaders(pgn).Variant || "").trim();
+  if (variant && !/^(standard|chess|from position)$/i.test(variant)) {
+    throw new Error(`This game is a ${variant} game. Only standard chess can be reviewed.`);
+  }
+}
 function buildPositions(pgn) {
+  assertStandardChess(pgn);
   const c = new Chess(); c.loadPgn(pgn);
   const moves = c.history({ verbose: true });
   // No moves → keep whatever position the PGN set up (a [FEN] header for a pasted FEN), not the
@@ -2275,8 +2285,11 @@ async function createEngine(opts = {}) {
     } catch (e) {
       lastErr = e;
       if (key === preferred) preferredErr = e;
-      if (key === NATIVE_BUILD) S.nativeFailure = (e && e.message) ? String(e.message).slice(0, 300) : "unknown error";
-      S.nativeFailures = (S.nativeFailures || 0) + 1;
+      if (key === NATIVE_BUILD) {
+        S.nativeFailure = (e && e.message) ? String(e.message).slice(0, 300) : "unknown error";
+        // Only native start failures feed the breaker; a bundled build failing says nothing about the helper.
+        S.nativeFailures = (S.nativeFailures || 0) + 1;
+      }
       try { eng?.terminate(); } catch {}
     }
   }
@@ -5028,7 +5041,8 @@ function nativeStatusRow(status) {
     ));
   }
   return el("div", { class: "set-row hint" }, ...kids);
-}// While the install steps are open, re-probe whenever the user returns to this tab: after a
+}
+// While the install steps are open, re-probe whenever the user returns to this tab: after a
 // successful install the row flips to "detected" without them having to press Recheck.
 let _nativeInstallWatch = null;
 function watchNativeInstall() {
@@ -5066,7 +5080,7 @@ async function runNativeDiagnostics() {
     try {
       await eng.setOptions();
       const info = eng.engineInfo || {};
-      push(`Engine: ${info.name || "unnamed"}${info.verified === false ? " (NOT a verified Stockfish 19)" : " (verified Stockfish 19)"}`);
+      push(`Engine: ${info.name || "unnamed"}${info.verified === true ? " (verified Stockfish 19)" : info.verified === false ? " (NOT a verified Stockfish 19)" : " (not confirmed as Stockfish 19)"}`);
       if (info.sha256) push(`Engine SHA-256: ${info.sha256}${info.hashVerified === false ? " (does NOT match the pinned hash!)" : ""}`);
       const t0 = performance.now();
       const res = await eng.analyse("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 8, 1, null);

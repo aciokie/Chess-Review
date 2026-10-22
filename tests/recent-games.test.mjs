@@ -181,3 +181,34 @@ test('describeEntry reads the result from the viewer side when they played', () 
   assert.equal(describeEntry(entry, 'guest').mine, '');
   assert.equal(describeEntry(entry, 'ana').who, 'Ana (1500) vs Bob (1500)');
 });
+
+/* ---------------- variants are never listed (the analyzer only handles standard chess) ---------------- */
+
+import { isStandardVariant } from '../recent-games.js';
+import { parseLichessGameId } from '../lichess.js';
+
+test('isStandardVariant accepts standard chess and rejects variants', () => {
+  for (const v of ['', undefined, 'Standard', 'Chess', 'From Position']) assert.equal(isStandardVariant(v), true, String(v));
+  for (const v of ['Chess960', 'Crazyhouse', 'Atomic', 'Antichess', 'Horde']) assert.equal(isStandardVariant(v), false, v);
+});
+
+test('a Lichess variant game is dropped from the list', () => {
+  const pgn = liGame({ id: 'abcd1234', white: 'a', black: 'b', result: '1-0', date: '2026.10.01', time: '10:00:00', tc: '300+0', elo: 1500 })
+    .replace('[Event', '[Variant "Crazyhouse"]\n[Event');
+  assert.equal(lichessGameToEntry(pgn), null);
+});
+
+test('Chess.com non-standard rules are dropped, standard ones kept', () => {
+  const base = ccGame({ id: 111111, white: 'a', whiteResult: 'win', black: 'b', blackResult: 'resigned', endTime: 1700000000 });
+  assert.ok(chessComGameToEntry({ ...base, rules: 'chess' }));
+  assert.ok(chessComGameToEntry(base)); // no rules field → assume standard
+  assert.equal(chessComGameToEntry({ ...base, rules: 'chess960' }), null);
+  assert.equal(chessComGameToEntry({ ...base, rules: 'bughouse' }), null);
+});
+
+test('8-letter Lichess page names are not mistaken for game ids', () => {
+  for (const p of ['insights', 'database', 'feedback', 'training', 'analysis']) {
+    assert.equal(parseLichessGameId(`https://lichess.org/${p}`), null, p);
+  }
+  assert.deepEqual(parseLichessGameId('https://lichess.org/AbCd1234'), { id: 'AbCd1234' });
+});

@@ -96,11 +96,11 @@ function monthArchiveUrl(username, date) {
 /**
  * Find a specific game by its game ID. Tuned for snappy "analyze the game I'm on":
  *   1) Fast path — a just-finished game lives in the current (or previous) UTC-month archive, whose
- *      URL is deterministic. We fetch both directly and in PARALLEL, skipping the archives-index
- *      round-trip entirely. That's the overwhelmingly common case, now ~1 network hop.
+ *      URL is deterministic. We fetch both directly (one after the other, as chess.com asks), skipping
+ *      the archives-index round-trip entirely. That's the overwhelmingly common case.
  *   2) Slow path — only if that misses (an older game, opened from its review URL) do we pull the
- *      archives index and page back, newest → oldest, in small PARALLEL batches (one round-trip per
- *      batch instead of one per month). Stops at the first batch that contains the game.
+ *      archives index and page back, newest → oldest, serially, reading the immutable-month cache
+ *      first. Stops at the first month that contains the game.
  * Returns the game object (incl. .pgn) or null.
  */
 export async function findGameById(username, gameId, opts = {}) {

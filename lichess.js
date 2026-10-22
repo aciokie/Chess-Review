@@ -15,7 +15,7 @@ const SITE = "https://lichess.org";
 
 // 8-char first-path segments that are Lichess routes, not games (so /training, /analysis,
 // /practice, /streamer … are never mistaken for a game id).
-const RESERVED = /^(training|analysis|practice|streamer|tournament|broadcast)$/i;
+const RESERVED = /^(training|analysis|practice|streamer|tournament|broadcast|insights|database|feedback|settings)$/i;
 
 /** Parse the 8-char Lichess game id from a URL or path. Returns { id } or null. */
 export function parseLichessGameId(urlOrPath) {

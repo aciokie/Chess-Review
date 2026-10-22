@@ -96,8 +96,8 @@ function normalizeHostMessage(raw) {
     if (typeof raw.engine.sha256 === "string") out.engine.sha256 = raw.engine.sha256.slice(0, 64);
     if (typeof raw.engine.hashVerified === "boolean") out.engine.hashVerified = raw.engine.hashVerified;
   }
-  if (raw.type === "info" && Array.isArray(raw.lines)) {
-    out.lines = raw.lines.slice(0, 32).map(normalizeLine).filter(Boolean);
+  if (raw.type === "info") {
+    out.lines = Array.isArray(raw.lines) ? raw.lines.slice(0, 32).map(normalizeLine).filter(Boolean) : [];
   }
   if (raw.type === "bestmove") {
     out.bestmove = typeof raw.bestmove === "string" && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(raw.bestmove)

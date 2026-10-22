@@ -217,20 +217,23 @@ for (const btn of document.querySelectorAll("#sitePicker .site-btn")) {
 $("fetchRecent").addEventListener("click", async () => {
   const btn = $("fetchRecent");
   const user = $("recentUser").value.trim();
-  if (!isValidUsername(user, recentSite)) {
-    recentStatus(`Type a ${recentSite === "lichess" ? "Lichess" : "Chess.com"} username.`, true);
+  const site = recentSite; // the site picker can change while the request is in flight
+  if (!isValidUsername(user, site)) {
+    recentStatus(`Type a ${site === "lichess" ? "Lichess" : "Chess.com"} username.`, true);
     return;
   }
   btn.disabled = true;
-  recentStatus(`Fetching ${user}'s last 30 games from ${recentSite === "lichess" ? "Lichess" : "Chess.com"} …`);
+  recentStatus(`Fetching ${user}'s last 30 games from ${site === "lichess" ? "Lichess" : "Chess.com"} …`);
   $("recentList").replaceChildren();
   try {
-    recentGames = await fetchRecentGames(user, recentSite);
-    try { await browserAPI.storage.local.set({ [RECENT_KEY(recentSite)]: user }); } catch {}
+    const games = await fetchRecentGames(user, site);
+    try { await browserAPI.storage.local.set({ [RECENT_KEY(site)]: user }); } catch {}
+    if (site !== recentSite) return; // user switched site meanwhile: don't show these games under the other site
+    recentGames = games;
     recentStatus(`${recentGames.length} games. Click one to review it.`);
     renderRecentList(user);
   } catch (err) {
-    recentStatus(err.message, true);
+    if (site === recentSite) recentStatus(err.message, true);
   } finally {
     btn.disabled = false;
   }

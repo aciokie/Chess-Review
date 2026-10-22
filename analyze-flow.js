@@ -143,7 +143,7 @@ async function analyzeTab(tab, username) {
   // Try each candidate's archive; the first one that actually contains the game wins. A bad handle
   // (404) or transient network error on one candidate just falls through to the next. findGameById is
   // cache-first (a previously fetched game costs no request) then fast-then-deep: the current/prev
-  // month in parallel resolves a just-finished game in ~one hop, and only an older game opened from a
+  // month, fetched one after the other, resolves a just-finished game in ~one hop, and only an older game opened from a
   // review URL falls through to the serial page-back.
   let game = null;
   for (const user of candidates) {
