@@ -35,6 +35,10 @@ export const NATIVE_SEARCH_SILENCE_TIMEOUT_MS = 120000;
 // Cap on the payload we will accept from (or send to) the host. Real replies are a few KB; this
 // only exists so a corrupted/buggy host can't wedge the page with an enormous frame.
 export const NATIVE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
+// The helper refuses a replay history longer than 1024 moves (already-installed helpers can't be
+// changed from here). analysis.js windows its histories well below this; if a longer one ever
+// arrives we search from the FEN alone rather than letting one rejection abort the whole review.
+export const NATIVE_MAX_HISTORY_MOVES = 1024;
 
 const HOST_MESSAGE_TYPES = new Set(["hello", "ready", "pong", "info", "bestmove", "error"]);
 
@@ -289,6 +293,7 @@ export class NativeEngine {
       this._post({ type: "setoption", name: "MultiPV", value: String(job.multipv) });
     }
     const replay = job.history && job.history.initialFen && Array.isArray(job.history.moves) && job.history.moves.length
+      && job.history.moves.length <= NATIVE_MAX_HISTORY_MOVES
       ? { initialFen: job.history.initialFen, moves: job.history.moves } : null;
     this._post({ type: "analyse", id: job.id, fen: job.fen, depth: job.depth, multipv: job.multipv, history: replay });
   }

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { app, loadGame, fakeEngine, deferred, settle } from './helpers/app.mjs';
 import { canonicalGameId, analysisCacheKey } from '../gameid.js';
+import { Chess } from '../lib/chess.js';
 
 // Every game in this file is between the SAME two players. Only the immutable platform game id
 // differs — which is exactly the situation the original bug report describes.
@@ -161,6 +162,34 @@ test('search history is line-specific, so a transposition does not share a cache
   assert.deepEqual([...h1.moves], ['e2e4', 'e7e5', 'g1f3', 'b8c6']);
   assert.deepEqual([...h2.moves], ['g1f3', 'b8c6', 'e2e4', 'e7e5']);
   assert.notDeepEqual([...h1.moves], [...h2.moves]); // history (and the cache key) differs
+});
+
+test('search history is windowed for very long games so the native helper never rejects it', t => {
+  const a = app(t);
+  // 1200 plies of knight shuffling: legal, and longer than the helper's 1024-move limit.
+  // Positions are built directly (same shape as buildPositions) — no need to load the whole UI.
+  const cycle = [['g1', 'f3'], ['g8', 'f6'], ['f3', 'g1'], ['f6', 'g8']];
+  const c = new Chess();
+  const positions = [{ fen: c.fen(), san: null }];
+  for (let i = 0; i < 1200; i++) {
+    const [from, to] = cycle[i % 4];
+    const mv = c.move({ from, to });
+    positions.push({ fen: c.fen(), san: mv.san, from, to, promotion: '' });
+  }
+  const hist = (idx) => { const h = a.call('searchHistory', positions, idx); return { initialFen: h.initialFen, moves: [...h.moves] }; };
+
+  const last = hist(1200);                                         // the final position of the game
+  assert.equal(last.moves.length, 1000);
+  assert.equal(last.initialFen, positions[200].fen);               // window starts from its own FEN
+  const replay = new Chess(last.initialFen);                       // replaying it lands on the searched position
+  for (const uci of last.moves) replay.move({ from: uci.slice(0, 2), to: uci.slice(2, 4) });
+  assert.equal(replay.fen(), positions[1200].fen);
+  for (let i = 0; i <= 1200; i += 37) assert.ok(hist(i).moves.length <= 1000, `ply ${i} exceeds the window`);
+
+  assert.equal(hist(10).initialFen, positions[0].fen);             // short histories keep the whole game
+  assert.equal(hist(10).moves.length, 10);
+  assert.equal(hist(1000).initialFen, positions[0].fen);           // exactly at the cap: untouched
+  assert.equal(hist(1001).initialFen, positions[1].fen);           // one over: the window slides by one
 });
 
 test('canonical identity prefers the real game id over the PGN hash', () => {

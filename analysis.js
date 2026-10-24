@@ -809,10 +809,19 @@ function buildPositions(pgn) {
 // moves — not just the resulting FEN — to see repetitions and the 50-move clock, so a position is
 // evaluated in the context it was actually reached in. Also used to key the search cache so a board
 // reached through one line is never served a result computed for a different line/game.
-function searchHistory(positions, idx = positions.length - 1) {
+//
+// The history is windowed to the last SEARCH_HISTORY_MAX plies. The native helper rejects anything
+// over 1024 moves, and one rejection used to abort the whole batch ("rejected an over-long move
+// history") for any very long game. Truncating is lossless for the search: the window starts from
+// the FEN of its first position (which carries the 50-move clock and castling/ep state), and a
+// position can only repeat one reached since the last pawn move or capture — always far closer
+// than 1000 plies back — so no repetition is ever hidden by the cut.
+const SEARCH_HISTORY_MAX = 1000;
+function searchHistory(positions, idx = positions.length - 1, maxMoves = SEARCH_HISTORY_MAX) {
+  const start = Math.max(0, idx - maxMoves);
   return {
-    initialFen: positions[0].fen,
-    moves: positions.slice(1, idx + 1).map((p) => p.from + p.to + (p.promotion || "")),
+    initialFen: positions[start].fen,
+    moves: positions.slice(start + 1, idx + 1).map((p) => p.from + p.to + (p.promotion || "")),
   };
 }
 function deriveOpening(h) {

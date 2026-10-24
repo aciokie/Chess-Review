@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NativeEngine, probeNativeHost, nativeMessagingSupported } from '../engine/native.js';
+import { NativeEngine, probeNativeHost, nativeMessagingSupported, NATIVE_MAX_HISTORY_MOVES } from '../engine/native.js';
 import { app, loadGame, settle } from './helpers/app.mjs';
 
 function quiet(a) {
@@ -151,6 +151,27 @@ test('a game history is forwarded so the engine can replay the position', async 
   assert.deepEqual(analyse.history, { initialFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', moves: ['e2e4', 'e7e5'] });
   ports[0].emit({ type: 'bestmove', id: 1, bestmove: 'a1a2', score: { cp: 0 }, lines: [{ score: { cp: 0 }, pv: 'a1a2', depth: 8, multipv: 1 }] });
   assert.equal((await pending).bestmove, 'a1a2');
+});
+
+test('a history longer than the helper accepts is dropped instead of being rejected', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0]);
+  await eng.setOptions();
+  const start = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  const shuffle = ['g1f3', 'g8f6', 'f3g1', 'f6g8'];
+  const tooLong = Array.from({ length: NATIVE_MAX_HISTORY_MOVES + 1 }, (_, i) => shuffle[i % 4]);
+  const atLimit = tooLong.slice(0, NATIVE_MAX_HISTORY_MOVES);
+  const first = eng.analyse(start, 8, 1, { initialFen: start, moves: tooLong });
+  await settle();
+  assert.equal(sentOf(ports[0], 'analyse')[0].history, null);       // searched from the FEN alone
+  ports[0].emit({ type: 'bestmove', id: 1, bestmove: 'e2e4', score: { cp: 0 }, lines: [{ score: { cp: 0 }, pv: 'e2e4', depth: 8, multipv: 1 }] });
+  await first;
+  const second = eng.analyse(start, 8, 1, { initialFen: start, moves: atLimit });
+  await settle();
+  assert.equal(sentOf(ports[0], 'analyse')[1].history.moves.length, NATIVE_MAX_HISTORY_MOVES); // at the limit is still replayed
+  ports[0].emit({ type: 'bestmove', id: 2, bestmove: 'e2e4', score: { cp: 0 }, lines: [{ score: { cp: 0 }, pv: 'e2e4', depth: 8, multipv: 1 }] });
+  await second;
 });
 
 test('MultiPV is applied through setoption before the search starts', async () => {
