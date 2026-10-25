@@ -6271,7 +6271,9 @@ async function startAnalysis() {
   if (multipv === 1) { try { posCache = await openPositionCache(); } catch { posCache = null; } }
   const cacheKey = (i) => {
     const hist = searchHistory(S.positions, i);
-    return `${S.activeEngineBuild || S.settings.enginePath}|d${S.settings.engineDepth}|${S.positions[i].fen}|${hist.moves.join("")}`;
+    // Skill Level is part of the key: below 20 Stockfish plays a deliberately weakened bestmove (and
+    // searches extra lines), so a result cached at another strength must never be served.
+    return `${S.activeEngineBuild || S.settings.enginePath}|d${S.settings.engineDepth}|s${S.settings.engineSkill}|${S.positions[i].fen}|${hist.moves.join("")}`;
   };
   let nextIdx = 0, contig = -1;
   const stillCurrent = () => gen === S.batchGen && currentGameId() === batchGameId;

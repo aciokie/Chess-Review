@@ -77,6 +77,17 @@ test('Lichess time controls map to the same classes Lichess uses', () => {
   assert.equal(timeClassFromLichessTimeControl(''), 'unlimited');
 });
 
+test('Lichess time classes count the increment (estimated duration = base + 40 x increment)', () => {
+  assert.equal(timeClassFromLichessTimeControl('120+2'), 'blitz');       // 2+2  → 200 s
+  assert.equal(timeClassFromLichessTimeControl('120+1'), 'bullet');      // 2+1  → 160 s
+  assert.equal(timeClassFromLichessTimeControl('300+3'), 'blitz');       // 5+3  → 420 s
+  assert.equal(timeClassFromLichessTimeControl('300+5'), 'rapid');       // 5+5  → 500 s
+  assert.equal(timeClassFromLichessTimeControl('420+5'), 'rapid');       // 7+5  → 620 s
+  assert.equal(timeClassFromLichessTimeControl('900+10'), 'rapid');      // 15+10 → 1300 s
+  assert.equal(timeClassFromLichessTimeControl('1200+10'), 'classical'); // 20+10 → 1600 s
+  assert.equal(timeClassFromLichessTimeControl('180+x'), 'blitz');       // junk increment is ignored
+});
+
 test('Lichess recent games come back newest first, capped at max', async () => {
   const mk = (i, date) => liGame({ id: `id${String(i).padStart(6, '0')}`, white: 'Ana', black: 'Bob', result: '1-0', date, time: '12:00:00', tc: '300+0', elo: 1700 });
   const games = Array.from({ length: 40 }, (_, i) => {
@@ -180,6 +191,16 @@ test('describeEntry reads the result from the viewer side when they played', () 
   assert.equal(describeEntry(entry, 'bob').mine, 'Loss');
   assert.equal(describeEntry(entry, 'guest').mine, '');
   assert.equal(describeEntry(entry, 'ana').who, 'Ana (1500) vs Bob (1500)');
+});
+
+test('describeEntry labels a Lichess draw ("1/2-1/2") and a Chess.com draw ("½-½") as Draw', () => {
+  const li = lichessGameToEntry(liGame({ id: 'abcd1234', white: 'Ana', black: 'Bob', result: '1/2-1/2', date: '2026.10.01', time: '12:00:00', tc: '300+0', elo: 1500 }));
+  assert.equal(describeEntry(li, 'ana').mine, 'Draw');
+  assert.equal(describeEntry(li, 'BOB').mine, 'Draw');
+  assert.equal(describeEntry(li, 'guest').mine, '');
+  const cc = { white: 'Ana', black: 'Bob', result: '½-½' };
+  assert.equal(describeEntry(cc, 'ana').mine, 'Draw');
+  assert.equal(describeEntry({ white: 'Ana', black: 'Bob', result: '*' }, 'ana').mine, ''); // unfinished: no label
 });
 
 /* ---------------- variants are never listed (the analyzer only handles standard chess) ---------------- */

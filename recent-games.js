@@ -52,15 +52,22 @@ export function pgnHeader(pgn, tag) {
   return m ? m[1] : "";
 }
 
-/** Lichess time control string → coarse class (mirrors Lichess's own breakpoints). */
+/**
+ * Lichess time control string → coarse class. Lichess classifies by ESTIMATED duration, which is the
+ * base time plus 40 moves of increment — so 5+5 (500 s) is Rapid and 2+2 (200 s) is Blitz, not
+ * Blitz and Bullet as the base time alone would say.
+ */
 export function timeClassFromLichessTimeControl(tc) {
   const raw = String(tc || "").trim();
   if (!raw || raw === "-") return "unlimited";
-  const base = Number.parseInt(raw.split("+")[0], 10);
+  const [baseText, incText] = raw.split("+");
+  const base = Number.parseInt(baseText, 10);
   if (!Number.isFinite(base)) return "unknown";
-  if (base < 180) return "bullet";
-  if (base < 480) return "blitz";
-  if (base < 1500) return "rapid";
+  const increment = Number.parseInt(incText, 10);
+  const estimated = base + 40 * (Number.isFinite(increment) && increment > 0 ? increment : 0);
+  if (estimated < 180) return "bullet";
+  if (estimated < 480) return "blitz";
+  if (estimated < 1500) return "rapid";
   return "classical";
 }
 
@@ -207,10 +214,13 @@ export async function fetchRecentGames(username, site, opts = {}) {
 /** Compact one-line label used by the popup list. */
 export function describeEntry(entry, viewer) {
   const who = `${entry.white}${entry.whiteElo ? ` (${entry.whiteElo})` : ""} vs ${entry.black}${entry.blackElo ? ` (${entry.blackElo})` : ""}`;
+  // Chess.com entries carry "½-½" (see chessComResult) but Lichess entries keep the PGN's own
+  // "1/2-1/2" — accept both so a Lichess draw is a Draw, not an unlabeled row.
+  const result = entry.result === "1/2-1/2" ? "½-½" : entry.result;
   const mine = viewer && new RegExp(`^${escapeRegExp(viewer)}$`, "i").test(entry.white)
-    ? (entry.result === "1-0" ? "Win" : entry.result === "0-1" ? "Loss" : entry.result === "½-½" ? "Draw" : "")
+    ? (result === "1-0" ? "Win" : result === "0-1" ? "Loss" : result === "½-½" ? "Draw" : "")
     : viewer && new RegExp(`^${escapeRegExp(viewer)}$`, "i").test(entry.black)
-      ? (entry.result === "0-1" ? "Win" : entry.result === "1-0" ? "Loss" : entry.result === "½-½" ? "Draw" : "")
+      ? (result === "0-1" ? "Win" : result === "1-0" ? "Loss" : result === "½-½" ? "Draw" : "")
       : "";
   return { who, mine };
 }
