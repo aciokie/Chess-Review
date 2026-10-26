@@ -498,6 +498,27 @@ button { font-family: inherit; cursor: pointer; }
 .board .sq.light.legal-cap { background-image: radial-gradient(circle, transparent 60%, rgba(30,30,30,.36) 61%, rgba(30,30,30,.36) 70%, transparent 71%); }
 .board .sq.dark.legal-cap { background-image: radial-gradient(circle, transparent 60%, rgba(20,40,20,.40) 61%, rgba(20,40,20,.40) 70%, transparent 71%); }
 
+/* promotion picker: dimmed board + a 4-piece panel on the promotion file (queen on the promotion
+   square, then knight, rook, bishop). Fixed light panel so both piece colours stay readable. */
+.board > .promo-picker { position: absolute; inset: 0; z-index: 12; background: rgba(0,0,0,.5); }
+.promo-panel {
+  position: absolute; width: 12.5%; height: 50%; display: flex; flex-direction: column;
+  background: #f3f1ea; border-radius: 6px; overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0,0,0,.55), 0 0 0 1px rgba(0,0,0,.25);
+}
+.promo-panel.from-bottom { flex-direction: column-reverse; }
+.promo-opt {
+  flex: 1 1 0; min-height: 0; padding: 0; border: 0; background: transparent; cursor: pointer;
+  display: grid; place-items: center; container-type: size; position: relative;
+}
+.promo-opt + .promo-opt { border-top: 1px solid rgba(0,0,0,.12); }
+.promo-panel.from-bottom .promo-opt + .promo-opt { border-top: 0; border-bottom: 1px solid rgba(0,0,0,.12); }
+.promo-opt:hover, .promo-opt:focus-visible { background: color-mix(in oklab, var(--accent) 38%, #f3f1ea); outline: none; }
+.promo-opt .piece-img { filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.3)); transition: transform .1s; }
+.promo-opt:hover .piece-img, .promo-opt:focus-visible .piece-img { transform: scale(1.08); }
+/* the pawn being promoted is hidden from its start square while the panel is open */
+.sq.promo-from .piece-img { visibility: hidden; }
+
 /* floating piece during drag (follows the mouse) */
 .drag-piece {
   position: fixed; transform: translate(-50%, -50%); z-index: 200; pointer-events: none;

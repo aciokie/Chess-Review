@@ -2411,6 +2411,69 @@ function legalTargets(fen, sq) {
 function isLegalTarget(fen, from, to) {
   return legalTargets(fen, from).some((m) => m.to === to);
 }
+// True when moving from→to is a pawn reaching the last rank (the player must pick a piece).
+function needsPromotion(fen, from, to) {
+  return legalTargets(fen, from).some((m) => m.to === to && m.promotion);
+}
+
+/* ---------------- Promotion picker ----------------
+   A real piece-selection panel (like chess.com/lichess) instead of silently auto-queening. It sits
+   over the board on the promotion file: the queen on the promotion square, then knight, rook,
+   bishop running back into the board. Click a piece, press Q/N/R/B, or click outside / press
+   Escape / right-click to cancel the move. Used by explore/variation moves and mistake practice. */
+const PROMO_ORDER = [["q", "Queen"], ["n", "Knight"], ["r", "Rook"], ["b", "Bishop"]];
+let promoPicker = null;   // { root, from, to } while the panel is open
+function closePromotionPicker() {
+  if (!promoPicker) return false;
+  const p = promoPicker; promoPicker = null;
+  p.root.remove();
+  if (sqByName[p.from]) sqByName[p.from].classList.remove("promo-from");
+  return true;
+}
+// Ask which piece to promote to. `onPick(pieceLetter)` runs only if the player chooses; cancelling
+// just closes the panel and deselects (the move is not made). Falls back to a queen only when
+// there is no board to draw on.
+function askPromotion(fen, from, to, onPick) {
+  closePromotionPicker();
+  const board = UI.boardWrap && UI.boardWrap.querySelector(".board");
+  if (!board || !sqByName[to]) { onPick("q"); return; }
+  const color = sideToMove(fen);
+  const fileIdx = "abcdefgh".indexOf(to[0]), rank = +to[1];
+  const col = S.flipped ? 7 - fileIdx : fileIdx;
+  const row = S.flipped ? rank - 1 : 8 - rank;
+  const fromTop = row < 4;   // the panel grows from the promotion square toward the middle of the board
+  const root = el("div", { class: "promo-picker", role: "dialog", "aria-label": "Choose promotion piece" });
+  const panel = el("div", { class: "promo-panel" + (fromTop ? "" : " from-bottom"), style: { left: col * 12.5 + "%", top: fromTop ? "0%" : "50%" } });
+  const cancel = () => { if (closePromotionPicker()) { S.selectedSq = null; renderSelection(); } };
+  for (const [letter, name] of PROMO_ORDER) {
+    const btn = el("button", { class: "promo-opt", type: "button", title: `${name} (${letter.toUpperCase()})`, "aria-label": `Promote to ${name.toLowerCase()}`, "data-piece": letter },
+      makePiece(letter, color));
+    btn.addEventListener("click", (e) => { e.stopPropagation(); closePromotionPicker(); onPick(letter); });
+    panel.append(btn);
+  }
+  root.append(panel);
+  // The board's own pointerdown handler (select/drag/arrows) must never see clicks on the picker.
+  root.addEventListener("pointerdown", (e) => { e.stopPropagation(); if (e.target === root) { e.preventDefault(); cancel(); } });
+  root.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); cancel(); });
+  board.append(root);
+  sqByName[from]?.classList.add("promo-from");
+  promoPicker = { root, from, to };
+  const first = panel.querySelector(".promo-opt"); if (first) first.focus({ preventScroll: true });
+}
+// Keyboard while the picker is open: Q/N/R/B choose, Escape cancels, any other key just closes it
+// (so e.g. the arrow keys still navigate). Returns true when the key was fully handled.
+function promotionKey(e) {
+  if (!promoPicker) return false;
+  if (e.key === "Escape") { closePromotionPicker(); S.selectedSq = null; renderSelection(); return true; }
+  const k = (e.key || "").toLowerCase();
+  if (!e.ctrlKey && !e.metaKey && !e.altKey && PROMO_ORDER.some(([l]) => l === k)) {
+    const btn = promoPicker.root.querySelector(`.promo-opt[data-piece="${k}"]`);
+    if (btn) { e.preventDefault(); btn.click(); return true; }
+  }
+  if (e.key === "Tab" || e.key === "Enter" || e.key === " " || /^Shift|Control|Alt|Meta$/.test(e.key)) return false;   // let focus/click work normally
+  closePromotionPicker(); S.selectedSq = null; renderSelection();
+  return false;
+}
 // Draw the selected piece + legal target squares (dot / capture ring).
 function renderSelection() {
   for (const sq of Object.values(sqByName)) sq.classList.remove("sel", "legal", "legal-cap");
@@ -2537,13 +2600,21 @@ function playSanSound(san) {
 }
 // Make a user move from the shown position. Starts/extends a variation (analysis mode),
 // unless the move on the mainline is simply the next mainline move.
-function applyUserMove(from, to, animate = true) {
+function applyUserMove(from, to, animate = true, promotion = null) {
   // During mistake practice a move is an answer attempt, not a variation — route it there.
   if (S.practice) { if (S.practice.solving && !S.practice.busy) practiceAttempt(from, to); return; }
   stopLineWalk();
   const fen = activePos().fen;
+  // A pawn reaching the last rank: let the player choose the piece instead of auto-queening.
+  if (!promotion && needsPromotion(fen, from, to)) {
+    askPromotion(fen, from, to, (piece) => {
+      // Ignore a late pick if the position changed underneath the open panel.
+      if (!S.practice && activePos().fen === fen) applyUserMove(from, to, animate, piece);
+    });
+    return;
+  }
   let c, mv;
-  try { c = new Chess(fen); mv = c.move({ from, to, promotion: "q" }); } catch { mv = null; }
+  try { c = new Chess(fen); mv = c.move({ from, to, promotion: promotion || "q" }); } catch { mv = null; }
   if (!mv) { S.selectedSq = null; renderSelection(); return; }
   const node = { fen: c.fen(), san: mv.san, from: mv.from, to: mv.to, color: mv.color, promotion: mv.promotion || "", captured: mv.captured || "", eval: null, best: null };
   if (!S.analysisMode) {
@@ -2629,6 +2700,7 @@ function playLine(pv) {
 // walkthrough halts right where the user took over.
 const LINE_WALK_MS = 2000;
 function stopLineWalk() {
+  closePromotionPicker();   // any navigation / new move dismisses an open promotion panel
   if (S.lineWalkTimer) { clearTimeout(S.lineWalkTimer); S.lineWalkTimer = null; }
   S.lineWalking = false;   // user took over → best-move arrow allowed again
   stopBestWalk();
@@ -5768,13 +5840,20 @@ function judgePass(solvePos, userUci, fenAfter) {
   }
   return false;                                                       // not a top line → not Excellent
 }
-function practiceAttempt(from, to) {
+function practiceAttempt(from, to, promotion = null) {
   const p = S.practice;
   if (!p || !p.solving) return;
   const solvePos = p.spots[p.i] - 1;
   const fen = S.positions[solvePos].fen;
+  // Underpromotion can be the best answer, so ask which piece instead of assuming a queen.
+  if (!promotion && needsPromotion(fen, from, to)) {
+    askPromotion(fen, from, to, (piece) => {
+      if (S.practice === p && p.solving && !p.busy) practiceAttempt(from, to, piece);
+    });
+    return;
+  }
   let c, mv;
-  try { c = new Chess(fen); mv = c.move({ from, to, promotion: "q" }); } catch { mv = null; }
+  try { c = new Chess(fen); mv = c.move({ from, to, promotion: promotion || "q" }); } catch { mv = null; }
   if (!mv) { S.selectedSq = null; renderSelection(); return; }
   const userUci = mv.from + mv.to + (mv.promotion || "");
   if (judgePass(solvePos, userUci, c.fen())) {
@@ -6165,6 +6244,7 @@ function toggleAuto() {
 }
 document.addEventListener("keydown", (e) => {
   if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  if (promoPicker && promotionKey(e)) return;   // promotion panel open: Q/N/R/B pick, Esc cancels
   // During practice the only shortcut is Escape to exit; nav keys are disabled.
   if (S.practice) { if (e.key === "Escape") exitPractice(); return; }
   if (e.key === "ArrowLeft") navPrev();
