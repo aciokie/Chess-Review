@@ -110,3 +110,19 @@ test('renderBestArrow renders multiple candidate move arrows when engineLines > 
 
   assert.ok(rank1Width > rank4Width);
 });
+
+test('standalone Explore board keeps full colour and never calls its moves a variation', async t => {
+  const a = board(t, '1. e4'); const { document } = a.dom.window;
+  a.call('paintBoard'); a.call('renderReview'); a.call('renderCoachPanel');
+  assert.ok(!document.querySelector('.board').classList.contains('analysis'), 'no gray analysis filter in Explore');
+  assert.doesNotMatch(document.getElementById('reviewMount').textContent, /Exploring a variation/);
+  const coach = document.querySelector('.coach-position');
+  if (coach) { assert.doesNotMatch(coach.textContent, /Variation|Player identity unavailable/); assert.match(coach.textContent, /Explore board/); }
+});
+
+test('a side line off a reviewed game still gets the gray analysis look and variation wording', async t => {
+  const a = app(t); loadGame(a, '1. e4 e5 2. Nf3'); branch(a); a.state.meta = {};
+  a.call('computeDerived'); a.call('buildUI'); a.call('renderAll'); a.call('paintBoard'); a.call('renderReview');
+  assert.ok(a.dom.window.document.querySelector('.board').classList.contains('analysis'));
+  assert.match(a.dom.window.document.getElementById('reviewMount').textContent, /Exploring a variation/);
+});

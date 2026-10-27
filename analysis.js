@@ -1996,7 +1996,9 @@ function paintBoard() {
   hideBoardBadgeTip();
   const pos = activePos();
   const boardEl = UI.boardWrap.querySelector(".board");
-  if (boardEl) boardEl.classList.toggle("analysis", S.analysisMode);
+  // The gray "analysis" look marks a side line branching off a reviewed game. On the standalone
+  // Explore board every move is part of the free-play line, so the board stays at full colour.
+  if (boardEl) boardEl.classList.toggle("analysis", S.analysisMode && !S.meta?.explore);
   const rows = pos.fen.split(" ")[0].split("/");
   const occ = {};
   for (let r = 0; r < 8; r++) {
@@ -3548,7 +3550,7 @@ function renderReview() {
     // .ip-text) so the font, colour and vertical position match the mainline commentary.
     const body = el("div", { class: "ip-body" });
     body.append(el("div", { class: "ip-head" }));
-    body.append(el("div", { class: "ip-text" }, "Exploring a variation."));
+    body.append(el("div", { class: "ip-text" }, S.meta?.explore ? "Analysis board. Move any piece to explore." : "Exploring a variation."));
     panel.append(body);
     UI.review.replaceChildren(panel);
     return;
@@ -4240,7 +4242,7 @@ function renderCoachPanel() {
   const entry = input && _conceptSession?.entries.get(key);
   const body = el("div", {class: "panel-body coach-insights-body" + (view === "reply" ? " coach-reply-body" : ""), "aria-labelledby": "conceptsHeading"});
   body.append(el("p", {class: "coach-position", "aria-live": "polite"},
-    `${!player ? "Player identity unavailable" : player === "w" ? "Playing White" : "Playing Black"} · ${hasMove ? (S.analysisMode ? "Variation · " : "") + (!player ? (mover === "w" ? "White’s " : "Black’s ") : mover === player ? "Your " : "Opponent’s ") + selected.san : S.practice ? "Practice" : "Starting position"}`));
+    `${S.meta?.explore ? "Explore board" : !player ? "Player identity unavailable" : player === "w" ? "Playing White" : "Playing Black"} · ${hasMove ? (S.analysisMode && !S.meta?.explore ? "Variation · " : "") + (!player ? (mover === "w" ? "White’s " : "Black’s ") : mover === player ? "Your " : "Opponent’s ") + selected.san : S.practice ? "Practice" : "Starting position"}`));
   if (view === "all" && hasMove && !S.analysisMode && S.classif[S.idx]) {
     body.append(el("p", {class: "coach-move-quality"}, `Move assessment: ${categoryName(S.classif[S.idx])}`));
   }
