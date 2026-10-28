@@ -133,6 +133,7 @@
       .badge.loss { background: color-mix(in oklab, #f5746a 28%, var(--panel-3)); color: var(--ink); }
       .badge.draw { background: var(--panel-3); color: var(--ink-2); }
       #recentList:empty { display: none; }
+      #recentMore[hidden] { display: none; }
     </style>
   </head>
   <body>
@@ -168,7 +169,7 @@
         Recent games
       </summary>
 
-      <label for="recentUser">Username <span class="hint">- pulls the last 30 public games</span></label>
+      <label for="recentUser">Username <span class="hint">- pulls their public games, 30 at a time</span></label>
       <div class="row">
         <input id="recentUser" placeholder="Lichess or Chess.com username" />
         <button id="fetchRecent" class="secondary">Fetch</button>
@@ -179,6 +180,7 @@
       </div>
       <div id="recentStatus" style="font-size: 12px; color: var(--ink-2); margin: 8px 2px 0; line-height: 1.4;"></div>
       <div id="recentList" style="margin-top: 6px;"></div>
+      <button id="recentMore" class="ghost" type="button" hidden style="margin-top: 8px; width: 100%;">Load more games</button>
     </details>
 
     <script type="module" src="popup.js"></script>

@@ -4,7 +4,7 @@ import {
   RECENT_MAX, splitMultiGamePgn, pgnHeader, timeClassFromLichessTimeControl,
   lichessGameToEntry, fetchLichessRecentGames, chessComResult, chessComGameToEntry,
   fetchChessComRecentGames, fetchRecentGames, isValidUsername, describeEntry,
-  countMoves, formatTimeControl, chessComOpening, describeDetails,
+  countMoves, formatTimeControl, chessComOpening, describeDetails, createRecentGamesPager,
 } from '../recent-games.js';
 
 /* ---------------- fixtures ---------------- */
@@ -286,4 +286,106 @@ test('describeDetails builds the two extra lines under a game', () => {
     { meta: 'blitz 3+2 | 34 moves', opening: 'B12 Caro Kann Defense' });
   assert.deepEqual(describeDetails({ timeClass: 'unknown', timeControl: '', moves: 1, eco: '', opening: '' }), { meta: '1 move', opening: '' });
   assert.deepEqual(describeDetails({ timeClass: 'rapid', timeControl: '10 min', moves: 0, eco: '', opening: 'Italian Game' }), { meta: 'rapid 10 min', opening: 'Italian Game' });
+});
+
+/* ---------------- paging: Load more until the games run out ---------------- */
+
+// 75 Lichess games, one per minute, newest first; the fake server honours max= and until=.
+const lichessServer = (total) => {
+  const base = Date.parse('2026-10-20T12:00:00Z');
+  const all = Array.from({ length: total }, (_, i) => {
+    const t = new Date(base - i * 60000).toISOString();            // i = 0 is the newest
+    return { id: `g${String(i).padStart(7, '0')}`, ms: base - i * 60000,
+      pgn: liGame({ id: `g${String(i).padStart(7, '0')}`, white: 'Ana', black: 'Bob', result: '1-0', date: t.slice(0, 10).replace(/-/g, '.'), time: t.slice(11, 19), tc: '300+0', elo: 1700 }) };
+  });
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    const max = +/max=(\d+)/.exec(url)[1], until = /until=(\d+)/.exec(url);
+    const pool = until ? all.filter((g) => g.ms <= +until[1]) : all;
+    return new Response(pool.slice(0, max).map((g) => g.pgn).join('\n\n'), { status: 200 });
+  };
+  return { fetchImpl, calls, all };
+};
+
+test('Lichess pager returns every game exactly once, page after page, then reports done', async () => {
+  const { fetchImpl, calls, all } = lichessServer(75);
+  const pager = createRecentGamesPager('ana', 'lichess', { pageSize: 30, fetchImpl });
+  const ids = [];
+  let pages = 0, last;
+  do { last = await pager.loadMore(); ids.push(...last.games.map((g) => g.gameId)); pages++; } while (!last.done && pages < 10);
+  assert.equal(ids.length, 75);
+  assert.equal(new Set(ids).size, 75, 'no duplicates across page boundaries');
+  assert.deepEqual(ids, all.map((g) => g.id), 'newest first, nothing skipped');
+  assert.equal(pages, 3); assert.equal(pager.done, true); assert.equal(pager.loaded, 75);
+  assert.ok(!/until=/.test(calls[0]) && /until=\d+/.test(calls[1]), 'only the later pages send until=');
+  assert.deepEqual(await pager.loadMore(), { games: [], done: true }, 'a finished pager makes no more requests');
+  assert.equal(calls.length, 3);
+});
+
+test('Lichess pager does not skip games that share the boundary second', async () => {
+  // Three games inside the same second would straddle a page of 2 — all must still arrive once.
+  const mk = (id, ms) => ({ id, ms, pgn: liGame({ id, white: 'Ana', black: 'Bob', result: '1-0', date: '2026.10.20', time: '12:00:00', tc: '300+0', elo: 1700 }) });
+  const all = [mk('aaaaaaa1', 3), mk('aaaaaaa2', 2), mk('aaaaaaa3', 1)].map((g, i) => ({ ...g, ms: Date.parse('2026-10-20T12:00:00Z') + (3 - i) }));
+  const fetchImpl = async (url) => {
+    const max = +/max=(\d+)/.exec(url)[1], until = /until=(\d+)/.exec(url);
+    return new Response(all.filter((g) => !until || g.ms <= +until[1]).slice(0, max).map((g) => g.pgn).join('\n\n'));
+  };
+  const pager = createRecentGamesPager('ana', 'lichess', { pageSize: 2, fetchImpl });
+  const got = [];
+  for (let i = 0; i < 5 && !pager.done; i++) got.push(...(await pager.loadMore()).games.map((g) => g.gameId));
+  assert.deepEqual([...new Set(got)].sort(), ['aaaaaaa1', 'aaaaaaa2', 'aaaaaaa3']);
+  assert.equal(got.length, 3);
+});
+
+// Chess.com: 3 monthly archives holding 40 / 40 / 25 games.
+const chessComServer = () => {
+  const month = (m, n, end0) => ({ games: Array.from({ length: n }, (_, i) =>
+    ccGame({ id: `${m}${String(i).padStart(6, '0')}`, white: 'Ana', whiteResult: 'win', black: 'Bob', blackResult: 'resign', endTime: end0 + i * 100 })) });
+  const data = { '2026/08': month('08', 25, 1000000), '2026/09': month('09', 40, 2000000), '2026/10': month('10', 40, 3000000) };
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    if (url.endsWith('/games/archives')) return jsonResponse({ archives: Object.keys(data).map((k) => `https://api.chess.com/pub/player/ana/games/${k}`) });
+    const key = Object.keys(data).find((k) => url.endsWith(k));
+    return key ? jsonResponse(data[key]) : new Response('nf', { status: 404 });
+  };
+  return { fetchImpl, calls };
+};
+
+test('Chess.com pager walks months newest first, carries a month over pages, and ends when the archives do', async () => {
+  const { fetchImpl, calls } = chessComServer();
+  const pager = createRecentGamesPager('Ana', 'chesscom', { pageSize: 30, fetchImpl });
+  const sizes = [], ids = [];
+  let r;
+  do { r = await pager.loadMore(); sizes.push(r.games.length); ids.push(...r.games.map((g) => g.gameId)); } while (!r.done && sizes.length < 10);
+  assert.deepEqual(sizes, [30, 30, 30, 15]);                         // 105 games, 30 at a time
+  assert.equal(new Set(ids).size, 105);
+  assert.ok(ids.slice(0, 40).every((id) => id.startsWith('10')) , 'October first');
+  assert.ok(ids.slice(80).every((id) => id.startsWith('08')), 'August last');
+  assert.equal(calls.filter((u) => /2026\/10$/.test(u)).length, 1, 'each month is fetched once');
+  assert.equal(pager.done, true);
+});
+
+test('a pager failure on a later page can be retried without losing or repeating games', async () => {
+  const { fetchImpl } = chessComServer();
+  let failNext = false;
+  const flaky = async (url) => { if (failNext && /2026\/09$/.test(url)) { failNext = false; return new Response('boom', { status: 429 }); } return fetchImpl(url); };
+  const pager = createRecentGamesPager('Ana', 'chesscom', { pageSize: 30, fetchImpl: flaky });
+  const first = await pager.loadMore();
+  failNext = true;
+  await assert.rejects(pager.loadMore(), /rate-limited/);
+  const retry = await pager.loadMore();
+  assert.equal(new Set([...first.games, ...retry.games].map((g) => g.gameId)).size, 60);
+});
+
+test('pager validates the username, shares in-flight calls and rejects an empty account', async () => {
+  assert.throws(() => createRecentGamesPager('', 'lichess'), /Type a username/);
+  assert.throws(() => createRecentGamesPager('has space', 'lichess'), /valid Lichess username/);
+  const { fetchImpl, calls } = lichessServer(5);
+  const pager = createRecentGamesPager('ana', 'lichess', { pageSize: 30, fetchImpl });
+  const [a, b] = await Promise.all([pager.loadMore(), pager.loadMore()]);
+  assert.equal(a, b); assert.equal(calls.length, 1);
+  const empty = createRecentGamesPager('ana', 'lichess', { fetchImpl: async () => new Response('', { status: 200 }) });
+  await assert.rejects(empty.loadMore(), /No public games/);
 });

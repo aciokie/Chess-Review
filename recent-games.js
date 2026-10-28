@@ -170,18 +170,34 @@ function parseLichessSiteId(site) {
   catch { return ""; }
 }
 
+/** Time a Lichess PGN says the game started, in ms (second precision), or 0 when it has no usable date. */
+function lichessPgnMs(pgn) {
+  const date = pgnHeader(pgn, "UTCDate");
+  if (!/^\d{4}\.\d{2}\.\d{2}$/.test(date)) return 0;
+  const ms = Date.parse(`${date.replace(/\./g, "-")}T${pgnHeader(pgn, "UTCTime") || "00:00:00"}Z`);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 /**
- * The latest games of a Lichess user, newest first. Uses the bulk PGN export (one request for all
- * N games) with clocks/evals off so the movetext stays clean for the analyzer.
+ * One request to the Lichess bulk PGN export: up to `max` games, newest first, optionally only games
+ * started before `until` (ms). Clocks/evals are off so the movetext stays clean for the analyzer.
+ * Returns the raw PGNs too, because the caller pages by the OLDEST raw game even when that one is
+ * not reviewable (variants are dropped from `entries` but still count as "a page was full").
  */
-export async function fetchLichessRecentGames(username, { max = RECENT_MAX, fetchImpl = fetch } = {}) {
-  const url = `${LICHESS_SITE}/api/games/user/${encodeURIComponent(username.trim())}?max=${max}&clocks=false&evals=false&literate=false&opening=true&perfType=ultraBullet,bullet,blitz,rapid,classical,correspondence`; // perfType = standard chess only (variants have their own perf types)
+async function fetchLichessPage(username, { max, until = null, fetchImpl }) {
+  const untilParam = until ? `&until=${until}` : "";
+  const url = `${LICHESS_SITE}/api/games/user/${encodeURIComponent(username.trim())}?max=${max}${untilParam}&clocks=false&evals=false&literate=false&opening=true&perfType=ultraBullet,bullet,blitz,rapid,classical,correspondence`; // perfType = standard chess only (variants have their own perf types)
   const res = await fetchImpl(url, { headers: { Accept: "application/x-chess-pgn" } });
   if (res.status === 404) throw new Error("Lichess user not found (or no public games).");
   if (res.status === 429) throw new Error("Lichess rate-limited the request — try again in a minute.");
   if (!res.ok) throw new Error(`Lichess returned HTTP ${res.status}.`);
-  const text = await res.text();
-  const entries = splitMultiGamePgn(text).map(lichessGameToEntry).filter(Boolean);
+  const pgns = splitMultiGamePgn(await res.text());
+  return { pgns, entries: pgns.map(lichessGameToEntry).filter(Boolean) };
+}
+
+/** The latest games of a Lichess user, newest first (one page; see createRecentGamesPager for more). */
+export async function fetchLichessRecentGames(username, { max = RECENT_MAX, fetchImpl = fetch } = {}) {
+  const { entries } = await fetchLichessPage(username, { max, fetchImpl });
   return sortByNewest(entries).slice(0, max);
 }
 
@@ -257,6 +273,87 @@ export async function fetchChessComRecentGames(username, { max = RECENT_MAX, fet
     }
   }
   return sortByNewest(entries).slice(0, max);
+}
+
+/* ---------------- paging: "Load more" until the user runs out of games ---------------- */
+
+/**
+ * Pages through ALL of a user's games, newest first, `pageSize` at a time:
+ *   const pager = createRecentGamesPager("ana", "lichess");
+ *   const { games, done } = await pager.loadMore();   // first page
+ *   if (!done) await pager.loadMore();                // the next, older page … until done
+ * Lichess pages with the export's `until` timestamp; Chess.com walks its monthly archives. Calls
+ * made while one is in flight share that request, and a finished pager just returns done.
+ */
+export function createRecentGamesPager(username, site, { pageSize = RECENT_MAX, fetchImpl = fetch } = {}) {
+  const name = String(username || "").trim();
+  if (!name) throw new Error("Type a username first.");
+  if (!isValidUsername(name, site)) throw new Error(`That doesn't look like a valid ${site === "lichess" ? "Lichess" : "Chess.com"} username.`);
+  const lichess = site === "lichess";
+  const seen = new Set();
+  let done = false, inflight = null, total = 0;
+  // Lichess cursor
+  let until = null;
+  // Chess.com cursor
+  let archives = null, monthIdx = 0, buffer = [];
+
+  async function lichessPageOfGames() {
+    // A little headroom: `until` is inclusive of the whole second, so the previous page's oldest
+    // game(s) can come back and are dropped by the `seen` set below.
+    const want = pageSize + (until ? 5 : 0);
+    const { pgns, entries } = await fetchLichessPage(name, { max: want, until, fetchImpl });
+    const fresh = sortByNewest(entries).filter((e) => !seen.has(e.gameId));
+    if (pgns.length < want) done = true;                       // the export ran dry
+    else {
+      const oldest = Math.min(...pgns.map(lichessPgnMs).filter(Boolean));
+      if (!Number.isFinite(oldest)) done = true;
+      else {
+        let next = (Math.floor(oldest / 1000) + 1) * 1000 - 1;   // include the oldest game's whole second
+        if (until && next >= until) next = until - 1000;         // a full page of one second → still make progress
+        until = next;
+      }
+    }
+    return fresh;
+  }
+
+  async function chessComPageOfGames() {
+    if (!archives) {
+      const data = await fetchJsonWithRetry(`${CHESSCOM_API}/player/${encodeURIComponent(name.toLowerCase())}/games/archives`, fetchImpl);
+      archives = (data.archives || []).slice().reverse();      // newest month first
+    }
+    while (buffer.length < pageSize && monthIdx < archives.length) {
+      const month = await fetchJsonWithRetry(archives[monthIdx], fetchImpl);
+      monthIdx++;                                              // only after the month loaded, so a failure retries it
+      buffer.push(...sortByNewest((month.games || []).map(chessComGameToEntry).filter(Boolean)));
+    }
+    const page = buffer.splice(0, pageSize);
+    if (monthIdx >= archives.length && !buffer.length) done = true;
+    return page;
+  }
+
+  async function run() {
+    // A page can come back with nothing new (e.g. only already-seen games near a boundary) while
+    // more exist further back — keep going a few times rather than showing an empty "page".
+    let games = [];
+    for (let attempt = 0; attempt < 5 && !games.length && !(attempt && done); attempt++) {
+      const page = lichess ? await lichessPageOfGames() : await chessComPageOfGames();
+      games = page.filter((e) => !seen.has(e.gameId));
+      for (const e of games) seen.add(e.gameId);
+    }
+    total += games.length;
+    if (!total && done) throw new Error("No public games found for that user.");
+    return { games, done };
+  }
+
+  return {
+    get done() { return done; },
+    get loaded() { return total; },
+    loadMore() {
+      if (done && !inflight) return Promise.resolve({ games: [], done: true });
+      if (!inflight) inflight = run().finally(() => { inflight = null; });
+      return inflight;
+    },
+  };
 }
 
 /* ---------------- shared ---------------- */

@@ -2,7 +2,7 @@
 import { openAnalysisTab, analyzeActiveTab, reloadActiveAndAnalyze, isSupportedChessUrl } from "./analyze-flow.js";
 import { findGameById, parseGameId, parseFlip, gameMeta } from "./chesscom.js";
 import { parseLichessGameId, parseLichessFlip, fetchGamePgn as fetchLichessPgn } from "./lichess.js";
-import { fetchRecentGames, describeEntry, describeDetails, isValidUsername } from "./recent-games.js";
+import { createRecentGamesPager, describeEntry, describeDetails, isValidUsername } from "./recent-games.js";
 import { browserAPI } from "./browser-compat.js";
 
 const $ = (id) => document.getElementById(id);
@@ -176,6 +176,8 @@ $("analyzeManual").addEventListener("click", async () => {
 const RECENT_KEY = (site) => `recentUser:${site}`;
 let recentSite = "lichess";
 let recentGames = [];
+let recentPager = null;   // pages through ALL of the user's games; null until a Fetch
+let recentViewer = "";
 
 function recentStatus(msg, isError = false) {
   const el = $("recentStatus");
@@ -205,6 +207,7 @@ async function initRecent() {
 for (const btn of document.querySelectorAll("#sitePicker .site-btn")) {
   btn.addEventListener("click", async () => {
     setRecentSite(btn.dataset.site);
+    resetRecentList();   // a list (and its Load more pager) belongs to one site
     try { await browserAPI.storage.local.set({ recentSite }); } catch {}
     try {
       const stored = await browserAPI.storage.local.get([RECENT_KEY(recentSite), "username"]);
@@ -212,6 +215,27 @@ for (const btn of document.querySelectorAll("#sitePicker .site-btn")) {
     } catch {}
     recentStatus("");
   });
+}
+
+function resetRecentList() {
+  recentPager = null; recentGames = []; recentViewer = "";
+  $("recentList").replaceChildren();
+  $("recentMore").hidden = true;
+}
+
+// Footer button: visible while the pager says older games remain.
+function updateRecentMore() {
+  const more = $("recentMore");
+  more.hidden = !recentPager || recentPager.done;
+  more.disabled = false;
+  more.textContent = "Load more games";
+}
+
+function recentCountStatus() {
+  const n = recentGames.length;
+  recentStatus(recentPager && recentPager.done
+    ? `All ${n} game${n === 1 ? "" : "s"} loaded. Click one to review it.`
+    : `${n} games loaded. Click one to review it.`);
 }
 
 $("fetchRecent").addEventListener("click", async () => {
@@ -223,27 +247,50 @@ $("fetchRecent").addEventListener("click", async () => {
     return;
   }
   btn.disabled = true;
-  recentStatus(`Fetching ${user}'s last 30 games from ${site === "lichess" ? "Lichess" : "Chess.com"} …`);
-  $("recentList").replaceChildren();
+  resetRecentList();
+  recentStatus(`Fetching ${user}'s games from ${site === "lichess" ? "Lichess" : "Chess.com"} …`);
+  const pager = createRecentGamesPager(user, site);
+  recentPager = pager; recentViewer = user;
   try {
-    const games = await fetchRecentGames(user, site);
+    const { games } = await pager.loadMore();
     try { await browserAPI.storage.local.set({ [RECENT_KEY(site)]: user }); } catch {}
-    if (site !== recentSite) return; // user switched site meanwhile: don't show these games under the other site
-    recentGames = games;
-    recentStatus(`${recentGames.length} games. Click one to review it.`);
-    renderRecentList(user);
+    if (pager !== recentPager || site !== recentSite) return; // user switched site / fetched again meanwhile
+    recentGames = games.slice();
+    renderRecentRows(games, user);
+    recentCountStatus();
+    updateRecentMore();
   } catch (err) {
-    if (site === recentSite) recentStatus(err.message, true);
+    if (pager === recentPager && site === recentSite) { recentStatus(err.message, true); recentPager = null; }
   } finally {
     btn.disabled = false;
   }
 });
 
-function renderRecentList(viewer) {
-  const list = $("recentList");
-  list.replaceChildren(...recentGames.map((entry) => {
+// "Load more games" at the bottom of the list: append the next (older) page, over and over,
+// until the pager reports the account has no more games.
+$("recentMore").addEventListener("click", async () => {
+  const pager = recentPager, more = $("recentMore");
+  if (!pager) return;
+  more.disabled = true; more.textContent = "Loading …";
+  try {
+    const { games } = await pager.loadMore();
+    if (pager !== recentPager) return;
+    recentGames.push(...games);
+    renderRecentRows(games, recentViewer);
+    recentCountStatus();
+  } catch (err) {
+    if (pager === recentPager) recentStatus(err.message, true);   // the button stays, so it can be retried
+  } finally {
+    if (pager === recentPager) updateRecentMore();
+  }
+});
+
+function renderRecentRows(entries, viewer) {
+  $("recentList").append(...entries.map((entry) => {
     const { who, mine } = describeEntry(entry, viewer);
-    const date = entry.playedAt ? new Date(entry.playedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    // Older pages reach back years, so add the year once it is not the current one.
+    const when = entry.playedAt ? new Date(entry.playedAt) : null;
+    const date = when ? when.toLocaleDateString(undefined, when.getFullYear() === new Date().getFullYear() ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" }) : "";
     const badgeClass = mine === "Win" ? "win" : mine === "Loss" ? "loss" : mine === "Draw" ? "draw" : "";
     const row = document.createElement("button");
     row.className = "recent-row";

@@ -46,7 +46,7 @@ immediately when disabled. Existing scores and coach comments are unchanged.
 3. The game opens in an analysis tab where Stockfish reviews every position.
 
 No game open? Open the popup and type any **Lichess or Chess.com username** under **Recent games**
-— it pulls that account's last 30 public games (from the official APIs); click one to review it.
+— it pulls that account's public games (from the official APIs) 30 at a time, newest first, with a "Load more games" button at the bottom until the account has no more; click one to review it. Each row shows the result, players, date, time control, move count and opening.
 
 For older games you don't have open, paste a game URL or PGN into the popup. Your username is
 detected automatically from the board; if it can't be found, enter it once in the popup and it's

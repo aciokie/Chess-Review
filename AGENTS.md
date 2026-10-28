@@ -29,7 +29,7 @@ Verification order that works: `npm test` → `npm run lint` → `npm run verify
 - **Single-file app logic**: `analysis.js` (6000+ lines) — state machine, classification, UI rendering, engine coordination
 - **WASM pool**: `engine/uci.js` wraps bundled Stockfish; `createEngine()` in analysis.js manages parallel workers
 - **Native engine**: `engine/native.js` (`NativeEngine`, same contract as uci.js) ↔ `native/host/ChessReviewHost.exe` ↔ real Stockfish 19. Build key `native19` is only tried when the user selects it; native falls back DOWN to WASM (`nnue` → `sf19full` → `sf19lite`), never the reverse
-- **Recent games**: `recent-games.js` fetches a user's last 30 games from the Lichess/Chess.com APIs by username (popup section "Recent games")
+- **Recent games**: `recent-games.js` pages through a user's games (30 per page via `createRecentGamesPager`; Lichess uses the export's `until`, Chess.com walks monthly archives) from the Lichess/Chess.com APIs by username (popup section "Recent games")
 - **No build step for source** — extension loads raw JS/CSS; `npm run build` only packages for stores
 
 ## Key Files
@@ -39,7 +39,7 @@ Verification order that works: `npm test` → `npm run lint` → `npm run verify
 | `styles.css` | All styling (CSS variables for themes, move quality colors) |
 | `manifest.json` | MV3 hybrid Chrome/Firefox manifest; permissions incl. `nativeMessaging` |
 | `engine/*.js/.wasm` | Bundled Stockfish 18 NNUE (default), 19 Full, 19 Lite |
-| `recent-games.js` | Username → last 30 games (Lichess + Chess.com APIs) |
+| `recent-games.js` | Username → all games, paged (Lichess + Chess.com APIs) |
 | `native/` | Windows Native Messaging host (C# source + prebuilt exe), bundled SF19 exe, installer, docs |
 | `data/book.json` | Opening book (EPD format) |
 | `lib/chess.js` | Chess.js fork for move gen/validation |
