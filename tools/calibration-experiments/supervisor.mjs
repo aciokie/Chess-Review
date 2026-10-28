@@ -71,10 +71,10 @@ export async function makeReport(root,state) {
   const decisions=await readFile(path.join(root,'decisions.jsonl'),'utf8').catch(()=>'');
   const report={schemaVersion:1,generatedAt:new Date().toISOString(),status:state.phase==='complete'?'frozen-development':'experimental-in-progress',state,dataset,runs,transfer,workerScaling:scaling,
     decisions:decisions.trim()?decisions.trim().split('\n').map(JSON.parse):[],finalTest:{evaluated:false,status:'reserved; not evaluated or used for adaptive choices'},
-    reproducibility:{import:'node tools/calibration/recent-dataset.mjs --out calibration-runs/NEW/dataset --games 2000 --windows 20 --months 2026-06,2026-07,2026-08 --seed overnight-sf18-v1',
-      resume:`node tools/calibration/supervisor.mjs --root ${root} --deadline ${state.deadline}`,
+    reproducibility:{import:'node tools/calibration-experiments/recent-dataset.mjs --out calibration-runs/NEW/dataset --games 2000 --windows 20 --months 2026-06,2026-07,2026-08 --seed overnight-sf18-v1',
+      resume:`node tools/calibration-experiments/supervisor.mjs --root ${root} --deadline ${state.deadline}`,
       extend:'Use the frozen dataset and development-ids.json with analyze-games.mjs --sqlite --max-new-games N --development-only; preserve engine/budget binding. After examining final holdout, reserve a new dataset/time window.',
-      refit:`node tools/calibration/build-features.mjs --dataset ${root}/dataset --run ${root}/sf18-20k --allow-partial; node tools/calibration/development.mjs --run ${root}/sf18-20k --validation-ids ${root}/validation-ids.json`,
+      refit:`node tools/calibration-experiments/build-features.mjs --dataset ${root}/dataset --run ${root}/sf18-20k --allow-partial; node tools/calibration-experiments/development.mjs --run ${root}/sf18-20k --validation-ids ${root}/validation-ids.json`,
       compare:'report.json includes paired budget and engine comparisons, learning curves and versioned candidate references.'},
     uncertainties:['Stratified bounded archive windows do not represent monthly population frequencies','Validation reused for adaptive development; no independent predictive coverage','20k search may be unstable; probes are smaller than development set','Single-game resemblance is noisy and predicts a narrower distribution','Final holdout remains reserved; no production model accepted'],
     nextExperiment:'Use measured 80k/320k stability to select search budget; address player-band bias and saturation before scaling. Reserve new temporal validation/holdout for later model changes.',
@@ -118,7 +118,7 @@ async function main(){
     if(expensive&&(stopping||Date.now()>=Date.parse(state.computeStop)))return false;
     state.phase=script;state.command=[script,...argv];await update();
     const log=await open(path.join(root,'supervisor.log'),'a');
-    child=spawn(process.execPath,[`tools/calibration/${script}`,...argv],{windowsHide:true,stdio:['ignore',log.fd,log.fd]});await update();
+    child=spawn(process.execPath,[`tools/calibration-experiments/${script}`,...argv],{windowsHide:true,stdio:['ignore',log.fd,log.fd]});await update();
     const kill=async()=>{if(child?.pid){if(process.platform==='win32')await promisify(execFile)('taskkill',['/PID',String(child.pid),'/T','/F'],{windowsHide:true}).catch(()=>{});else child.kill('SIGTERM');}};
     const remaining=Date.parse(state.computeStop)-Date.now();const cutoff=expensive?setTimeout(kill,Math.max(0,remaining+6000)):null;
     const result=await new Promise((resolve)=>{child.once('error',e=>resolve({code:-1,error:e.message}));child.once('exit',code=>resolve({code}));});

@@ -1,26 +1,186 @@
-# Reproducible public calibration methodology
+# Reproducible public calibration
 
-This document summarizes the reproducibility methodology and engine scoring formulas used for calibration.
+The public calibration makes the numerical model, source evidence and fitting
+procedure inspectable. All inputs needed to reconstruct the published SF18
+accuracy/context, SF19 contextual peers and separate SF18/SF19 moves-only rating coefficients are included
+under `public/`. Fitting and replay work offline. Node.js 24 or later is required.
 
-## Scored Engine Quality
+```powershell
+node tools/calibration/reproduce-public.mjs
+```
 
-Expected game points from evaluation centipawns:
-`E(cp) = 1 / (1 + exp(-k * cp))`
+For a filesystem-restricted replay:
 
-Move quality from expected points drop `d = E(best) - E(played)`:
-`quality = 100 * exp(-beta * max(0, d))`
+```powershell
+node --permission --allow-fs-read=tools/calibration --allow-fs-read=lib --allow-fs-read=data/calibration.json tools/calibration/reproduce-public.mjs
+```
 
-## Category Classification
+This reconstructs training coefficients before opening expected outputs, verifies
+compressed and decoded SHA-256 hashes, and checks exact numerical equality of the
+SF18 models and 250 player-side scores. It separately reconstructs both engines'
+moves-only Huber models, the SF19 contextual model and its baseline assessment,
+and verifies their search configurations. It launches no
+engine, subprocess or network request and needs no research run directory.
 
-Move categories use expected-points loss bands along with board and context rules:
-- **Brilliant:** Sound voluntary piece sacrifice verified by bounded exchange analysis (`exchangeGain` capped at 128 nodes), meeting a soundness floor (-0.5 pawns) and competitive-relevance gate (+5 pawns MultiPV check).
-- **Great:** Only-good move that capitalises on an opponent blunder or mistake.
-- **Best:** Top move reported by the engine or sole forced move.
-- **Excellent / Good / Inaccuracy / Mistake / Blunder:** Categorized by expected-points loss drop thresholds.
+## Public sources and roles
 
-## Accuracy Aggregation
+Inputs come from the [Lichess CC0 standard-game archives](https://database.lichess.org/),
+June–August 2026. `public/sources.json` records URLs, exact byte ranges and local
+frame hashes. Whole-archive checksums were not verified. `dataset.json.gz` contains
+the versioned normalized public mainlines, outcomes, ratings and split IDs.
+Both colors stay in one split, and player identities are disjoint across roles.
+Only training observations fit coefficients. Development validation is consumed;
+it does not provide untouched final-test confirmation.
 
-Game accuracy combines per-move quality scores using weighted/power aggregation over nonforced decisions:
-`Accuracy = weightedMean(moveQuality, volatilityWeights)`
+Runtime admission requires current calibration metadata and a recognized engine;
+SF19 observations must use the fixed 20,000-node protocol. Each player's displayed
+whole-game accuracy requires valid observations for every played move. Missing,
+malformed or stale observations do not become an average over an undisclosed
+excerpt. Valid individual move scores remain available. Fixed-node WDL rating
+evidence is admitted separately from display compatibility, so custom SF18
+display settings may still support a moves-only estimate. Cached scoring roots
+must be dense, use one engine, and contain finite CP or signed nonzero integer
+mate observations; invalid caches are reanalyzed. These are correctness guards,
+not new accuracy, rating or human-category validation claims.
 
-Annotations and move labels are independent of numerical accuracy and Elo estimation models.
+The original 2,000-game dataset's exact archive-to-game reconstruction lives in the upstream project's research
+workspace (`research/datasets/D001-public-baseline`, <https://github.com/T-Julsgaard/Chess-Review>), which this
+repository does not include. The normalized public mainlines, outcomes and split IDs it produced are bundled here
+in `public/dataset.json.gz`, so the calibration replay above is fully self-contained.
+
+The depth model uses 100 training and 25 validation whole games, balanced across
+five focal-rating bands. Both players have at least ten nonforced decisions.
+Eighty training and twenty validation games contribute four fixed legal choices
+each. Frozen histories, legal alternatives, roles and raw searches are included
+in `sf18-evidence.json.gz`; a replay never resamples them or selects on validation.
+
+## Accuracy and categorization
+
+SF18 expected human game points are `E(cp) = sigmoid(alpha * cp / 100)`, with mate
+signs at 1/0. Alpha is fitted by game-weighted fractional Bernoulli likelihood on
+the training outcomes at predeclared plies 11/31/51/71. The published value is
+**0.21367705872097242**. Ambiguous mate zero is never accepted as numerical evidence.
+
+Every legal alternative is evaluated at its original root. Beta minimizes
+multinomial choice log loss, giving each game unit weight across its sampled
+decisions. The published beta is **21.42704255760559**. Move quality is
+`100 * exp(-beta * max(0, E(best) - E(played)))`; game accuracy is its arithmetic
+mean over nonforced decisions. Engine-top moves score 100. Forced moves are
+excluded; opening moves remain in the numerical aggregation.
+
+The bundled SF18 Lite NNUE network is `nn-9067e33176e8.nnue`. Searches use depth16,
+Hash16, MultiPV1, maximum skill, one thread, full initial-position history, and
+`ucinewgame + Clear Hash + isready` before every search. Non-top played moves are
+searched with `searchmoves` at the same root. `data/calibration.json` records loader
+and WASM hashes. Custom SF18 search settings do not produce calibrated numerical
+scores. Setup-FEN positions remain available for annotation, outside the fitted
+standard-start accuracy domain.
+
+Move labels use expected-point loss bands and separately documented board/context
+rules. Brilliant requires a legal material offer plus soundness and competitive
+position evidence; Great requires adequate evidence about alternatives. These
+are explicit annotation rules, not fitted human-label probabilities. Brilliant,
+Book and other labels never change accuracy or rating inputs. See
+[Brilliant move rules](BRILLIANT_MOVES.md) for detailed cases and limitations.
+
+Completed annotations use one original-root best/played pair throughout loss,
+mate and advantage decisions. SF19 category loss uses its own public outcome curve;
+SF18 uses its fitted curve. If the final best move differs from the retained exact
+PV, a cold restricted search obtains its score at the same budget.
+
+The ordinary cutoff settings in `data/calibration.json` are 2/5/10/20 percentage
+points. These match [Chess.com's published expected-points table](https://support.chess.com/en/articles/8572705-how-are-moves-classified-what-is-a-blunder-or-brilliant-etc).
+They are declared category policy, not coefficients fitted by the public numerical
+calibration. The extension's expected-points calculation and additional category
+gates differ; matching cutoff values does not establish matching labels or an
+implementation of Chess.com's hidden algorithm. Current fitting evidence uses
+no Chess.com review outputs.
+
+## Two rating definitions
+
+Both engines offer both modes; the selected preference persists across engine
+changes. If a player's recorded rating is absent, that side falls back to
+Moves only independently of the other player.
+
+**Use recorded rating**, the default for both engines, conditions on a player's recorded
+rating. Gaussian peer weights use a bandwidth selected from 200/400/800 by five
+game-disjoint training-fold CRPS. The observed full-game quality percentile adds
+`400 / ln(10) * logit(percentile)` rating units to the recorded rating. This unit
+conversion is a declared performance convention. Fewer than twenty effective
+peer sides retain the recorded rating. One to nine decisions are short-game
+extrapolations, not established playing strength.
+
+SF18 retains its existing depth16 quality distribution. SF19 has its own model
+under `context.sf19`, reconstructed by `sf19-context.mjs` from the published
+`sf19-rating-evidence.json.gz`: 750 whole training games and 1,498 player-sides.
+Its contextual quality is the arithmetic mean of
+`100 * (1 - max(0, E_WDL(best) - E_WDL(played)))` over nonforced decisions, with
+engine-top moves assigned zero loss. The reviewed game and peer games use exactly
+the same fixed-node WDL statistic. This statistic is separate from SF19's
+centipawn-based displayed accuracy; the SF18 quality distribution is never reused.
+WDL saturation can hide centipawn deterioration in already winning or lost positions.
+Standard-start history and complete, version-matched rating evidence are required
+for the contextual comparison. Unsupported histories retain the moves-only fallback.
+
+**Moves only** predicts recorded public blitz rating level without using the
+reviewed player's rating as a predictor. It retains separately fitted SF18/SF19
+models. Board/search predictors describe RMS WDL loss, engine-top frequency,
+early and contested decisions, decision count and legal-choice complexity.
+The declared frozen Huber/ridge recipes are SF18 delta100/lambda1 and SF19
+delta250/lambda10. `sf18-rating-evidence.json.gz` and `sf19-rating-evidence.json.gz`
+contain the training move evidence used to reconstruct these fixed recipes.
+At least ten nonforced decisions are required. The archive target is public
+blitz rating level; cross-platform transfer is unvalidated.
+
+Rating searches use 20,000 nodes, Hash32, full skill, cold history and restricted
+played-root evaluations. Selecting moves-only for SF18 adds these separate
+observations; it never feeds depth16 WDL into a fixed-node regression. SF19 uses
+its own fixed-node WDL observations for rating; no SF18 coefficients
+are assigned to SF19. Its displayed accuracy is a separate estimate using the
+[Lichess public centipawn winning-chance curve](https://lichess.org/page/accuracy)
+and exponential move-accuracy transform, with the one-point search uncertainty
+bonus in its [implementation](https://github.com/lichess-org/lila/blob/master/modules/analyse/src/main/AccuracyPercent.scala).
+It averages the ordinary and harmonic means of nonforced move qualities
+to reduce dilution by easy moves. It compares best and played scores at the same
+root and does not use Lichess's volatility weights, so it does not reproduce
+official Lichess scores. This display estimate is not a fitted SF19 calibration
+or an input to either moves-only rating model. Displayed ratings are rounded to
+50, while model outputs retain full precision. Saved analyses include scoring evidence and versioned
+settings; incompatible saved observations are recomputed.
+
+## Development results and limits
+
+SF18 development validation includes 25 games and 50 player-sides. On the finite
+centipawn outcome domain, log loss is **0.63850**, Brier loss **0.22441**. Eighty
+heldout choices across twenty games have log loss **2.55249**, versus **3.45841**
+for uniform legal-move choice. Full-game contextual quality CRPS is **3.56770**.
+These are prediction/distribution checks, not proof of a uniquely correct display
+percentage or true game rating. The small development cohort and short-game
+extrapolation limit interpretation. `public/validation.json` records the frozen
+assessment; `public/manifest.json` declares definitions and artifact hashes.
+
+Repository tests also replay the actual review scorer against all published
+player-side accuracy values and verify engine restriction, cold reset, WDL,
+cache/settings migration, mate handling and annotation independence.
+
+## Measuring the rating-mode change
+
+The SF19 peer model uses the existing five game-disjoint training folds to select
+rating bandwidth. Each game's two sides stay together and have unit total weight.
+The baseline uses the same training-fold peers and weights, with no rating kernel.
+The selected model's CRPS is **2.11243352**, versus **2.21289067** for that baseline:
+**4.54% lower** distribution prediction error. CRPS measures how well the predicted
+quality distribution matches the excluded games' observed quality; lower is better.
+These values concern the WDL quality distribution, not rating prediction error,
+and are not comparable to SF18's CRPS on a different quality scale. Bandwidth
+selection consumes these folds, and the evidence was already used for moves-only
+fitting. This is development evidence, not an untouched final test, a causal
+before/after rating comparison, or validation of true playing strength.
+
+`node tools/calibration/reproduce-public.mjs` reconstructs these metrics and the
+SF19 model exactly from hash-verified evidence. The regression suite checks both
+dropdown options for both engines, persistence and engine switching, per-player
+fallback, short excerpts, forced moves, incomplete/stale evidence, standard-start
+restrictions, and production scoring across five public rating bands. It also
+replays all 250 original SF18 player-side accuracies and preserves both moves-only
+models. Saved analyses from the previous scoring version are recomputed.

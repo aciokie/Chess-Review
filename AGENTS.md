@@ -16,7 +16,8 @@ npm run start:chrome      # run extension in Chromium (dev)
 npm run start:firefox     # run extension in Firefox (dev)
 npm run test:browsers     # real-browser smoke; honors CHROME_PATH / FIREFOX_PATH env vars
 npm run test:native-host  # real-protocol test of the native host (Windows-only; skips elsewhere)
-npm run update:dataset    # refresh the Lichess validation sample + lock (tools/calibration; not shipped)
+npm run update:dataset    # refresh the Lichess validation sample + lock (tools/calibration-experiments; not shipped)
+node tools/calibration/reproduce-public.mjs   # offline replay of the public scoring models (no engine, no network)
 ```
 Verification order that works: `npm test` → `npm run lint` → `npm run verify:engines` → `npm run build`.
 
@@ -48,7 +49,10 @@ Verification order that works: `npm test` → `npm run lint` → `npm run verify
 | `lib/concepts/` | Concepts detectors + runtime (worker) + provenance |
 | `lib/coach-insights.js` | Concept finding presentation (ordering, perspective swap, wording) |
 | `native/` | Windows Native Messaging host (C# source + prebuilt exe), bundled SF19 exe, installer, docs |
-| `tools/calibration/` | Standalone offline rating-calibration experiment (never packaged) |
+| `tools/calibration/` | Public scoring-model fitting + reproduction pipeline for `data/calibration.json` (never packaged) |
+| `tools/calibration-experiments/` | The fork's earlier offline calibration pilot and dataset updater (never packaged) |
+| `lib/public-scoring.js`, `lib/calibrated-review.js`, `lib/calibrated-search.js` | Per-engine accuracy/rating scoring: pure formulas, per-game scoring, and the search protocol that produces its observations |
+| `data/calibration.json` / `data/calibration-legacy.json` | Public per-engine models (SF18 NNUE, SF19 Lite) / earlier tuned parameters used by every other build and by move classification |
 | `data/book.json` | Opening book (EPD format) |
 | `lib/chess.js` | Chess.js fork for move gen/validation |
 

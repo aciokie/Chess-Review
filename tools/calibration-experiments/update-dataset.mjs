@@ -6,7 +6,7 @@ import { args, integer, hashFile, json, save } from './io.mjs';
 
 // Bounded, refreshable validation dataset built from the official Lichess CC0 monthly exports
 // (https://database.lichess.org/). The heavyweight sample lives under the git-ignored
-// calibration-runs/ tree; only the small provenance lock (tools/calibration/dataset-lock.json)
+// calibration-runs/ tree; only the small provenance lock (tools/calibration-experiments/dataset-lock.json)
 // is committed. A scheduled workflow runs this every ~30 days: it checks the published file list,
 // does nothing when the newest month is already held, and otherwise rebuilds the sample and lock.
 export const LIST_URL = 'https://database.lichess.org/standard/list.txt';
@@ -65,7 +65,7 @@ async function runSampler(month, { out, games, windows, seed }) {
 }
 
 export async function main() {
-  const o = args({ lock: 'tools/calibration/dataset-lock.json', out: 'calibration-runs/validation/dataset',
+  const o = args({ lock: 'tools/calibration-experiments/dataset-lock.json', out: 'calibration-runs/validation/dataset',
     games: '2000', windows: '20', seed: 'validation-v1', 'cadence-days': String(DEFAULT_CADENCE_DAYS),
     force: false, 'check-only': false });
   const games = integer(o.games, 'games', 100, 20000), windows = integer(o.windows, 'windows', 1, 100);

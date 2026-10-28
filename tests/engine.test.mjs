@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Engine } from '../engine/uci.js';
+import { Engine, positionCommand, PositionCommandCache } from '../engine/uci.js';
+import { Chess } from '../lib/chess.js';
 
 class WorkerStub {
   commands=[];terminated=false;
@@ -8,6 +9,79 @@ class WorkerStub {
   terminate() { this.terminated=true; }
   line(data) { this.onmessage({data}); }
 }
+
+test('validated history reuse avoids legal replay while retaining snapshots and bounded entries',t=>{
+  const cache=new PositionCommandCache(2),chess=new Chess(),initialFen=chess.fen();
+  chess.move('e4');const fen=chess.fen(),history={initialFen,moves:['e2e4']};
+  const original=Chess.prototype.move;let replays=0;
+  t.mock.method(Chess.prototype,'move',function(...args){replays++;return original.apply(this,args);});
+  const expected=cache.get(fen,history);assert.equal(replays,1);
+  assert.equal(cache.get(fen,{initialFen,moves:['e2e4']}),expected);assert.equal(replays,1);
+  history.moves[0]='d2d4';assert.throws(()=>cache.get(fen,history),/does not reach/);
+  assert.throws(()=>cache.get(fen,{initialFen,moves:['e2e4\ngo infinite']}),/Invalid history move/);
+  assert.throws(()=>cache.get(fen.replace(/ 1$/,' 9'),{initialFen,moves:['e2e4']}),/does not reach/);
+  chess.move('e5');cache.get(chess.fen(),{initialFen,moves:['e2e4','e7e5']});
+  chess.move('Nf3');cache.get(chess.fen(),{initialFen,moves:['e2e4','e7e5','g1f3']});
+  assert.equal(cache.entries.size,2);cache.clear();assert.equal(cache.entries.size,0);
+});
+
+test('search progress is throttled, exact-only and isolated from final results', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const eng=engine(t), updates=[];
+  const pending=eng.analyse(new Chess().fen(),12,1,null,snapshot=>{updates.push(snapshot);snapshot.score.cp=999;snapshot.lines[0].score.cp=999;});
+  await Promise.resolve();
+  eng.worker.line('info depth 3 score cp 5 pv e2e4');
+  eng.worker.line('info depth 4 score cp 8 lowerbound pv e2e4');
+  assert.equal(updates.length,0);
+  eng.worker.line('info depth 4 score cp 10 pv e2e4');
+  eng.worker.line('info depth 5 score cp 20 pv e2e4');
+  assert.equal(updates.length,1);
+  t.mock.timers.tick(121);
+  eng.worker.line('info depth 6 score cp 30 pv e2e4');
+  assert.equal(updates.length,2);
+  eng.worker.line('bestmove e2e4');const result=await pending;
+  assert.equal(result.score.cp,30);assert.equal(result.lines[0].score.cp,30);
+  eng.worker.line('info depth 7 score cp 40 pv e2e4');assert.equal(updates.length,2);
+});
+
+test('MultiPV progress waits for fresh common-depth ranks, including repeated tops at the same depth', async t => {
+  t.mock.timers.enable({apis:['Date','setTimeout'],now:0});
+  const eng=engine(t),updates=[];
+  const pending=eng.analyse(new Chess().fen(),16,2,null,snapshot=>{
+    updates.push(structuredClone(snapshot));snapshot.score.cp=9999;
+    snapshot.score.wdl?.fill(9999);snapshot.lines[0].pv='a1a1';
+  });
+  await Promise.resolve();
+  const line=(rank,depth,score,pv,bound='')=>eng.worker.line(`info depth ${depth} multipv ${rank} score cp ${score} ${bound} wdl 200 600 200 pv ${pv}`);
+  line(2,8,10,'d2d4');line(1,8,40,'e2e4');assert.equal(updates.length,0);
+  line(2,8,20,'d2d4');assert.equal(updates.length,1);
+  t.mock.timers.tick(119);line(1,9,60,'e2e4');line(2,9,30,'d2d4');assert.equal(updates.length,1);
+  t.mock.timers.tick(1);line(1,10,70,'e2e4');line(2,10,50,'d2d4');assert.equal(updates.length,2);
+  t.mock.timers.tick(120);line(1,10,72,'g1f3');assert.equal(updates.length,2,'same depth must not borrow the old rank 2');
+  line(2,10,60,'g1f3');line(2,9,60,'d2d4');line(2,10,60,'d2d4','lowerbound');
+  assert.equal(updates.length,2,'duplicated, stale and bounded alternatives cannot complete a group');
+  line(2,10,60,'d2d4');assert.equal(updates.length,3);assert.equal(updates[2].bestmove,'g1f3');
+  t.mock.timers.tick(120);line(1,9,40,'e2e4');line(2,9,10,'d2d4');assert.equal(updates.length,3,'progress cannot regress in depth');
+  line(1,12,300,'e2e4','lowerbound');line(2,12,30,'d2d4');assert.equal(updates.length,3);
+  eng.worker.line('bestmove e2e4');const result=await pending;
+  assert.deepEqual(result.score,{cp:300,wdl:[200,600,200]});
+  assert.equal(result.lines[0].bound,'lowerbound','final results retain the native result, not an older coherent preview');
+  assert.equal(result.lines[0].pv,'e2e4');
+});
+
+test('progress rejects illegal PVs and handles fewer legal moves than requested ranks', async t => {
+  const eng=engine(t),updates=[];
+  let pending=eng.analyse(new Chess().fen(),8,2,null,s=>updates.push(s));await Promise.resolve();
+  eng.worker.line('info depth 8 multipv 1 score cp 20 pv e2e5');
+  eng.worker.line('info depth 8 multipv 2 score cp 10 pv d2d4');assert.equal(updates.length,0);
+  eng.worker.line('info depth 8 multipv 1 score cp 20 pv e2e4');
+  eng.worker.line('info depth 8 multipv 2 score mate 0 pv d2d4');assert.equal(updates.length,0);
+  eng.worker.line('bestmove e2e4');await pending;
+  const fen='k5rr/8/8/8/8/3B4/8/7K w - - 0 1';
+  pending=eng.analyse(fen,8,3,null,s=>updates.push(s));await Promise.resolve();
+  eng.worker.line('info depth 8 score cp -500 pv d3h7');assert.equal(updates.length,1);
+  assert.equal(updates[0].lines.length,1);eng.worker.line('bestmove d3h7');await pending;
+});
 
 function engine(t,options={}) {
   const previous=globalThis.Worker;globalThis.Worker=options.Worker||WorkerStub;
@@ -61,50 +135,89 @@ test('ongoing engine output extends the search timeout',async t=>{
   eng.worker.line('bestmove e2e4');assert.equal((await result).score.cp,12);
 });
 
-test('a supplied move history is replayed so Stockfish sees repetitions',async t=>{
-  const eng=engine(t);
-  const result=eng.analyse('somefen',4,1,{initialFen:'startfen',moves:['e2e4','e7e5']});
-  await Promise.resolve();
-  assert.ok(eng.worker.commands.includes('position fen startfen moves e2e4 e7e5'));
-  assert.ok(!eng.worker.commands.includes('position fen somefen'));
-  eng.worker.line('info depth 4 score cp 10 pv g1f3');eng.worker.line('bestmove g1f3');
-  assert.equal((await result).score.cp,10);
-});
-
-test('without a history the bare FEN is searched (unchanged behaviour)',async t=>{
-  const eng=engine(t);
-  const result=eng.analyse('barefen',4,1);
-  await Promise.resolve();
-  assert.ok(eng.worker.commands.includes('position fen barefen'));
-  eng.worker.line('info depth 4 score cp 5 pv e2e4');eng.worker.line('bestmove e2e4');
-  assert.equal((await result).score.cp,5);
-});
-
 test('Stockfish 19 Lite fails cleanly if its startup is silent',async t=>{
   t.mock.timers.enable({apis:['setTimeout']});
   const eng=engine(t,{path:'engine/stockfish-19-lite-single.js',noReady:true});
   const failed=assert.rejects(eng.setOptions(),/timed out/);
-  t.mock.timers.tick(10001);await failed;assert.equal(eng.dead,true);
+  t.mock.timers.tick(60001);await failed;assert.equal(eng.dead,true);
 });
 
-test('the large Stockfish 19 build gets a longer startup window than small builds',async t=>{
+test('slow cold startup has time to compile before the recovery deadline',async t=>{
   t.mock.timers.enable({apis:['setTimeout']});
-  const eng=engine(t,{path:'engine/stockfish-19-single.js',noReady:true});
-  const pending=eng.setOptions().then(()=>'ready',e=>e.message);
-  t.mock.timers.tick(10001);await Promise.resolve();
-  assert.equal(eng.dead,false);
-  t.mock.timers.tick(50000);
-  assert.match(await pending,/timed out/);assert.equal(eng.dead,true);
+  const eng=engine(t,{noReady:true}),ready=eng.setOptions({Hash:16});
+  t.mock.timers.tick(20000);assert.equal(eng.dead,false);
+  eng.worker.line('uciok');eng.worker.line('readyok');await ready;
+  assert.ok(eng.worker.commands.includes('setoption name Hash value 16'));
 });
 
-test('every line reports depth, bound and multipv for the Brilliant gate',async t=>{
-  const eng=engine(t);
-  const result=eng.analyse('fen',4,2);
+test('MultiPV retains ranking, depth and score bounds without changing scalar evaluation', async t => {
+  const eng = engine(t), result = eng.analyse('position', 16, 2);
   await Promise.resolve();
-  eng.worker.line('info depth 4 seldepth 6 multipv 1 score cp 120 pv e2e4 e7e5');
-  eng.worker.line('info depth 4 seldepth 6 multipv 2 score cp 30 upperbound pv d2d4');
+  eng.worker.line('info depth 15 multipv 2 score cp 20 upperbound pv d2d4 d7d5');
+  eng.worker.line('info depth 16 multipv 1 score cp 600 lowerbound pv e2e4 e7e5');
   eng.worker.line('bestmove e2e4');
-  const {lines}=await result;
-  assert.deepEqual(lines.map(l=>[l.multipv,l.depth,l.bound,l.pv.split(' ')[0]]),
-    [[1,4,'exact','e2e4'],[2,4,'upperbound','d2d4']]);
+  const r = await result;
+  assert.deepEqual(r.score, { cp: 600 });
+  assert.deepEqual(r.lines, [
+    { score: { cp: 600 }, pv: 'e2e4 e7e5', depth: 16, bound: 'lowerbound', multipv: 1 },
+    { score: { cp: 20 }, pv: 'd2d4 d7d5', depth: 15, bound: 'upperbound', multipv: 2 },
+  ]);
+  const next = eng.analyse('next', 16, 2); await Promise.resolve();
+  eng.worker.line('info depth 16 multipv 1 score mate 3 pv e2e4');
+  eng.worker.line('info depth 16 multipv 2 score cp 0 pv d2d4');
+  eng.worker.line('bestmove e2e4');
+  assert.ok((await next).lines.every(l => l.bound === 'exact' && l.depth === 16));
+});
+
+test('history transport preserves repeated moves and snapshots queued context', async t => {
+  const eng=engine(t),chess=new Chess(),initialFen=chess.fen();
+  const moves=['g1f3','g8f6','f3g1','f6g8'];
+  for(const uci of moves)chess.move({from:uci.slice(0,2),to:uci.slice(2,4)});
+  const history={initialFen,moves},pending=eng.analyse(chess.fen(),4,1,history);
+  moves.length=0;await Promise.resolve();
+  assert.ok(eng.worker.commands.includes(`position fen ${initialFen} moves g1f3 g8f6 f3g1 f6g8`));
+  eng.worker.line('info depth 4 score cp 0 pv g1f3');eng.worker.line('bestmove g1f3');await pending;
+});
+
+test('setup-FEN history retains underpromotion and rejects a mismatched or malformed prefix',()=>{
+  const initialFen='7k/P7/8/8/8/8/8/7K w - - 0 1',chess=new Chess(initialFen);
+  chess.move({from:'a7',to:'a8',promotion:'n'});
+  assert.equal(positionCommand(chess.fen(),{initialFen,moves:['a7a8n']}),`position fen ${initialFen} moves a7a8n`);
+  assert.throws(()=>positionCommand(chess.fen(),{initialFen,moves:['a7a8q']}),/does not reach/);
+  assert.throws(()=>positionCommand(chess.fen(),{initialFen,moves:['a7a8n\ngo infinite']}),/Invalid history move/);
+});
+
+test('cold restricted scoring waits for readyok, retains exact WDL and honors the node budget', async t => {
+  const eng = engine(t), fen = new Chess().fen();
+  const pending = eng.analyse(fen, 16, 1, {initialFen: fen, moves: []}, null,
+    {cold: true, requireExact: true, budget: {kind: 'nodes', value: 20000}, searchMove: 'e2e4'});
+  await Promise.resolve();
+  assert.ok(eng.worker.commands.includes('setoption name Clear Hash'));
+  assert.ok(!eng.worker.commands.some(command => command.startsWith('go ')));
+  eng.worker.line('readyok');
+  assert.equal(eng.worker.commands.at(-1), 'go nodes 20000 searchmoves e2e4');
+  eng.worker.line('info depth 12 score cp 20 wdl 200 600 200 pv e2e4');
+  eng.worker.line('info depth 13 score cp 999 lowerbound wdl 900 100 0 pv e2e4');
+  eng.worker.line('bestmove e2e4');
+  assert.deepEqual((await pending).score, {cp: 20, wdl: [200, 600, 200]});
+});
+
+test('scoring rejects absent exact evidence and illegal restrictions', async t => {
+  const eng = engine(t), fen = new Chess().fen();
+  await assert.rejects(eng.analyse(fen, 16, 1, null, null, {searchMove: 'a1a8'}), /Invalid restricted/);
+  const pending = eng.analyse(fen, 16, 1, null, null, {requireExact: true});
+  await Promise.resolve();
+  eng.worker.line('info depth 16 score cp 30 lowerbound pv e2e4');
+  eng.worker.line('bestmove e2e4');
+  await assert.rejects(pending, /exact completed/);
+});
+
+test('scoring cannot attach a stale exact PV score to a different completed best move', async t => {
+  const eng = engine(t), fen = new Chess().fen();
+  const pending = eng.analyse(fen, 16, 1, null, null, {requireExact: true});
+  await Promise.resolve();
+  eng.worker.line('info depth 12 score cp 30 pv e2e4');
+  eng.worker.line('info depth 13 score cp 300 lowerbound pv d2d4');
+  eng.worker.line('bestmove d2d4');
+  await assert.rejects(pending, /exact completed/);
 });

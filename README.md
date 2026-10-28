@@ -58,9 +58,28 @@ navigate. Making a different move replaces the continuation from that position.
 
 The opening dictionary is bundled offline and has no automatic downloads.
 Stockfish 19 Lite uses a smaller network than full Stockfish 19 and is not equivalent
-in playing strength. The existing accuracy calibration was fitted to Stockfish 18
-NNUE and has not been re-benchmarked for 19 Lite. Both builds use a single thread
-per worker; the Workers setting already distributes positions across multiple workers.
+in playing strength. Both builds use a single thread per worker; the Workers setting
+already distributes positions across multiple workers.
+
+#### Scoring models
+
+Accuracy and estimated rating come from **public, per-engine models** (`data/calibration.json`,
+fitted by the reproducible pipeline in `tools/calibration`):
+
+| Build | Search used for scoring | Accuracy / rating |
+|-------|-------------------------|-------------------|
+| Stockfish 18 NNUE (default) | depth 16, Hash 16 MB, full strength, 1 line | Public SF18 model |
+| Stockfish 19 Lite | fixed 20,000 nodes, Hash 32 MB, full strength | Public SF19 model |
+| Stockfish 19 Full, Stockfish 19 (Native), or non-default depth/hash/skill | your settings | Earlier accuracy/rating estimate (`data/calibration-legacy.json`) |
+
+Settings → Engine → **Rating estimate** offers **Use recorded rating** (compares you with
+public players near the rating saved in the game) and **Moves only** (ignores that rating).
+Without a saved rating the review falls back to Moves only, which needs at least ten
+non-forced decisions. Move categories are annotations and never change accuracy or rating.
+To reproduce the bundled coefficients offline (Node.js 22 or later), run
+`node tools/calibration/reproduce-public.mjs`; the method is in
+[`tools/calibration/PUBLIC_METHOD.md`](tools/calibration/PUBLIC_METHOD.md). Estimated
+ratings are approximate, and scores can differ from other review tools.
 The redundant Stockfish 10 and asm.js engines have been removed. Their saved
 preferences migrate to 18; existing full-19 preferences migrate to 19 Lite.
 

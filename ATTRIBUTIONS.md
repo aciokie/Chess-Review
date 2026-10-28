@@ -100,6 +100,17 @@ Distributed by Lichess (lila); high-quality vector SVGs.
 - **Source:** `lichess-org/chess-openings`
 - **License:** CC0 (public domain) — https://github.com/lichess-org/chess-openings
 
+## Public scoring models and calibration data
+- **Files:** `data/calibration.json`, `lib/public-scoring.js`, `lib/calibrated-review.js`,
+  `lib/calibrated-search.js`, `engine/progress.js`, `engine/uci.js`, `tools/calibration/` (not packaged).
+- **Origin:** ported from the upstream project, <https://github.com/T-Julsgaard/Chess-Review> (GPL-3.0).
+- **Fitting data:** normalized public games from the [Lichess open database](https://database.lichess.org/)
+  (**CC0 1.0**); `tools/calibration/public/sources.json` records the archives, byte ranges and hashes.
+- **Stockfish 19 Lite accuracy display:** uses the published Lichess centipawn winning-chance curve and move
+  transform (<https://lichess.org/page/accuracy>); it is a re-implementation of the formulas, not Lichess code,
+  and does not reproduce official Lichess scores.
+- The earlier tuned parameters remain in `data/calibration-legacy.json`.
+
 ## Chess logic library
 - **File:** `lib/chess.js`
 - **Author:** Jeff Hlywa — **License:** BSD 2-Clause

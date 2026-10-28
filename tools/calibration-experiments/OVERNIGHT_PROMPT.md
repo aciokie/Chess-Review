@@ -34,8 +34,8 @@ Never invent validation or call an underpowered smoke fit production-ready.
 
 ## Current repository state
 
-Read `tools/calibration/README.md` and
-`tools/calibration/reports/pilot-2026-09-30.md` first, then inspect the scripts,
+Read `tools/calibration-experiments/README.md` and
+`tools/calibration-experiments/reports/pilot-2026-09-30.md` first, then inspect the scripts,
 tests, Git status, and applicable instructions. Preserve unrelated user edits.
 
 The first pilot ran 24 January-2013 CC0 Lichess blitz games, with disjoint
@@ -56,7 +56,7 @@ extension. The original importer loads archives in memory; that is unsuitable
 for recent multi-gigabyte monthly exports.
 
 There may be an **uncommitted, untested, unexecuted**
-`tools/calibration/recent-dataset.mjs` draft from preparation for this task.
+`tools/calibration-experiments/recent-dataset.mjs` draft from preparation for this task.
 Inspect and test it before using it. It proposes bounded complete compressed
 frames spread across recent months, focal-player rating strata, and globally
 unique players. It is not a completed or benchmarked importer. No overnight

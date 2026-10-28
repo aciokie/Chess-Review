@@ -3,18 +3,79 @@
 // Supports MultiPV (multiple lines per position) for the Engine panel.
 
 import { browserAPI } from "../browser-compat.js";
+import { Chess } from "../lib/chess.js";
+import { CoherentProgress } from "./progress.js";
+
+// Validate and snapshot history before a queued search starts. Setup-FEN games use their own
+// initial board; requiring the replayed FEN to match prevents mixing a branch with its mainline.
+export function positionCommand(fen, history = null) {
+  if (!history) return `position fen ${fen}`;
+  if (!history.initialFen || !Array.isArray(history.moves)) throw new Error("Invalid search history");
+  const chess = new Chess(history.initialFen);
+  const initial = chess.fen(), moves = [...history.moves];
+  for (const uci of moves) {
+    if (typeof uci !== "string" || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci)) throw new Error("Invalid history move");
+    chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+  }
+  if (chess.fen() !== new Chess(fen).fen()) throw new Error("Search history does not reach position");
+  return `position fen ${initial}` + (moves.length ? ` moves ${moves.join(" ")}` : "");
+}
+
+// Each engine revisits a root for best/played/rating searches. Cache only an exact
+// immutable context, after its first successful legal replay. Limit retained text
+// as well as entry count so unusually long imported games cannot grow this cache.
+export class PositionCommandCache {
+  constructor(limit = 4) { this.limit = limit; this.entries = new Map(); }
+  get(fen, history) {
+    if (!history || typeof fen !== "string" || typeof history.initialFen !== "string"
+      || !Array.isArray(history.moves)) return positionCommand(fen, history);
+    const snapshot = {initialFen: history.initialFen, moves: [...history.moves]};
+    if (!snapshot.moves.every(move => typeof move === "string" && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(move))) {
+      throw Error("Invalid history move");
+    }
+    const key = JSON.stringify([fen, snapshot.initialFen, snapshot.moves]);
+    if (this.entries.has(key)) {
+      const command = this.entries.get(key);
+      this.entries.delete(key); this.entries.set(key, command);
+      return command;
+    }
+    const command = positionCommand(fen, snapshot);
+    if (key.length <= 16384 && this.limit > 0) {
+      this.entries.set(key, command);
+      if (this.entries.size > this.limit) this.entries.delete(this.entries.keys().next().value);
+    }
+    return command;
+  }
+  clear() { this.entries.clear(); }
+}
 
 // How long to wait for the engine's "readyok" handshake before declaring the build dead.
-  // If a build can't be instantiated (CSP change, missing/blocked wasm, a future browser
-  // change), the worker never replies — without this cap _ready would hang forever and every
-  // analysis would silently stall. On timeout the handshake REJECTS, which lets the caller
-  // fall back to the next build (see createEngine() in analysis.js).
-const HANDSHAKE_TIMEOUT_MS = 10000;
-// The full Stockfish 19 build ships a ~99 MB wasm, which needs longer to load and compile.
-const LARGE_BUILD_HANDSHAKE_TIMEOUT_MS = 60000;
+// If a build can't be instantiated (CSP change, missing/blocked wasm, a future browser
+// change), the worker never replies — without this cap _ready would hang forever and every
+// analysis would silently stall. On timeout the handshake REJECTS, which lets the caller
+// fall back to the next build (see createEngine() in analysis.js).
+// Cold WebAssembly compilation and NNUE initialization can take longer on a
+// slow CPU, especially while other tabs are busy. Keep a finite recovery bound.
+const HANDSHAKE_TIMEOUT_MS = 60000;
 // A silent worker must not leave review or Explore waiting forever. Reset on engine output
 // so a deep search that is still reporting progress is allowed to continue.
 const SEARCH_SILENCE_TIMEOUT_MS = 120000;
+
+// Both bundled builds use SIMD. Trying the other build cannot fix a missing
+// browser/CPU capability, so report the shared requirement before loading either.
+export function engineCapabilityError(wasm = globalThis.WebAssembly) {
+  let message;
+  if (!wasm || typeof wasm.validate !== "function") {
+    message = "WebAssembly is unavailable. Use an up-to-date browser with WebAssembly enabled.";
+  } else {
+    const simd = new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]);
+    try { if (wasm.validate(simd)) return null; } catch {}
+    message = "WebAssembly SIMD is unavailable in this browser or on this CPU. The bundled Stockfish engines require it. Try an up-to-date Chrome, Edge, or Firefox browser; older CPUs may remain unsupported.";
+  }
+  const error = new Error(message);
+  error.code = "ENGINE_UNSUPPORTED";
+  return error;
+}
 
 export class Engine {
   constructor(scriptPath = "engine/stockfish-nnue.js", wasmPath = scriptPath.replace(/\.js$/, ".wasm")) {
@@ -25,8 +86,16 @@ export class Engine {
     this.scriptPath = scriptPath;
     this.dead = false;
     this.queue = [];
+    this.positionCommands = new PositionCommandCache();
     this.current = null;
     this.multipv = 1;
+    const unsupported = engineCapabilityError();
+    if (unsupported) {
+      this.dead = true;
+      this._ready = Promise.reject(unsupported);
+      this._ready.catch(() => {});
+      return;
+    }
     // A worker whose script URL is bad throws synchronously from the constructor — treat that the
     // same as any other load failure so createEngine() can fall back instead of crashing the page.
     try {
@@ -106,7 +175,7 @@ export class Engine {
       this._onFail = reject;
       this._handshakeTimer = setTimeout(
         () => this._failHandshake(new Error(`engine handshake timed out (${this.scriptPath})`)),
-        /stockfish-19-single\.js$/.test(this.scriptPath) ? LARGE_BUILD_HANDSHAKE_TIMEOUT_MS : HANDSHAKE_TIMEOUT_MS,
+        HANDSHAKE_TIMEOUT_MS,
       );
       this._send("uci");
     });
@@ -114,6 +183,7 @@ export class Engine {
 
   _onLine(line) {
     if (!line || this.dead) return;
+    if (line.startsWith("id name ")) this.identity = line.slice(8);
     if (line.includes("uciok")) {
       this._send("isready");
       return;
@@ -125,6 +195,10 @@ export class Engine {
         this._onReady = null;
         this._onFail = null;
         ready();
+      }
+      if (this.current?.awaitingReady) {
+        this.current.awaitingReady = false;
+        this._beginSearch(this.current);
       }
       this._pump();
       return;
@@ -138,16 +212,21 @@ export class Engine {
         const mpv = parseInt((line.match(/ multipv (\d+)/) || [])[1] || "1", 10);
         const pvMatch = line.match(/ pv (.+)$/);
         const pv = pvMatch ? pvMatch[1].trim() : "";
-        // depth/bound/multipv are consumed by the Brilliant gate (brilliantEligible in analysis.js),
-        // which compares the runner-up line against the top line at the same depth and requires
-        // exact (non-bound) scores. A bound is only reported when the engine says so.
         const depth = parseInt((line.match(/ depth (\d+)/) || [])[1] || "0", 10);
         const bound = (line.match(/\b(lowerbound|upperbound)\b/) || [])[1] || "exact";
-        this.current.lines[mpv] = { score, pv, depth, bound, multipv: mpv };
-        if (mpv === 1) {
+        if (!this.current.requireExact || bound === "exact") {
+          this.current.lines[mpv] = { score, pv, depth, bound, multipv: mpv };
+        }
+        if (mpv === 1 && (!this.current.requireExact || bound === "exact") && (!this.current.requireExact || pv)) {
           this.current.lastScore = score;
           if (pv) this.current.lastPv = pv;
         }
+      }
+      const job = this.current, snapshot = job.progress?.observe(line), now = Date.now();
+      if (snapshot && (job.progressAt == null || now - job.progressAt >= 120)) {
+        job.progressAt = now;
+        try { job.onProgress(snapshot); }
+        catch (error) { console.error("Search progress observer failed", error); }
       }
       return;
     }
@@ -159,6 +238,16 @@ export class Engine {
       const lines = Object.keys(job.lines)
         .sort((a, b) => +a - +b)
         .map((k) => job.lines[k]);
+      if (job.requireExact && (!job.lastScore || job.lastPv.split(" ")[0] !== best
+          || (job.searchMove && best !== job.searchMove))) {
+        const error = new Error("Missing exact completed scoring evidence");
+        // A node-limited search can end on a bounded PV for a different move.
+        // Let the calibrated coordinator obtain an exact restricted observation.
+        if (!job.searchMove && job.lastScore && best && best !== "(none)") error.scoringMove = best;
+        job.reject(error);
+        this._pump();
+        return;
+      }
       job.resolve({
         bestmove: best && best !== "(none)" ? best : null,
         score: job.lastScore || { cp: 0 },
@@ -170,10 +259,12 @@ export class Engine {
   }
 
   _parseScore(line) {
+    const wdl = line.match(/\bwdl (\d+) (\d+) (\d+)/);
+    const extra = wdl ? { wdl: wdl.slice(1).map(Number) } : {};
     const cp = line.match(/ score cp (-?\d+)/);
-    if (cp) return { cp: parseInt(cp[1], 10) };
+    if (cp) return { cp: parseInt(cp[1], 10), ...extra };
     const mate = line.match(/ score mate (-?\d+)/);
-    if (mate) return { mate: parseInt(mate[1], 10) };
+    if (mate) return { mate: parseInt(mate[1], 10), ...extra };
     return null;
   }
 
@@ -187,34 +278,49 @@ export class Engine {
       this._send(`setoption name MultiPV value ${this.multipv}`);
     }
     this._send("ucinewgame");
-    // Replaying the moves (not just the FEN) lets Stockfish see repetitions and the 50-move clock,
-    // so a position is judged in the context it was reached in. Without a history we fall back to
-    // the bare FEN (unchanged behaviour for callers that don't pass one).
-    if (job.history && job.history.initialFen && job.history.moves && job.history.moves.length) {
-      this._send(`position fen ${job.history.initialFen} moves ${job.history.moves.join(" ")}`);
-    } else {
-      this._send(`position fen ${job.fen}`);
+    if (job.cold) {
+      this._send("setoption name Clear Hash");
+      job.awaitingReady = true;
+      this._send("isready");
+      return;
     }
-    this._send(`go depth ${job.depth}`);
+    this._beginSearch(job);
+  }
+
+  _beginSearch(job) {
+    this._send(job.positionCommand);
+    const budget = job.budget || { kind: "depth", value: job.depth };
+    this._send(`go ${budget.kind} ${budget.value}` + (job.searchMove ? ` searchmoves ${job.searchMove}` : ""));
   }
 
   /**
    * Analyze one position.
    * Returns { bestmove, score:{cp|mate}, pv, lines:[{score,pv,depth,bound,multipv}] }.
    * lines are sorted best→worst (multipv 1..n), seen from the side to move.
-   * `history` ({ initialFen, moves }) reproduces the game to this position so Stockfish detects
-   * repetitions; pass it whenever the caller knows the moves, omit it for a bare FEN search.
+   * Optional history = {initialFen,moves}; replay must reach fen, including its counters.
+   * Optional onProgress receives throttled provisional exact PV snapshots. It
+   * never changes the completed result returned by this promise.
    */
-  async analyse(fen, depth = 12, multipv = 1, history = null) {
+  async analyse(fen, depth = 12, multipv = 1, history = null, onProgress = null, options = {}) {
+    const command = this.positionCommands.get(fen, history);
+    const { searchMove = null, budget = null, cold = false, requireExact = false } = options;
+    if (budget && (!['nodes', 'depth'].includes(budget.kind) || !Number.isSafeInteger(budget.value) || budget.value < 1)) throw Error("Invalid search budget");
+    if (searchMove) {
+      const legal = new Chess(fen).moves({ verbose: true }).map(move => move.from + move.to + (move.promotion || ""));
+      if (!legal.includes(searchMove) || multipv !== 1) throw Error("Invalid restricted search move");
+    }
     await this._ready;
     if (this.dead) throw new Error("engine is no longer running");
+    const progress = onProgress ? new CoherentProgress(fen, multipv) : null;
     return new Promise((resolve, reject) => {
-      this.queue.push({ fen, depth, multipv, history, resolve, reject, lastScore: null, lastPv: "", lines: {} });
+      this.queue.push({ fen, positionCommand: command, depth, multipv, resolve, reject, onProgress,
+        searchMove, budget, cold, requireExact, progress, progressAt: null, lastScore: null, lastPv: "", lines: {} });
       this._pump();
     });
   }
 
   terminate() {
+    this.positionCommands.clear();
     try { this._send("quit"); } catch {}
     this.dead = true;
     clearTimeout(this._searchTimer);

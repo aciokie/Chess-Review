@@ -4,15 +4,15 @@ import { mkdtemp, rm, readFile, writeFile, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import * as zlib from 'node:zlib';
-import { candidate, legalMainline, Reservoir, selectGames, frameHeader, ratingBand } from '../tools/calibration/recent-dataset.mjs';
-import { SearchCache } from '../tools/calibration/sqlite-cache.mjs';
-import { searchKey } from '../tools/calibration/analyze-games.mjs';
-import { Engine, engineConfig } from '../tools/calibration/engine.mjs';
-import { assertDisjoint } from '../tools/calibration/core.mjs';
-import { schedule, planIds, makeReport, normalizeBenchmark } from '../tools/calibration/supervisor.mjs';
-import { buildDevelopment, balancedPrefix, loadExperimentalModel } from '../tools/calibration/development.mjs';
+import { candidate, legalMainline, Reservoir, selectGames, frameHeader, ratingBand } from '../tools/calibration-experiments/recent-dataset.mjs';
+import { SearchCache } from '../tools/calibration-experiments/sqlite-cache.mjs';
+import { searchKey } from '../tools/calibration-experiments/analyze-games.mjs';
+import { Engine, engineConfig } from '../tools/calibration-experiments/engine.mjs';
+import { assertDisjoint } from '../tools/calibration-experiments/core.mjs';
+import { schedule, planIds, makeReport, normalizeBenchmark } from '../tools/calibration-experiments/supervisor.mjs';
+import { buildDevelopment, balancedPrefix, loadExperimentalModel } from '../tools/calibration-experiments/development.mjs';
 import { spawn } from 'node:child_process';
-import { hash, save } from '../tools/calibration/io.mjs';
+import { hash, save } from '../tools/calibration-experiments/io.mjs';
 
 const body = '1. Nf3 Nf6 2. Ng1 Ng8 3. Nf3 Nf6 4. Ng1 Ng8 5. Nf3 Nf6 6. Ng1 Ng8 7. Nf3 Nf6 8. Ng1 Ng8 9. Nf3 Nf6 10. Ng1 Ng8 1/2-1/2';
 const pgn = (id = 'abcdefgh', white = 'w', black = 'b', rating = 1600) => `[Event "Rated Blitz game"]\n[Site "https://lichess.org/${id}"]\n[White "${white}"]\n[Black "${black}"]\n[WhiteElo "${rating}"]\n[BlackElo "${rating}"]\n[TimeControl "180+2"]\n[Result "1/2-1/2"]\n\n${body}`;
@@ -98,7 +98,7 @@ test('real evaluation deadline exits with a resumable partial cache and no compl
   try{
     await mkdir(dataset);const data=JSON.stringify({id:'deadline',split:'train',moves:legalMainline(pgn()),players:[{id:'w',color:'w',rating:1500},{id:'b',color:'b',rating:1600}]})+'\n';
     await writeFile(path.join(dataset,'games.jsonl'),data);await writeFile(path.join(dataset,'manifest.json'),JSON.stringify({gamesSha256:hash(data)}));
-    const child=spawn(process.execPath,['tools/calibration/analyze-games.mjs','--dataset',dataset,'--out',out,'--nodes','320000','--workers','1','--sqlite','--development-only','--deadline',new Date(Date.now()+100).toISOString()],{windowsHide:true,stdio:'pipe'});
+    const child=spawn(process.execPath,['tools/calibration-experiments/analyze-games.mjs','--dataset',dataset,'--out',out,'--nodes','320000','--workers','1','--sqlite','--development-only','--deadline',new Date(Date.now()+100).toISOString()],{windowsHide:true,stdio:'pipe'});
     let stderr='';child.stderr.on('data',d=>{stderr+=d;});child.stdout.resume();
     const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve);});
     assert.equal(code,0,stderr);const manifest=JSON.parse(await readFile(path.join(out,'manifest.json'),'utf8'));

@@ -47,9 +47,9 @@ explicit SF18-to-SF19 transfer results are generated.
 ## Start, resume and inspect
 
 ```powershell
-node tools/calibration/recent-dataset.mjs --out calibration-runs/overnight-2026-09-30/dataset --games 2000 --windows 20 --months 2026-06,2026-07,2026-08 --seed overnight-sf18-v1
-node tools/calibration/supervisor.mjs --root calibration-runs/overnight-2026-09-30 --deadline 2026-10-01T09:00:00+02:00
-node tools/calibration/supervisor.mjs --root calibration-runs/overnight-2026-09-30 --deadline 2026-10-01T09:00:00+02:00 --report-only
+node tools/calibration-experiments/recent-dataset.mjs --out calibration-runs/overnight-2026-09-30/dataset --games 2000 --windows 20 --months 2026-06,2026-07,2026-08 --seed overnight-sf18-v1
+node tools/calibration-experiments/supervisor.mjs --root calibration-runs/overnight-2026-09-30 --deadline 2026-10-01T09:00:00+02:00
+node tools/calibration-experiments/supervisor.mjs --root calibration-runs/overnight-2026-09-30 --deadline 2026-10-01T09:00:00+02:00 --report-only
 ```
 
 The actual launch uses a hidden detached Windows process. `supervisor.lock`
@@ -78,9 +78,9 @@ player-band/length biases, observed learning curves and search instability.
 ## Refit and extend
 
 ```powershell
-node tools/calibration/analyze-games.mjs --dataset calibration-runs/overnight-2026-09-30/dataset --out calibration-runs/overnight-2026-09-30/sf18-20k --engine engine/stockfish-nnue.js --nodes 20000 --workers 2 --sqlite --development-only --game-ids calibration-runs/overnight-2026-09-30/development-ids.json --max-new-games 100 --deadline 2026-10-01T08:30:00+02:00
-node tools/calibration/build-features.mjs --dataset calibration-runs/overnight-2026-09-30/dataset --run calibration-runs/overnight-2026-09-30/sf18-20k --allow-partial
-node tools/calibration/development.mjs --run calibration-runs/overnight-2026-09-30/sf18-20k --validation-ids calibration-runs/overnight-2026-09-30/validation-ids.json
+node tools/calibration-experiments/analyze-games.mjs --dataset calibration-runs/overnight-2026-09-30/dataset --out calibration-runs/overnight-2026-09-30/sf18-20k --engine engine/stockfish-nnue.js --nodes 20000 --workers 2 --sqlite --development-only --game-ids calibration-runs/overnight-2026-09-30/development-ids.json --max-new-games 100 --deadline 2026-10-01T08:30:00+02:00
+node tools/calibration-experiments/build-features.mjs --dataset calibration-runs/overnight-2026-09-30/dataset --run calibration-runs/overnight-2026-09-30/sf18-20k --allow-partial
+node tools/calibration-experiments/development.mjs --run calibration-runs/overnight-2026-09-30/sf18-20k --validation-ids calibration-runs/overnight-2026-09-30/validation-ids.json
 ```
 
 Run extension commands only when the supervisor is idle. Existing compatible

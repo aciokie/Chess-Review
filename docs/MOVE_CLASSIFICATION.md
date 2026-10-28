@@ -9,7 +9,7 @@ Evaluations are read from the white-relative `S.evals[]` and converted to the mo
 
 ## Baseline buckets
 
-`getStandardRating` buckets a move by win% drop (`data/calibration.json` → `clsWp`):
+`getStandardRating` buckets a move by win% drop (`data/calibration-legacy.json` → `clsWp`):
 
 | Win% drop | Bucket |
 |-----------|--------|

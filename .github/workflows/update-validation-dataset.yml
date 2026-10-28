@@ -22,13 +22,13 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Refresh the validation sample when a newer Lichess month exists
-        run: node tools/calibration/update-dataset.mjs
+        run: node tools/calibration-experiments/update-dataset.mjs
       - name: Commit the refreshed provenance lock
         run: |
-          if [ -n "$(git status --porcelain -- tools/calibration/dataset-lock.json)" ]; then
+          if [ -n "$(git status --porcelain -- tools/calibration-experiments/dataset-lock.json)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add tools/calibration/dataset-lock.json
+            git add tools/calibration-experiments/dataset-lock.json
             git commit -m "Update Lichess validation dataset lock"
             git push
           else

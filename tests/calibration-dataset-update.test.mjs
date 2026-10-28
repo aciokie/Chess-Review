@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMonths, newestMonth, archiveChecksum, decideUpdate } from '../tools/calibration/update-dataset.mjs';
+import { parseMonths, newestMonth, archiveChecksum, decideUpdate } from '../tools/calibration-experiments/update-dataset.mjs';
 
 const LIST = [
   'https://database.lichess.org/standard/lichess_db_standard_rated_2026-09.pgn.zst',

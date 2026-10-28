@@ -12,6 +12,9 @@ import { canonicalGameId, analysisCacheKey } from "./gameid.js";
 import { ConceptSession, conceptKey } from "./lib/concepts/session.js";
 import { CONCEPT_GROUPS, DEFAULT_CONCEPT_GROUPS, normalizeConceptGroups, FAST_CONCEPT_REMOVALS, CONCEPT_ITEMS, normalizeDisabledConcepts } from "./lib/concepts/controls.js";
 import { coachInsights, coachReply } from "./lib/coach-insights.js";
+import { publicGameAccuracy, sf19GameAccuracy } from "./lib/public-scoring.js";
+import { calibratedReview, scoringEvidenceComplete } from "./lib/calibrated-review.js";
+import { analyseCalibratedPosition } from "./lib/calibrated-search.js";
 
 // Development-only diagnostics for game identity / cache routing. Silent in production; enable by
 // opening the page with ?debug (analysis.html?debug#<job>) or setting globalThis.CHESS_REVIEW_DEBUG.
@@ -41,17 +44,66 @@ async function loadBook() {
   return BOOK;
 }
 
-/* ---------------- Calibration (tuned scoring params) ----------------
- * data/calibration.json, produced by tools/dataset/export-calibration.mjs (the big-compute tuner).
- * When present with display:"winpct", the SHOWN accuracy switches from the crude category-average
- * to the tuned win%-based accuracy method. Absent/invalid → the add-on
- * keeps its original behaviour, so this is always safe. */
+/* ---------------- Calibration (scoring models) ----------------
+ * Two sets of scoring parameters live side by side:
+ *
+ *  - PUBLIC_CALIB (data/calibration.json): the public, reproducible per-engine models — accuracy,
+ *    recorded-rating context and moves-only rating — fitted by tools/calibration. They exist for
+ *    Stockfish 18 NNUE (depth 16, Hash 16, Skill 20) and Stockfish 19 Lite (20,000 nodes) only, and
+ *    drive review accuracy and estimated rating for those builds (see lib/calibrated-review.js).
+ *  - CALIB (data/calibration-legacy.json): the earlier tuned win%/aggregation parameters. Builds
+ *    without a public model (Stockfish 19 Full, the native build, or a changed depth/hash/skill)
+ *    keep using this path, so those reviews behave exactly as before. It is also what move
+ *    classification reads. Absent/invalid → the original behaviour, so this is always safe.
+ *
+ * Categories are annotations; they never change the numerical accuracy or rating. */
 let CALIB = null;
+let PUBLIC_CALIB = null;
+let _calibrationPromise = null;
+function validPublicCalibration(data) {
+  return data?.schema === "chess-review-public-calibration-v1" && typeof data.version === "string" && !!data.version
+    && data.quality?.outcome?.schema === "human-outcome-v1" && Number.isFinite(data.quality.outcome.slopePerPawn) && data.quality.outcome.slopePerPawn > 0
+    && data.quality?.choice?.schema === "human-choice-v1" && !!data.quality.candidateVersion
+    && data.context?.model?.schema === "fullgame-equivalent-context-v1" && !!data.context.candidateVersion
+    && data.context?.sf19?.model?.schema === "fullgame-equivalent-context-v1" && !!data.context.sf19.candidateVersion
+    && ["sf18", "sf19"].every(build => data.movesOnly?.[build]?.model && !!data.movesOnly[build].candidateVersion);
+}
+async function loadJson(path) {
+  const response = await fetch(browserAPI.runtime.getURL(path));
+  if (!response.ok) throw Error(`${path} failed to load`);
+  return response.json();
+}
 async function loadCalibration() {
-  if (CALIB) return CALIB;
-  try { CALIB = await (await fetch(browserAPI.runtime.getURL("data/calibration.json"))).json(); }
-  catch { CALIB = {}; }
+  if (CALIB && PUBLIC_CALIB) return CALIB;
+  if (!_calibrationPromise) _calibrationPromise = (async () => {
+    // Legacy parameters: a failure leaves the original built-in defaults in force.
+    try { CALIB = await loadJson("data/calibration-legacy.json"); } catch { CALIB = {}; }
+    // Public models: a failure disables the public path (reviews fall back to the legacy scoring).
+    try {
+      const data = await loadJson("data/calibration.json");
+      PUBLIC_CALIB = validPublicCalibration(data) ? data : null;
+      if (!PUBLIC_CALIB) console.warn("[Chess Review] public calibration data is invalid; using legacy scoring");
+    } catch (error) { PUBLIC_CALIB = null; console.warn("[Chess Review] public calibration unavailable; using legacy scoring", error); }
+  })();
+  const pending = _calibrationPromise;
+  try { await pending; } finally { if (_calibrationPromise === pending) _calibrationPromise = null; }
   return CALIB;
+}
+// The public models exist for exactly these protocols. Anything else is scored by the legacy path.
+function publicScoringApplies(build, settings = S.settings) {
+  if (!PUBLIC_CALIB) return false;
+  if (build === "sf19lite") return true;   // fixed node budget, hash and strength (lib/calibrated-search.js)
+  return build === "nnue" && settings.engineDepth === 16 && settings.engineHash === 16
+    && settings.engineSkill === 20 && (settings.classifyLines || 1) === 1;
+}
+// True once any analyzed root carries a public-scoring observation (data-driven, so it also holds
+// for restored reviews and while a streaming review is still filling in).
+function reviewUsesPublicScoring(state = S) {
+  return !!PUBLIC_CALIB && Array.isArray(state.bests) && state.bests.some(root => root?.calibration);
+}
+// A rating is wanted in the "moves only" mode, or when a recorded rating is missing for either side.
+function needsMovesOnlyEvidence(settings = S.settings, players = S.players) {
+  return settings.ratingMode === "moves" || !Number(players?.w?.rating) || !Number(players?.b?.rating);
 }
 function calWinK() { return CALIB?.winK ?? 0.00368208; }
 function calMoveAcc() { return CALIB?.moveAcc ?? { a: 103.1668, b: 0.04354, c: 3.1669 }; }
@@ -138,6 +190,7 @@ const QUALITY_DESC = {
 };
 // Explanations for the accuracy and elo numbers (shown as a tooltip like the categories).
 const ACCURACY_INFO = "Accuracy (0–100) is an estimate calculated from local Stockfish evaluations using this extension's scoring rules. Higher scores indicate more accurate play. Scores depend on engine settings and scoring parameters and are not official platform scores.";
+const ELO_INFO_PUBLIC = "A rough estimate of the rating you played at in this game, from the public scoring model for this engine. With Use recorded rating it compares your accuracy with public players near the rating saved in the game; with Moves only it ignores that rating and estimates a blitz rating level from your moves alone. It is not an official rating — only an indication based on this single game, and needs enough non-forced moves to be shown.";
 const ELO_INFO = "A rough estimate of the rating you played at in this game. It anchors on your actual rating and adjusts up or down by how accurately you played this game (when no rating is known it falls back to accuracy alone). It's not an official rating — only an indication based on this single game.";
 // Explanations for the engine settings (shown on hover, same tooltip as the accuracy panel).
 const ENGINE_INFO = {
@@ -147,6 +200,7 @@ const ENGINE_INFO = {
   engineWorkers: "Number of Stockfish instances analysing positions in parallel. More workers finish the game faster on multi-core CPUs; the results are identical.",
   fastAnalysis:  "Trades quality for speed: the classification pass uses fewer engine lines. ~1.3×/1.6× faster, but evals shift slightly and clean games can pick up a few false minor missteps.",
   enginePath:    "Stockfish 18 NNUE is the default. Stockfish 19 Full is the strongest bundled build. Stockfish 19 Lite uses a smaller evaluation network for a compact alternative. Stockfish 19 (Native) runs a Stockfish 19 executable you installed on Windows through a small local helper — faster than WASM, and it falls back to the bundled builds if the helper isn't installed.",
+  ratingMode:    "Use recorded rating compares how you played with public players near the rating saved in the game. Moves only ignores that rating and estimates a blitz rating level from your moves alone. Both use the public per-engine models; builds without a public model keep the older estimate.",
   engineSkill:   "Caps the engine's playing strength (Stockfish 'Skill Level'). Max (20) = full strength. Lower values play deliberately weaker — useful for more human-like suggestions.",
   engineHash:    "Recommended: 16 MB for most reviews (the default). Try 32–64 MB for deeper analysis if your computer has spare memory. Each parallel worker uses its own hash table, so memory use is roughly Hash × Workers.",
   clsGood:       "A move that loses at least this much eval (in pawns) can be no better than \"Decent\". Below it, the move is \"Near best\". Lower = stricter.",
@@ -264,6 +318,9 @@ const DEFAULT_SETTINGS = {
   // Depth 16 (was 12): shallow searches give noisy evals that fabricate inaccuracies/mistakes and
   // inflate the accuracy variance vs the reference values. Deeper search is the single biggest accuracy fix.
   engineLines: 1, engineDepth: 16, enginePath: "nnue", engineHash: 16, engineSkill: 20,
+  // Estimated-rating mode for builds with a public model: "context" compares your performance with
+  // public players near the rating saved in the game; "moves" ignores it and estimates from moves alone.
+  ratingMode: "context",
   // Parallel analysis workers: independent single-threaded Stockfish instances that pull
   // positions from a shared queue. Each position is still searched identically (cold, same
   // depth/lines), so results are unchanged — only the wall-clock is parallelized. Default ≈
@@ -291,7 +348,7 @@ const DEFAULT_SETTINGS = {
 };
 // Keys reset by "Reset engine defaults" (everything in the Engine tab), and their default values.
 const ENGINE_SETTING_KEYS = [
-  "engineDepth", "classifyLines", "engineLines", "engineWorkers", "enginePath", "engineHash", "engineSkill",
+  "engineDepth", "classifyLines", "engineLines", "engineWorkers", "enginePath", "engineHash", "engineSkill", "ratingMode",
   "clsGood", "clsInacc", "clsBlunder", "clsClearAdv", "clsMistakeLoss", "clsMissTol",
   "accExcellent", "accGood", "accInacc", "accMiss", "accMistake", "accBlunder",
 ];
@@ -315,6 +372,7 @@ function isKnownEngineBuild(key) {
 function migrateEngineSettings(settings) {
   if (settings.enginePath === "sf19") settings.enginePath = "sf19lite";
   if (!isKnownEngineBuild(settings.enginePath)) settings.enginePath = DEFAULT_SETTINGS.enginePath;
+  if (settings.ratingMode !== "context" && settings.ratingMode !== "moves") settings.ratingMode = DEFAULT_SETTINGS.ratingMode;
 }
 // The engine panel shows up to this many candidate lines (searched on demand for the viewed position).
 const ENGINE_MAX_LINES = 4;
@@ -1469,12 +1527,58 @@ function phaseElo(state = S) {
   return out;
 }
 
+// Public-model scoring (Stockfish 18 NNUE / Stockfish 19 Lite): per-engine accuracy and rating from
+// lib/calibrated-review.js. A side's accuracy stays null until every one of its moves has a complete,
+// current-protocol observation, so a partial review is never shown as a whole-game score.
+function applyPublicScoring() {
+  S.calibrated = calibratedReview(S.positions, S.bests, PUBLIC_CALIB, S.players, S.settings.ratingMode || "context");
+  for (const side of ["w", "b"]) for (const move of S.calibrated[side].moves) S.accMove[move.ply] = move.quality;
+  return { w: S.calibrated.w.accuracy, b: S.calibrated.b.accuracy };
+}
+// Per-phase accuracy from the same scored decisions, aggregated with the engine's own game-accuracy
+// rule. Null for a phase a side hasn't fully scored (no inferred or partial phase numbers).
+function publicPhaseAccuracy(state = S) {
+  const phases = phaseByPly(state), out = { w: {}, b: {} };
+  for (const side of ["w", "b"]) for (const phase of PHASES) {
+    const plies = [];
+    for (let i = 1; i <= (state.total || 0); i++) if (state.positions[i]?.color === side && phases[i] === phase) plies.push(i);
+    const included = new Set(plies);
+    const scored = state.calibrated[side].moves.filter(move => included.has(move.ply));
+    const engines = new Set(scored.map(move => move.engine));
+    let value = null;
+    if (plies.length > 0 && scored.length === plies.length && engines.size === 1) {
+      try { value = engines.has("sf19lite") ? sf19GameAccuracy(scored) : publicGameAccuracy(scored); } catch { value = null; }
+    }
+    out[side][phase] = value;
+  }
+  return out;
+}
+// Estimated rating shown beside the accuracy: the public model's rating (rounded to 50) for builds
+// that have one, otherwise the earlier accuracy-anchored estimate.
+function ratingEstimate(side) {
+  if (S.publicScoring) {
+    const rating = S.calibrated?.[side]?.rating;
+    return Number.isFinite(rating) ? round50(rating) : null;
+  }
+  const recorded = S.players[side]?.rating;
+  return estimateElo(calAccBias(S.accElo[side], recorded), recorded);
+}
+function eloInfoText() {
+  return S.publicScoring ? ELO_INFO_PUBLIC : ELO_INFO;
+}
 function computeDerived() {
   classifyLine(S);
-  S.phaseAcc = phaseAccuracy(S);
-  S.phaseElo = phaseElo(S);
+  S.calibrated = null;
+  S.publicScoring = false;
+  let publicAccs = null;
+  if (reviewUsesPublicScoring()) {
+    try { publicAccs = applyPublicScoring(); S.publicScoring = true; }
+    catch (error) { console.warn("[Chess Review] public scoring failed; using the earlier scoring", error); S.calibrated = null; }
+  }
+  S.phaseAcc = S.publicScoring ? publicPhaseAccuracy(S) : phaseAccuracy(S);
+  S.phaseElo = S.publicScoring ? { w: {}, b: {} } : phaseElo(S);
   const N = S.total;
-  const eloAccs = sideAccuracies();   // win%-based accuracy → Elo (unchanged)
+  const eloAccs = S.publicScoring ? publicAccs : sideAccuracies();   // win%-based accuracy → Elo (earlier path, unchanged)
   for (const side of ["w", "b"]) {
     const counts = {}; QUALITY_ORDER.forEach((k) => (counts[k] = 0));
     const catScores = [];
@@ -1489,7 +1593,8 @@ function computeDerived() {
     // Displayed accuracy: with calibration (display:"winpct") show the tuned win%-based number that
     // the tuner produces; otherwise the original category average. Elo keeps the win%-based accuracy.
     const catAvg = catScores.length ? catScores.reduce((a, b) => a + b, 0) / catScores.length : null;
-    S.acc[side] = (CALIB?.display === "winpct") ? calAccBias(eloAccs[side], S.players[side]?.rating) : catAvg;
+    S.acc[side] = S.publicScoring ? eloAccs[side]
+      : ((CALIB?.display === "winpct") ? calAccBias(eloAccs[side], S.players[side]?.rating) : catAvg);
     S.accElo[side] = eloAccs[side];
     S.counts[side] = counts;
   }
@@ -3810,8 +3915,6 @@ function renderStats() {
   // The Elo model is fit to reference accuracy values, so feed it our best estimate of that number:
   // the accBias-corrected win%-based accuracy (same quantity the displayed accuracy uses in
   // win% mode). The actual rating anchors the estimate; accuracy nudges it.
-  const meRating = S.players[S.meSide]?.rating, opRating = S.players[opSide]?.rating;
-  const meEloAcc = calAccBias(S.accElo[S.meSide], meRating), opEloAcc = calAccBias(S.accElo[opSide], opRating);
   // Compact list by default; the expander arrow unfolds the whole list (incl. book moves).
   const list = S.qbreakExpanded ? QBREAK_FULL : QBREAK_SUMMARY;
 
@@ -3854,7 +3957,7 @@ function renderStats() {
       return el("span", { class: "phase-cell" + (v == null ? " none" : ""), title: `${PHASE_LABEL[p]} accuracy and estimated Elo` },
         el("i", {}, { opening: "Open", middlegame: "Mid", endgame: "End" }[p]),
         el("b", {}, S.analyzing ? "·" : phaseVal(v)),
-        el("span", { class: "phase-elo", onmouseenter: (ev) => showInfoTip(ev.currentTarget, "Estimated Elo", ELO_INFO), onmouseleave: hideQTip }, S.analyzing ? "≈ ·" : (e == null ? "≈ —" : "≈ " + e)));
+        S.publicScoring ? null : el("span", { class: "phase-elo", onmouseenter: (ev) => showInfoTip(ev.currentTarget, "Estimated Elo", ELO_INFO), onmouseleave: hideQTip }, S.analyzing ? "≈ ·" : (e == null ? "≈ —" : "≈ " + e)));
     }));
   UI.stats.replaceChildren(el("div", { class: "panel" },
     // The button is always rendered (disabled while analyzing or already practicing) so the
@@ -3869,7 +3972,7 @@ function renderStats() {
             ? loaderNode("acc-val", "var(--accent)")
             : el("span", { class: "acc-val", style: { color: "var(--accent)" }, onmouseenter: (e) => showInfoTip(e.currentTarget, "Accuracy", ACCURACY_INFO), onmouseleave: hideQTip }, meAcc == null ? "—" : meAcc.toFixed(1)),
           el("span", { class: "acc-bar" }, el("i", { style: { width: (S.analyzing ? 0 : (meAcc || 0)) + "%", background: "var(--accent)" } })),
-          el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", ELO_INFO), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (estimateElo(meEloAcc, meRating) ?? "—") + " elo"),
+          el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", eloInfoText()), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (ratingEstimate(S.meSide) ?? "—") + " elo"),
           phaseLine(S.meSide)),
         el("span", { class: "acc-vs" }, "VS"),
         el("div", { class: "acc-cell right" },
@@ -3878,7 +3981,7 @@ function renderStats() {
             ? loaderNode("acc-val", "var(--accent)")
             : el("span", { class: "acc-val", style: { color: "var(--ink-2)" }, onmouseenter: (e) => showInfoTip(e.currentTarget, "Accuracy", ACCURACY_INFO), onmouseleave: hideQTip }, opAcc == null ? "—" : opAcc.toFixed(1)),
           el("span", { class: "acc-bar" }, el("i", { style: { width: (S.analyzing ? 0 : (opAcc || 0)) + "%", background: "var(--ink-3)", marginLeft: (100 - (S.analyzing ? 100 : (opAcc || 0))) + "%" } })),
-          el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", ELO_INFO), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (estimateElo(opEloAcc, opRating) ?? "—") + " elo"),
+          el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", eloInfoText()), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (ratingEstimate(opSide) ?? "—") + " elo"),
           phaseLine(opSide)),
       ),
       qbreak,
@@ -5234,6 +5337,14 @@ function motorSettings() {
             el("span", { class: "set-note" },
               `⚠ At least one worker couldn't start "${ENGINE_NAME[S.settings.enginePath] || S.settings.enginePath}" and used ${ENGINE_NAME[S.engineFallbackBuild] || S.engineFallbackBuild} instead.`))
         : null,
+      el("div", { class: "set-row" },
+        setLabel("Rating estimate", ENGINE_INFO.ratingMode),
+        el("div", { class: "set-seg" },
+          el("button", { class: (S.settings.ratingMode || "context") === "context" ? "on" : "", onclick: () => setRatingMode("context") }, "Use recorded rating"),
+          el("button", { class: S.settings.ratingMode === "moves" ? "on" : "", onclick: () => setRatingMode("moves") }, "Moves only"),
+        ),
+      ),
+      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, scoringNote())),
       engineSlider("Strength (Skill)", "engineSkill", 0, 20, 1, { fmt: (v) => (v >= 20 ? "Max (20)" : String(v)), info: ENGINE_INFO.engineSkill }),
       engineSlider("Hash (MB)", "engineHash", 16, 256, 16, { fmt: (v) => v + " MB", info: ENGINE_INFO.engineHash }),
       el("div", { class: "set-row hint" },
@@ -5535,6 +5646,29 @@ async function setSetting(key, value) {
   if (UI.settings && !UI.settings.hidden) renderSettings();
 }
 // Engine setting: save, discard the live engine (new build/options), and re-analyze.
+// Switching the rating mode only needs a re-analysis when the saved observations lack the rating
+// evidence the other mode reads (or while a review is still running); otherwise it just re-scores.
+async function setRatingMode(value) {
+  S.settings.ratingMode = value;
+  await browserAPI.storage.local.set({ settings: S.settings });
+  const reanalyze = !S.meta?.explore
+    && (S.analyzing || (reviewUsesPublicScoring() && !publicEvidenceUsable(S.bests)));
+  if (reanalyze) scheduleReanalyze();
+  else { computeDerived(); renderStats(); renderReview(); }
+  if (UI.settings && !UI.settings.hidden) renderSettings();
+}
+// What scores the current build/settings combination, in plain words, for the Engine tab.
+function scoringNote() {
+  const build = S.activeEngineBuild || S.settings.enginePath;
+  if (!PUBLIC_CALIB) return "Public scoring models could not be loaded, so reviews use the earlier accuracy and rating estimate.";
+  if (publicScoringApplies(build, S.settings)) {
+    return build === "sf19lite"
+      ? "Accuracy and rating use the public Stockfish 19 Lite model (fixed 20,000-node search). Depth, hash and strength sliders only affect the live engine panel."
+      : "Accuracy and rating use the public Stockfish 18 NNUE model (depth 16, Hash 16 MB, full strength, 1 line).";
+  }
+  if (build === "nnue") return "These engine settings differ from the public Stockfish 18 model's protocol (depth 16, Hash 16 MB, full strength, 1 line), so the earlier accuracy and rating estimate is used. Reset to default to use the public model.";
+  return "This build has no public scoring model yet, so accuracy and rating use the earlier estimate. Stockfish 18 NNUE and Stockfish 19 Lite have public models.";
+}
 async function setEngineSetting(key, value) {
   S.settings[key] = value;
   S.engineFallbackBuild = null;
@@ -5934,8 +6068,19 @@ function currentGameId() {
 }
 
 function analysisSettingsKey() {
+  // The public model version is part of the key, so refreshed models never reuse older scores.
   return JSON.stringify([S.settings.enginePath, S.settings.engineDepth, S.settings.classifyLines,
-    S.settings.engineHash, S.settings.engineSkill]);
+    S.settings.engineHash, S.settings.engineSkill, PUBLIC_CALIB?.version || null]);
+}
+// A saved review that was scored by a public model must still carry that model's observations (and,
+// when a rating needs them, the rating evidence) — otherwise it is re-analyzed rather than shown
+// with a mix of scoring methods.
+function publicEvidenceUsable(bests) {
+  if (!scoringEvidenceComplete(bests, S.total, PUBLIC_CALIB)) return false;
+  if (!needsMovesOnlyEvidence()) return true;
+  const engine = bests[0]?.calibration?.build === "sf19lite" ? "sf19" : "sf18";
+  const wanted = PUBLIC_CALIB.movesOnly?.[engine]?.candidateVersion;
+  return !!wanted && bests.slice(0, S.total).every(root => root?.ratingEvidence?.candidateVersion === wanted);
 }
 
 function completeAnalysis(saved, count) {
@@ -5945,9 +6090,13 @@ function completeAnalysis(saved, count) {
 }
 
 function canRestoreAnalysis(saved) {
-  return completeAnalysis(saved, S.total + 1) && saved.pgn === S.pgn
+  if (!(completeAnalysis(saved, S.total + 1) && saved.pgn === S.pgn
     && (!saved.engineBuild || isKnownEngineBuild(saved.engineBuild))
-    && saved.settingsKey === analysisSettingsKey();
+    && saved.settingsKey === analysisSettingsKey())) return false;
+  // A review made by a build that has a public model must carry that model's observations; a save
+  // from before public scoring existed is re-analyzed instead of being shown with the earlier scores.
+  const build = saved.engineBuild || S.settings.enginePath;
+  return !publicScoringApplies(build, S.settings) || publicEvidenceUsable(saved.bests);
 }
 
 /* ---------------- Library write protection ----------------
@@ -6329,18 +6478,28 @@ async function startAnalysis() {
   const starts = await Promise.allSettled(
     Array.from({ length: nWorkers }, () => createEngine({ Hash: S.settings.engineHash, "Skill Level": S.settings.engineSkill }))
   );
-  const engines = starts.filter(r => r.status === "fulfilled").map(r => r.value);
+  let engines = starts.filter(r => r.status === "fulfilled").map(r => r.value);
   if (gen !== S.batchGen) { engines.forEach(e => e.terminate()); return; }
   const failed = starts.find(r => r.status === "rejected");
   if (failed) {
     engines.forEach(e => e.terminate());
     console.error("[Chess Review] no Stockfish build could be started:", failed.reason);
     S.evalEngines = []; S.analyzing = false;
-    S.analysisError = "the engine could not be started in this browser.";
+    S.analysisError = failed.reason?.code === "ENGINE_UNSUPPORTED"
+      ? failed.reason.message : "the engine could not be started in this browser.";
     S.verdict = "Engine unavailable — couldn't start Stockfish in this browser.";
     flushProgress(gen);
     return;
   }
+  // One build for the whole review, so every position is scored by the same model even if the
+  // workers' fallbacks differed. Public scoring applies only to builds that have a public model
+  // at the current protocol; every other build keeps the earlier search-and-score path.
+  const reviewBuild = engines[0].buildKey;
+  for (const eng of engines) if (eng.buildKey !== reviewBuild) eng.terminate();
+  engines = engines.filter(eng => eng.buildKey === reviewBuild);
+  const publicRun = publicScoringApplies(reviewBuild, S.settings);
+  const scoringSettings = { ...S.settings, classifyLines: 1 };
+  const needMovesOnly = needsMovesOnlyEvidence();
   S.evalEngines = engines;
 
   // Shared work queue. `nextIdx++` is atomic (no await between read and increment in a
@@ -6353,7 +6512,9 @@ async function startAnalysis() {
   // 50-move clock through the moves). Keying on all four means a board reached through one line is
   // never served a result computed for a different line — while identical lines still share work.
   let posCache = null;
-  if (multipv === 1) { try { posCache = await openPositionCache(); } catch { posCache = null; } }
+  // Public scoring pairs each root with the played move and rating evidence, so a bare per-position
+  // cache entry cannot stand in for it; only the earlier path uses this cache.
+  if (multipv === 1 && !publicRun) { try { posCache = await openPositionCache(); } catch { posCache = null; } }
   const cacheKey = (i) => {
     const hist = searchHistory(S.positions, i);
     // Skill Level is part of the key: below 20 Stockfish plays a deliberately weakened bestmove (and
@@ -6368,6 +6529,15 @@ async function startAnalysis() {
       if (i > S.total) return;
       const terminal = terminalScore(S.positions[i].fen, i);
       let res = terminal ? { score: terminal, bestmove: null, pv: "", lines: [] } : null;
+      if (!res && publicRun) {
+        const next = i < S.total ? S.positions[i + 1] : null;
+        res = await analyseCalibratedPosition(eng, {
+          fen: S.positions[i].fen, history: searchHistory(S.positions, i),
+          played: next ? next.from + next.to + (next.promotion || "") : null,
+          settings: scoringSettings, calibration: PUBLIC_CALIB, needMovesOnly,
+        });
+        if (!stillCurrent()) return;
+      }
       if (!res && posCache) { try { res = await posCache.get(cacheKey(i)); } catch { res = null; } }
       if (!res) {
         res = await eng.analyse(S.positions[i].fen, S.settings.engineDepth, multipv, searchHistory(S.positions, i));

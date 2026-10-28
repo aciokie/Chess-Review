@@ -4,11 +4,11 @@ import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import * as zlib from 'node:zlib';
-import { expected, moveQuality, summarize, assertCompatible, assertDisjoint, gameBootstrap } from '../tools/calibration/core.mjs';
-import { searchKey, readCache } from '../tools/calibration/analyze-games.mjs';
-import { Engine, engineConfig } from '../tools/calibration/engine.mjs';
-import { fit, predict } from '../tools/calibration/fit-rating.mjs';
-import { decompressArchive } from '../tools/calibration/zstd.mjs';
+import { expected, moveQuality, summarize, assertCompatible, assertDisjoint, gameBootstrap } from '../tools/calibration-experiments/core.mjs';
+import { searchKey, readCache } from '../tools/calibration-experiments/analyze-games.mjs';
+import { Engine, engineConfig } from '../tools/calibration-experiments/engine.mjs';
+import { fit, predict } from '../tools/calibration-experiments/fit-rating.mjs';
+import { decompressArchive } from '../tools/calibration-experiments/zstd.mjs';
 
 const wdl = (wins, draws = 0) => ({ wdl: [wins, draws, 1000 - wins - draws] });
 test('WDL expected result includes half draws, rejects invalid or absent WDL', () => {
