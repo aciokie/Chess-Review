@@ -3076,14 +3076,17 @@ function renderControls() {
     const atEnd = v.idx >= v.positions.length - 1;
     // Same layout as the normal controls — the central green Play slot becomes a red Exit button.
     const atStart = v.idx <= 0;
+    // On the standalone Explore board the line is the board's own content, not a side line off a
+    // reviewed game, so its accessible labels avoid the "Variation" wording. (See dd1e669.)
+    const lineName = S.meta?.explore ? "Line" : "Variation";
     UI.controls.replaceChildren(
-      el("button", { "aria-label": "Variation start", disabled: atStart, onclick: () => gotoVar(0) }, icon("first")),
+      el("button", { "aria-label": lineName + " start", disabled: atStart, onclick: () => gotoVar(0) }, icon("first")),
       el("button", { "aria-label": "Previous move", onclick: navPrev }, icon("prev")),
       S.meta?.explore
         ? el("span", { class: "pos" }, "Explore")
         : el("button", { class: "exit-analysis", title: "Exit analysis (Esc)", onclick: () => exitAnalysis(v.branchIdx) }, el("span", { class: "ea-x" }, "✕"), "Exit"),
       el("button", { "aria-label": "Next move", disabled: atEnd, onclick: navNext }, icon("next")),
-      el("button", { "aria-label": "Variation end", disabled: atEnd, onclick: () => gotoVar(v.positions.length - 1) }, icon("last")),
+      el("button", { "aria-label": lineName + " end", disabled: atEnd, onclick: () => gotoVar(v.positions.length - 1) }, icon("last")),
     );
     return;
   }

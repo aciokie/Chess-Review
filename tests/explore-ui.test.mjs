@@ -126,3 +126,13 @@ test('a side line off a reviewed game still gets the gray analysis look and vari
   assert.ok(a.dom.window.document.querySelector('.board').classList.contains('analysis'));
   assert.match(a.dom.window.document.getElementById('reviewMount').textContent, /Exploring a variation/);
 });
+
+test('the Explore controls never announce "Variation" to assistive tech, but a side line still does', t => {
+  const labels = a => [...a.dom.window.document.querySelectorAll('#controls button')]
+    .map(b => b.getAttribute('aria-label')).filter(Boolean);
+  const explore = board(t, '1. e4'); explore.call('renderControls');
+  assert.deepEqual(labels(explore), ['Line start', 'Previous move', 'Next move', 'Line end']);
+  const side = app(t); loadGame(side, '1. e4 e5 2. Nf3'); branch(side); side.state.meta = {};
+  side.call('computeDerived'); side.call('buildUI'); side.call('renderAll'); side.call('renderControls');
+  assert.deepEqual(labels(side), ['Variation start', 'Previous move', 'Next move', 'Variation end']);
+});
