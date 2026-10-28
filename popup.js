@@ -2,7 +2,7 @@
 import { openAnalysisTab, analyzeActiveTab, reloadActiveAndAnalyze, isSupportedChessUrl } from "./analyze-flow.js";
 import { findGameById, parseGameId, parseFlip, gameMeta } from "./chesscom.js";
 import { parseLichessGameId, parseLichessFlip, fetchGamePgn as fetchLichessPgn } from "./lichess.js";
-import { fetchRecentGames, describeEntry, isValidUsername } from "./recent-games.js";
+import { fetchRecentGames, describeEntry, describeDetails, isValidUsername } from "./recent-games.js";
 import { browserAPI } from "./browser-compat.js";
 
 const $ = (id) => document.getElementById(id);
@@ -259,8 +259,16 @@ function renderRecentList(viewer) {
     top.append(badge, whoEl);
     const sub = document.createElement("div");
     sub.className = "sub";
-    sub.textContent = [date, entry.timeClass, entry.opening ? `${entry.eco} ${entry.opening}` : ""].filter(Boolean).join(" | ");
+    const details = describeDetails(entry);
+    sub.textContent = [date, details.meta].filter(Boolean).join(" | ");
     row.append(top, sub);
+    if (details.opening) {
+      const op = document.createElement("div");
+      op.className = "opening";
+      op.textContent = details.opening;
+      op.title = details.opening;
+      row.append(op);
+    }
     row.addEventListener("click", () => reviewRecentGame(entry, viewer));
     return row;
   }));

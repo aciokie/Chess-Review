@@ -23,6 +23,67 @@ export function isValidUsername(username, site) {
   return false;
 }
 
+/* ---------------- game details shown in the list ---------------- */
+
+/**
+ * Full-move count of a PGN ("34" for a game that ended after 34 moves, even if Black's last move
+ * is missing). Headers, {comments}, (variations), $NAGs, move numbers and the result are ignored.
+ */
+export function countMoves(pgn) {
+  let text = String(pgn || "").replace(/^\s*\[[^\]]*\]\s*$/gm, " ");
+  text = text.replace(/\{[^}]*\}/g, " ").replace(/;[^\n]*/g, " ");
+  for (let prev = ""; prev !== text;) { prev = text; text = text.replace(/\([^()]*\)/g, " "); }
+  const plies = text.replace(/\$\d+/g, " ").replace(/\d+\.(\.\.)?/g, " ")
+    .split(/\s+/).filter((t) => t && !/^(1-0|0-1|1\/2-1\/2|½-½|\*)$/.test(t)).length;
+  return Math.ceil(plies / 2);
+}
+
+/** "600" → "10 min", "180+2" → "3+2", "30" → "30 s", "1/86400" (daily) → "Daily", "-" → "". */
+export function formatTimeControl(tc) {
+  const raw = String(tc || "").trim();
+  if (!raw || raw === "-" || raw === "?") return "";
+  if (raw.includes("/")) return "Daily";
+  const [baseText, incText] = raw.split("+");
+  const base = Number.parseInt(baseText, 10);
+  if (!Number.isFinite(base) || base <= 0) return "";
+  const inc = Number.parseInt(incText, 10);
+  const mins = +(base / 60).toFixed(2);
+  if (Number.isFinite(inc) && inc > 0) return `${mins}+${inc}`;
+  return base >= 60 ? `${mins} min` : `${base} s`;
+}
+
+// The Chess.com URL slug drops hyphens and apostrophes; put back the ones in common opening names.
+const OPENING_FIXES = [
+  [/\bCaro Kann\b/g, "Caro-Kann"], [/\bNimzo Indian\b/g, "Nimzo-Indian"], [/\bBogo Indian\b/g, "Bogo-Indian"],
+  [/\bKings\b/g, "King's"], [/\bQueens\b/g, "Queen's"], [/\bPetrovs\b/g, "Petrov's"],
+  [/\bAlekhines\b/g, "Alekhine's"], [/\bPhilidors\b/g, "Philidor's"], [/\bBirds\b/g, "Bird's"],
+];
+function restoreOpeningPunctuation(name) {
+  return OPENING_FIXES.reduce((out, [re, fix]) => out.replace(re, fix), name);
+}
+
+/**
+ * Chess.com's PGN carries [ECO "B12"] and [ECOUrl ".../openings/Caro-Kann-Defense-Advance-Variation-3...c5-4.Nf3"].
+ * The URL slug is the opening name followed by the moves that reached it, so cut it at the first move.
+ */
+export function chessComOpening(pgn) {
+  const url = pgnHeader(pgn, "ECOUrl");
+  const slug = decodeURIComponent((url.split("/openings/")[1] || "").split(/[?#]/)[0] || "");
+  const words = slug.split("-").filter(Boolean);
+  const cut = words.findIndex((w) => /^\d+\.{1,3}/.test(w));
+  const name = restoreOpeningPunctuation((cut === -1 ? words : words.slice(0, cut)).join(" ").trim());
+  return { eco: pgnHeader(pgn, "ECO"), name };
+}
+
+/** The extra lines the popup shows under a game: { meta: "blitz 3+0 | 34 moves", opening: "B12 Caro-Kann …" }. */
+export function describeDetails(entry) {
+  const tc = entry.timeControl ? ` ${entry.timeControl}` : "";
+  const moves = entry.moves ? `${entry.moves} ${entry.moves === 1 ? "move" : "moves"}` : "";
+  const klass = entry.timeClass && entry.timeClass !== "unknown" ? `${entry.timeClass}${tc}` : tc.trim();
+  const opening = entry.opening ? [entry.eco, entry.opening].filter(Boolean).join(" ") : "";
+  return { meta: [klass, moves].filter(Boolean).join(" | "), opening };
+}
+
 /* ---------------- Lichess ---------------- */
 
 /** Split a multi-game PGN export into individual PGN strings (headers + movetext blocks). */
@@ -94,6 +155,8 @@ export function lichessGameToEntry(pgn) {
     result: pgnHeader(pgn, "Result") || "?",
     playedAt,
     timeClass: timeClassFromLichessTimeControl(pgnHeader(pgn, "TimeControl")),
+    timeControl: formatTimeControl(pgnHeader(pgn, "TimeControl")),
+    moves: countMoves(pgn),
     opening: pgnHeader(pgn, "Opening"),
     eco: pgnHeader(pgn, "ECO"),
     rated: pgnHeader(pgn, "Rated") === "1",
@@ -139,6 +202,7 @@ export function chessComGameToEntry(game) {
   if (game.rules && game.rules !== "chess") return null;
   if (!isStandardVariant(pgnHeader(game.pgn, "Variant"))) return null;
   const url = game.url || "";
+  const op = chessComOpening(game.pgn);
   return {
     source: "chesscom",
     pgn: game.pgn,
@@ -151,8 +215,10 @@ export function chessComGameToEntry(game) {
     result: chessComResult(game.white?.result, game.black?.result),
     playedAt: game.end_time ? new Date(game.end_time * 1000).toISOString() : "",
     timeClass: game.time_class || "unknown",
-    opening: "",
-    eco: "",
+    timeControl: formatTimeControl(game.time_control),
+    moves: countMoves(game.pgn),
+    opening: op.name,
+    eco: op.eco,
     rated: game.rated !== false,
     raw: game, // the popup passes this to gameMeta() for the review payload
   };

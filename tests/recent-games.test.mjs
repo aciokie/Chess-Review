@@ -4,6 +4,7 @@ import {
   RECENT_MAX, splitMultiGamePgn, pgnHeader, timeClassFromLichessTimeControl,
   lichessGameToEntry, fetchLichessRecentGames, chessComResult, chessComGameToEntry,
   fetchChessComRecentGames, fetchRecentGames, isValidUsername, describeEntry,
+  countMoves, formatTimeControl, chessComOpening, describeDetails,
 } from '../recent-games.js';
 
 /* ---------------- fixtures ---------------- */
@@ -232,4 +233,57 @@ test('8-letter Lichess page names are not mistaken for game ids', () => {
     assert.equal(parseLichessGameId(`https://lichess.org/${p}`), null, p);
   }
   assert.deepEqual(parseLichessGameId('https://lichess.org/AbCd1234'), { id: 'AbCd1234' });
+});
+
+/* ---------------- list details: move count, time control, opening ---------------- */
+
+const ccPgn = [
+  '[Event "Live Chess"]', '[White "a"]', '[Black "b"]', '[Result "0-1"]', '[ECO "B12"]',
+  '[ECOUrl "https://www.chess.com/openings/Caro-Kann-Defense-Advance-Variation-3...c5-4.Nf3"]', '',
+  '1. e4 {[%clk 0:03:00.0]} 1... c6 {[%clk 0:03:00.0]} 2. d4 {[%clk 0:02:59.1]} 2... d5 {[%clk 0:02:58.7]} 3. e5 {[%clk 0:02:57]} 3... Bf5 {[%clk 0:02:55]} 0-1',
+].join('\n');
+
+test('countMoves counts full moves and ignores clocks, comments, variations and the result', () => {
+  assert.equal(countMoves(ccPgn), 3);
+  assert.equal(countMoves('[Event "x"]\n\n1. e4 e5 2. Nf3 *'), 2);                 // Black has not replied yet
+  assert.equal(countMoves('1. e4 e5 (1... c5 2. Nf3) 2. Nf3 { a comment } Nc6 $1 1/2-1/2'), 2);
+  assert.equal(countMoves('[Event "x"]\n\n*'), 0);
+  assert.equal(countMoves(''), 0);
+  assert.equal(countMoves('1. e4 1-0'), 1);
+});
+
+test('formatTimeControl turns raw controls into readable labels', () => {
+  assert.equal(formatTimeControl('600'), '10 min');
+  assert.equal(formatTimeControl('180+2'), '3+2');
+  assert.equal(formatTimeControl('180+0'), '3 min');
+  assert.equal(formatTimeControl('30'), '30 s');
+  assert.equal(formatTimeControl('900+10'), '15+10');
+  assert.equal(formatTimeControl('1/86400'), 'Daily');
+  assert.equal(formatTimeControl('-'), '');
+  assert.equal(formatTimeControl(''), '');
+  assert.equal(formatTimeControl(undefined), '');
+});
+
+test('chessComOpening reads the name from ECOUrl and drops the trailing moves', () => {
+  assert.deepEqual(chessComOpening(ccPgn), { eco: 'B12', name: 'Caro-Kann Defense Advance Variation' });
+  const noMoves = '[ECO "C50"]\n[ECOUrl "https://www.chess.com/openings/Italian-Game"]\n\n1. e4 *';
+  assert.deepEqual(chessComOpening(noMoves), { eco: 'C50', name: 'Italian Game' });
+  assert.equal(chessComOpening('[ECOUrl "https://www.chess.com/openings/Queens-Pawn-Opening-Torre-Attack"]').name, "Queen's Pawn Opening Torre Attack");
+  assert.equal(chessComOpening('[ECOUrl "https://www.chess.com/openings/Kings-Indian-Defense-Fianchetto-Variation-3.g3"]').name, "King's Indian Defense Fianchetto Variation");
+  assert.equal(chessComOpening('[ECOUrl "https://www.chess.com/openings/Nimzo-Indian-Defense-Classical-Variation"]').name, 'Nimzo-Indian Defense Classical Variation');
+  assert.deepEqual(chessComOpening('[Event "x"]\n\n1. e4 *'), { eco: '', name: '' });
+});
+
+test('entries from both sites carry moves, time control and opening', () => {
+  const li = lichessGameToEntry(liGame({ id: 'abcd1234', white: 'me', black: 'foe', result: '1-0', date: '2026.10.01', time: '10:00:00', tc: '180+2', elo: 1500 }));
+  assert.equal(li.moves, 2); assert.equal(li.timeControl, '3+2'); assert.equal(li.opening, 'Italian Game');
+  const cc = chessComGameToEntry({ ...ccGame({ id: '1', white: 'a', whiteResult: 'timeout', black: 'b', blackResult: 'win', endTime: 1760000000 }), pgn: ccPgn, time_control: '180' });
+  assert.equal(cc.moves, 3); assert.equal(cc.timeControl, '3 min'); assert.equal(cc.eco, 'B12'); assert.equal(cc.opening, 'Caro-Kann Defense Advance Variation');
+});
+
+test('describeDetails builds the two extra lines under a game', () => {
+  assert.deepEqual(describeDetails({ timeClass: 'blitz', timeControl: '3+2', moves: 34, eco: 'B12', opening: 'Caro Kann Defense' }),
+    { meta: 'blitz 3+2 | 34 moves', opening: 'B12 Caro Kann Defense' });
+  assert.deepEqual(describeDetails({ timeClass: 'unknown', timeControl: '', moves: 1, eco: '', opening: '' }), { meta: '1 move', opening: '' });
+  assert.deepEqual(describeDetails({ timeClass: 'rapid', timeControl: '10 min', moves: 0, eco: '', opening: 'Italian Game' }), { meta: 'rapid 10 min', opening: 'Italian Game' });
 });
