@@ -69,8 +69,15 @@ fitted by the reproducible pipeline in `tools/calibration`):
 | Build | Search used for scoring | Accuracy / rating |
 |-------|-------------------------|-------------------|
 | Stockfish 18 NNUE (default) | depth 16, Hash 16 MB, full strength, 1 line | Public SF18 model |
-| Stockfish 19 Lite | fixed 20,000 nodes, Hash 32 MB, full strength | Public SF19 model |
-| Stockfish 19 Full, Stockfish 19 (Native), or non-default depth/hash/skill | your settings | Earlier accuracy/rating estimate (`data/calibration-legacy.json`) |
+| Stockfish 19 Lite, Stockfish 19 Full, Stockfish 19 (Native) | fixed 20,000 nodes, Hash 32 MB, full strength, one thread | Public SF19 model (identical logic for all three) |
+| Stockfish 18 NNUE with non-default depth/hash/skill/lines | your settings | Earlier accuracy/rating estimate (`data/calibration-legacy.json`) |
+
+All Stockfish 19 builds run the same fixed-node protocol, so depth/hash/strength settings only affect the
+live engine panel for them. The SF19 accuracy curve (Lichess's public winning-chance curve) does not depend on
+which SF19 build searched. The SF19 *rating* models were fitted from Stockfish 19 **Lite** observations; Full and
+Native use them as-is, so their rating estimate is not separately calibrated. Scored native reviews need
+native helper 1.1 or newer (re-run `Install Native Engine.bat`); an older helper keeps working with the
+earlier estimate and the Engine tab says so.
 
 Settings → Engine → **Rating estimate** offers **Use recorded rating** (compares you with
 public players near the rating saved in the game) and **Moves only** (ignores that rating).

@@ -40,7 +40,7 @@ namespace ChessReview.NativeHost
 {
     internal static class Program
     {
-        public const string HostVersion = "1.0.0";
+        public const string HostVersion = "1.1.0";
         // Keep in sync with engine/native.js NATIVE_MAX_FRAME_BYTES.
         public const int MaxFrameBytes = 8 * 1024 * 1024;
         private const int SwHide = 0;
@@ -362,6 +362,12 @@ namespace ChessReview.NativeHost
             return value == null ? "" : Convert.ToString(value, CultureInfo.InvariantCulture);
         }
 
+        public static bool Bool(Dictionary<string, object> map, string key)
+        {
+            if (map == null || !map.ContainsKey(key)) return false;
+            return map[key] is bool && (bool)map[key];
+        }
+
         public static int Int(Dictionary<string, object> map, string key, int min, int max, int fallback)
         {
             if (map == null || !map.ContainsKey(key)) return fallback;
@@ -385,6 +391,8 @@ namespace ChessReview.NativeHost
         public readonly SortedDictionary<int, Dictionary<string, object>> Lines = new SortedDictionary<int, Dictionary<string, object>>();
         public Dictionary<string, object> Score;
         public string Pv = "";
+        // Scoring searches (protocol "scoring-v1"): only exact (non-bound) lines may become the result.
+        public bool RequireExact;
     }
 
     internal sealed class NativeHost
@@ -398,6 +406,7 @@ namespace ChessReview.NativeHost
         private static readonly Regex InfoMultipv = new Regex(@" multipv (\d+)", RegexOptions.Compiled);
         private static readonly Regex InfoPv = new Regex(@" pv (.+)$", RegexOptions.Compiled);
         private static readonly Regex InfoBound = new Regex(@"\b(lowerbound|upperbound)\b", RegexOptions.Compiled);
+        private static readonly Regex InfoWdl = new Regex(@" wdl (\d+) (\d+) (\d+)", RegexOptions.Compiled);
         private static readonly Regex InfoOptionName = new Regex(@"^option name (.+?) type ", RegexOptions.Compiled);
 
         private readonly HostConfig _config;
@@ -425,6 +434,7 @@ namespace ChessReview.NativeHost
         private string _engineSha256 = "";
         private bool _engineHashVerified = true;
         private int _engineMultipv = 1;
+        private int _engineThreads = 1;
         private bool _engineStarted;
         private bool _shuttingDown;
         private bool _fatalSent;
@@ -449,6 +459,9 @@ namespace ChessReview.NativeHost
                 { "type", "hello" },
                 { "version", Program.HostVersion },
                 { "engineConfigured", _config.EngineConfigured },
+                // Search protocol extensions the extension may use. "scoring-v1": fixed node budgets,
+                // cold searches, restricted (searchmoves) searches, exact-only results and WDL.
+                { "capabilities", new object[] { "scoring-v1" } },
             });
 
             // The browser kills us on a normal shutdown, and stdin EOF covers most crashes — but if
@@ -641,6 +654,7 @@ namespace ChessReview.NativeHost
             if (!String.IsNullOrEmpty(evalFile) && File.Exists(evalFile)) SendUci("setoption name EvalFile value " + evalFile);
             else if (!String.IsNullOrEmpty(evalFile)) Log.Write("configured EvalFile does not exist: " + evalFile);
             SendUci("setoption name Threads value " + _config.Threads.ToString(CultureInfo.InvariantCulture));
+            _engineThreads = _config.Threads;
             SendUci("setoption name Hash value " + _config.HashMb.ToString(CultureInfo.InvariantCulture));
             Log.Write("engine ready: '" + _uciIdName + "', threads=" + _config.Threads + ", hash=" + _config.HashMb);
             return true;
@@ -669,6 +683,7 @@ namespace ChessReview.NativeHost
                 { "type", "ready" },
                 { "engine", engine },
                 { "engineConfigured", _config.EngineConfigured },
+                { "capabilities", new object[] { "scoring-v1" } },
                 // Diagnostic only (and the smoke test uses it to check the exact child process).
                 { "enginePid", _engine != null ? _engine.Id : 0 },
             });
@@ -848,6 +863,15 @@ namespace ChessReview.NativeHost
 
             Dictionary<string, object> score = new Dictionary<string, object>();
             score[scoreMatch.Groups[1].Value] = value;
+            Match wdlMatch = InfoWdl.Match(line);
+            if (wdlMatch.Success)
+            {
+                score["wdl"] = new object[] {
+                    Int32.Parse(wdlMatch.Groups[1].Value, CultureInfo.InvariantCulture),
+                    Int32.Parse(wdlMatch.Groups[2].Value, CultureInfo.InvariantCulture),
+                    Int32.Parse(wdlMatch.Groups[3].Value, CultureInfo.InvariantCulture),
+                };
+            }
             Dictionary<string, object> entry = new Dictionary<string, object> {
                 { "score", score },
                 { "pv", pv },
@@ -860,6 +884,9 @@ namespace ChessReview.NativeHost
                 Job job = _current;
                 if (job == null) return;
                 if (multipv > job.Multipv) return;              // never grow past the requested line count
+                // Scoring searches keep only completed (exact) lines that carry a PV: a bound or an
+                // empty PV is not an observation of the position's value.
+                if (job.RequireExact && (bound != "exact" || pv.Length == 0)) return;
                 job.Lines[multipv] = entry;
                 if (multipv == 1) { job.Score = score; job.Pv = pv; }
             }
@@ -911,6 +938,25 @@ namespace ChessReview.NativeHost
             }
             int depth = Json.Int(message, "depth", 1, 128, 12);
             int multipv = Json.Int(message, "multipv", 1, 64, 1);
+            // Optional scoring-v1 fields. Older extensions omit them and get the plain `go depth` search.
+            string goKind = "depth";
+            int goValue = depth;
+            Dictionary<string, object> budget = message.ContainsKey("budget") ? message["budget"] as Dictionary<string, object> : null;
+            if (budget != null)
+            {
+                string kind = Json.String(budget, "kind");
+                if (kind == "nodes") { goKind = "nodes"; goValue = Json.Int(budget, "value", 1, 1000000000, 20000); }
+                else if (kind == "depth") { goKind = "depth"; goValue = Json.Int(budget, "value", 1, 128, depth); }
+                else { SendError(id, "rejected an invalid search budget", false); return; }
+            }
+            bool cold = Json.Bool(message, "cold");
+            bool requireExact = Json.Bool(message, "requireExact");
+            string searchMove = Json.String(message, "searchMove");
+            if (searchMove.Length > 0 && (!Regex.IsMatch(searchMove, @"^[a-h][1-8][a-h][1-8][qrbn]?$") || multipv != 1))
+            {
+                SendError(id, "rejected an invalid restricted search move", false);
+                return;
+            }
             string position = "position fen " + fen;
             Dictionary<string, object> history = message.ContainsKey("history") ? message["history"] as Dictionary<string, object> : null;
             if (history != null)
@@ -936,6 +982,7 @@ namespace ChessReview.NativeHost
             Job job = new Job();
             job.Id = id;
             job.Multipv = multipv;
+            job.RequireExact = requireExact;
             lock (_jobGate)
             {
                 if (_current != null)
@@ -949,13 +996,36 @@ namespace ChessReview.NativeHost
             // Mirror engine/uci.js: clear between positions so a native review is depth-for-depth the
             // same *kind* of cold search the WASM batch performs (classifications stay comparable).
             SendUci("ucinewgame");
+            // A fixed-node search is only reproducible on one thread, so scoring searches run on one
+            // thread and every other search returns to the configured count.
+            int wantThreads = goKind == "nodes" ? 1 : _config.Threads;
+            if (wantThreads != _engineThreads)
+            {
+                _engineThreads = wantThreads;
+                SendUci("setoption name Threads value " + wantThreads.ToString(CultureInfo.InvariantCulture));
+            }
+            if (cold)
+            {
+                bool canClear;
+                lock (_jobGate) { canClear = _engineOptions.Contains("Clear Hash"); }
+                if (canClear) SendUci("setoption name Clear Hash");
+                _readyOk.Reset();
+                SendUci("isready");
+                if (!_readyOk.Wait(ReadyHandshakeMs))
+                {
+                    lock (_jobGate) { if (_current == job) _current = null; }
+                    SendError(id, "the native engine did not finish clearing its hash", false);
+                    return;
+                }
+            }
             SendUci(position);
             if (multipv != _engineMultipv)
             {
                 _engineMultipv = multipv;
                 SendUci("setoption name MultiPV value " + multipv.ToString(CultureInfo.InvariantCulture));
             }
-            SendUci("go depth " + depth.ToString(CultureInfo.InvariantCulture));
+            SendUci("go " + goKind + " " + goValue.ToString(CultureInfo.InvariantCulture)
+                + (searchMove.Length > 0 ? " searchmoves " + searchMove : ""));
         }
 
         private void HandleStop(Dictionary<string, object> message)

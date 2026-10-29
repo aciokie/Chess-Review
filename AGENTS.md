@@ -52,7 +52,7 @@ Verification order that works: `npm test` → `npm run lint` → `npm run verify
 | `tools/calibration/` | Public scoring-model fitting + reproduction pipeline for `data/calibration.json` (never packaged) |
 | `tools/calibration-experiments/` | The fork's earlier offline calibration pilot and dataset updater (never packaged) |
 | `lib/public-scoring.js`, `lib/calibrated-review.js`, `lib/calibrated-search.js` | Per-engine accuracy/rating scoring: pure formulas, per-game scoring, and the search protocol that produces its observations |
-| `data/calibration.json` / `data/calibration-legacy.json` | Public per-engine models (SF18 NNUE, SF19 Lite) / earlier tuned parameters used by every other build and by move classification |
+| `data/calibration.json` / `data/calibration-legacy.json` | Public per-engine models (SF18 NNUE, SF19 family: Lite/Full/Native) / earlier tuned parameters used by non-default SF18 settings and by move classification |
 | `data/book.json` | Opening book (EPD format) |
 | `lib/chess.js` | Chess.js fork for move gen/validation |
 
@@ -67,6 +67,8 @@ Verification order that works: `npm test` → `npm run lint` → `npm run verify
 - `manifest.version` must equal `package.json` `version` or the build throws
 
 ## Native engine (Windows)
+- SF19 scoring family: `lib/scoring-builds.js` (`sf19lite`, `sf19full`, `native19`) — one protocol (fixed 20,000 nodes, Hash 32, UCI_ShowWDL, exact-only, restricted-move searches). Native needs host ≥ 1.1.0 (`hello.capabilities` contains `scoring-v1`); `S.nativeScoring === false` means an old helper and the legacy path. Never hard-code `sf19lite`; use `isSf19Build`
+- Native helper source changes need a Windows build: no prebuilt `ChessReviewHost.exe` is committed for 1.1.0 (installer compiles from source; the release workflow records the built hash). Commit one + its hash in `native/host/checksums.json` when a Windows build is available
 - Installer: `Install Native Engine.bat` (repo root) → `native/install.ps1` — defaults to the **bundled official SF19** (`native/engine/`, SHA-256 pinned automatically) and the **prebuilt helper** (`native/host/ChessReviewHost.exe`, hash in `native/host/checksums.json`); local csc compile is only a fallback. Unpack extension ids are auto-detected from browser profiles **at install time, so the unpacked extension must already be loaded when the installer runs**; reload the extension afterwards (it needs `nativeMessaging`)
 - `native/README.md` section "Get a genuine Stockfish 19 executable" is stale prose: the installer now defaults to the bundled `native/engine/stockfish-windows-x86-64-universal.exe`
 - Checksums pattern: `native/engine/checksums.json`, `native/host/checksums.json` — refresh the hash whenever a binary changes

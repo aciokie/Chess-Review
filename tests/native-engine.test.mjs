@@ -153,6 +153,97 @@ test('a game history is forwarded so the engine can replay the position', async 
   assert.equal((await pending).bestmove, 'a1a2');
 });
 
+/* ---------------- scoring-v1 protocol ---------------- */
+
+const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+const scoringHandshake = (port) => {
+  port.emit({ type: 'hello', version: '1.1.0', engineConfigured: true, capabilities: ['scoring-v1'] });
+  port.emit({ type: 'ready', engine: { name: 'Stockfish 19', verified: true }, engineConfigured: true, capabilities: ['scoring-v1'] });
+};
+
+test('scoring options reach the helper and the helper identity is exposed', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  scoringHandshake(ports[0]);
+  await eng.setOptions();
+  assert.equal(eng.identity, 'Stockfish 19');
+  const pending = eng.analyse(START, 16, 1, null, null, { budget: { kind: 'nodes', value: 20000 }, cold: true, requireExact: true, searchMove: 'e2e4' });
+  await settle();
+  const analyse = sentOf(ports[0], 'analyse')[0];
+  assert.deepEqual(analyse.budget, { kind: 'nodes', value: 20000 });
+  assert.equal(analyse.cold, true);
+  assert.equal(analyse.requireExact, true);
+  assert.equal(analyse.searchMove, 'e2e4');
+  ports[0].emit({ type: 'bestmove', id: 1, bestmove: 'e2e4', score: { cp: 35, wdl: [535, 100, 365] }, pv: 'e2e4 e7e5', lines: [{ score: { cp: 35, wdl: [535, 100, 365] }, pv: 'e2e4 e7e5', depth: 9, multipv: 1 }] });
+  const result = await pending;
+  assert.deepEqual(result.score, { cp: 35, wdl: [535, 100, 365] });
+  assert.equal(result.bestmove, 'e2e4');
+});
+
+test('malformed WDL from the helper is dropped, never imputed', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  scoringHandshake(ports[0]);
+  await eng.setOptions();
+  const pending = eng.analyse(START, 16, 1, null, null, { budget: { kind: 'nodes', value: 20000 }, requireExact: true });
+  await settle();
+  ports[0].emit({ type: 'bestmove', id: 1, bestmove: 'e2e4', score: { cp: 35, wdl: [900, 900, 900] }, pv: 'e2e4', lines: [] });
+  assert.deepEqual((await pending).score, { cp: 35 });
+});
+
+test('an exact-only search without a matching PV is rejected with the move to re-search', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  scoringHandshake(ports[0]);
+  await eng.setOptions();
+  const pending = eng.analyse(START, 16, 1, null, null, { budget: { kind: 'nodes', value: 20000 }, requireExact: true });
+  const failed = assert.rejects(pending, (error) => error.scoringMove === 'g1f3' && /exact/.test(error.message));
+  await settle();
+  ports[0].emit({ type: 'bestmove', id: 1, bestmove: 'g1f3', score: { cp: 0 }, pv: 'd2d4 d7d5', lines: [] });
+  await failed;
+  const restricted = eng.analyse(START, 16, 1, null, null, { budget: { kind: 'nodes', value: 20000 }, requireExact: true, searchMove: 'g1f3' });
+  const failedAgain = assert.rejects(restricted, (error) => error.scoringMove === undefined);
+  await settle();
+  ports[0].emit({ type: 'bestmove', id: 2, bestmove: 'g1f3', score: { cp: 0 }, pv: '', lines: [] });
+  await failedAgain;
+});
+
+test('invalid scoring arguments are rejected before anything is sent', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  scoringHandshake(ports[0]);
+  await eng.setOptions();
+  await assert.rejects(eng.analyse(START, 16, 1, null, null, { budget: { kind: 'seconds', value: 5 } }), /Invalid search budget/);
+  await assert.rejects(eng.analyse(START, 16, 1, null, null, { budget: { kind: 'nodes', value: 0 } }), /Invalid search budget/);
+  await assert.rejects(eng.analyse(START, 16, 2, null, null, { searchMove: 'e2e4' }), /Invalid restricted search move/);
+  await assert.rejects(eng.analyse(START, 16, 1, null, null, { searchMove: 'e2e4;quit' }), /Invalid restricted search move/);
+  assert.equal(sentOf(ports[0], 'analyse').length, 0);
+});
+
+test('a helper without scoring-v1 refuses scored searches instead of silently running go depth', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime });
+  handshake(ports[0]);   // helper 1.0.0: no capabilities
+  await eng.setOptions();
+  await assert.rejects(eng.analyse(START, 16, 1, null, null, { budget: { kind: 'nodes', value: 20000 } }), (error) => error.code === 'native-helper-outdated');
+  assert.equal(sentOf(ports[0], 'analyse').length, 0);
+  // Plain searches keep working on an old helper.
+  const plain = eng.analyse(START, 12, 1, null);
+  await settle();
+  assert.equal(sentOf(ports[0], 'analyse').length, 1);
+  ports[0].emit({ type: 'bestmove', id: 1, bestmove: 'e2e4', score: { cp: 10 }, pv: 'e2e4', lines: [] });
+  assert.equal((await plain).bestmove, 'e2e4');
+});
+
+test('the probe reports the helper version and its capabilities', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const probing = probeNativeHost({ runtime, timeoutMs: 1000 });
+  ports[0].emit({ type: 'hello', version: '1.1.0', engineConfigured: true, capabilities: ['scoring-v1', 'x y', 5] });
+  const result = await probing;
+  assert.equal(result.available, true);
+  assert.deepEqual(result.capabilities, ['scoring-v1']);
+});
+
 test('a history longer than the helper accepts is dropped instead of being rejected', async () => {
   const { runtime, ports } = fakeRuntime();
   const eng = new NativeEngine({ runtime });
@@ -341,7 +432,7 @@ test('probeNativeHost resolves available on hello, without starting an engine', 
   await settle();
   ports[0].emit({ type: 'hello', version: '1.0.0', engineConfigured: true, engine: { name: 'Stockfish 19', verified: true } });
   const status = await pending;
-  assert.deepEqual(status, { available: true, engineConfigured: true, version: '1.0.0', engine: { name: 'Stockfish 19', verified: true } });
+  assert.deepEqual(status, { available: true, engineConfigured: true, version: '1.0.0', capabilities: [], engine: { name: 'Stockfish 19', verified: true } });
   assert.equal(ports[0].disconnected, true, 'the probe must not leave the helper running');
   assert.deepEqual(ports[0].sent, [], 'the probe must never start an engine');
 });

@@ -7,6 +7,11 @@ import { canonicalGameId, analysisCacheKey, simpleHash } from '../../gameid.js';
 import { CONCEPT_GROUPS, DEFAULT_CONCEPT_GROUPS, normalizeConceptGroups, FAST_CONCEPT_REMOVALS, CONCEPT_ITEMS, normalizeDisabledConcepts } from '../../lib/concepts/controls.js';
 import { ConceptSession, conceptKey } from '../../lib/concepts/session.js';
 import { coachInsights, coachReply } from '../../lib/coach-insights.js';
+import { publicGameAccuracy, sf19GameAccuracy } from '../../lib/public-scoring.js';
+import { calibratedReview, scoringEvidenceComplete } from '../../lib/calibrated-review.js';
+import { analyseCalibratedPosition } from '../../lib/calibrated-search.js';
+import { isSf19Build, SF19_NODES } from '../../lib/scoring-builds.js';
+import { NATIVE_SCORING_CAPABILITY } from '../../engine/native.js';
 
 // Execute the real application in a DOM, stubbing only browser/engine boundaries.
 // Automatic startup and imports are omitted; production needs no test exports.
@@ -35,6 +40,8 @@ export function app(t) {
     canonicalGameId, analysisCacheKey, simpleHash,
     ConceptSession, conceptKey, coachInsights, coachReply, CONCEPT_GROUPS, DEFAULT_CONCEPT_GROUPS,
     normalizeConceptGroups, FAST_CONCEPT_REMOVALS, CONCEPT_ITEMS, normalizeDisabledConcepts,
+    publicGameAccuracy, sf19GameAccuracy, calibratedReview, scoringEvidenceComplete, analyseCalibratedPosition,
+    isSf19Build, SF19_NODES, NATIVE_SCORING_CAPABILITY,
     Engine: class { constructor() { throw Error('Unexpected real engine'); } },
     fetch: async () => { throw Error('Unexpected network access'); },
     requestAnimationFrame: () => 0, cancelAnimationFrame() {},

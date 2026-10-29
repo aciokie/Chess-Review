@@ -5,7 +5,7 @@
 
 import { Chess } from "./lib/chess.js";
 import { Engine } from "./engine/uci.js";
-import { NativeEngine, nativeMessagingSupported, probeNativeHost } from "./engine/native.js";
+import { NativeEngine, nativeMessagingSupported, probeNativeHost, NATIVE_SCORING_CAPABILITY } from "./engine/native.js";
 import { flagCodeForCountryId, countryNameForId } from "./flags.js";
 import { browserAPI } from "./browser-compat.js";
 import { canonicalGameId, analysisCacheKey } from "./gameid.js";
@@ -15,6 +15,7 @@ import { coachInsights, coachReply } from "./lib/coach-insights.js";
 import { publicGameAccuracy, sf19GameAccuracy } from "./lib/public-scoring.js";
 import { calibratedReview, scoringEvidenceComplete } from "./lib/calibrated-review.js";
 import { analyseCalibratedPosition } from "./lib/calibrated-search.js";
+import { isSf19Build, SF19_NODES } from "./lib/scoring-builds.js";
 
 // Development-only diagnostics for game identity / cache routing. Silent in production; enable by
 // opening the page with ?debug (analysis.html?debug#<job>) or setting globalThis.CHESS_REVIEW_DEBUG.
@@ -92,7 +93,9 @@ async function loadCalibration() {
 // The public models exist for exactly these protocols. Anything else is scored by the legacy path.
 function publicScoringApplies(build, settings = S.settings) {
   if (!PUBLIC_CALIB) return false;
-  if (build === "sf19lite") return true;   // fixed node budget, hash and strength (lib/calibrated-search.js)
+  // Every Stockfish 19 build (Full, Lite, Native) is scored by the same fixed 20,000-node protocol
+  // (lib/calibrated-search.js). A native helper older than 1.1 cannot run it, so it keeps the earlier path.
+  if (isSf19Build(build)) return build !== NATIVE_BUILD || S.nativeScoring !== false;
   return build === "nnue" && settings.engineDepth === 16 && settings.engineHash === 16
     && settings.engineSkill === 20 && (settings.classifyLines || 1) === 1;
 }
@@ -1547,7 +1550,7 @@ function publicPhaseAccuracy(state = S) {
     const engines = new Set(scored.map(move => move.engine));
     let value = null;
     if (plies.length > 0 && scored.length === plies.length && engines.size === 1) {
-      try { value = engines.has("sf19lite") ? sf19GameAccuracy(scored) : publicGameAccuracy(scored); } catch { value = null; }
+      try { value = [...engines].some(isSf19Build) ? sf19GameAccuracy(scored) : publicGameAccuracy(scored); } catch { value = null; }
     }
     out[side][phase] = value;
   }
@@ -2384,6 +2387,7 @@ async function createEngine(opts = {}) {
         // Remember what the helper REALLY launched, so an engine that is not Stockfish 19 is never
         // shown under the "Stockfish 19 (Native)" name.
         S.nativeEngineInfo = eng.engineInfo || null;
+        S.nativeScoring = (eng.capabilities || []).includes(NATIVE_SCORING_CAPABILITY);
         S.nativeFailure = null;
         S.nativeFailures = 0; S.nativeTripped = false;
       }
@@ -5136,7 +5140,11 @@ function ensureNativeStatus() {
     return S.nativeStatus;
   }
   S.nativeProbe = probeNativeHost()
-    .then((status) => { S.nativeStatus = status; })
+    .then((status) => {
+      S.nativeStatus = status;
+      // Helpers older than 1.1 predate the scoring protocol; know that before the first review.
+      if (status && status.available) S.nativeScoring = (status.capabilities || []).includes(NATIVE_SCORING_CAPABILITY);
+    })
     .catch((e) => { S.nativeStatus = { available: false, reason: "probe-failed", message: e?.message }; })
     .finally(() => {
       S.nativeProbe = null;
@@ -5189,6 +5197,9 @@ function nativeStatusRow(status) {
         : status.engine && status.engine.verified === false
           ? `⚠ Native helper is running "${status.engine.name || "an unidentified engine"}" — that is not a verified Stockfish 19 build. Configure the official Stockfish 19 executable (see native/README.md).`
           : `Native helper detected${status.engine && status.engine.name ? ` — ${status.engine.name}` : ""}${status.version ? ` (helper v${status.version})` : ""}.`;
+  if (status.available && status.engineConfigured !== false && !(status.capabilities || []).includes(NATIVE_SCORING_CAPABILITY)) {
+    note += " ⚠ This helper is older than the Stockfish 19 scoring protocol, so native reviews use the earlier accuracy estimate. Run Install Native Engine.bat again to update it.";
+  }
   if (status.available && S.nativeTripped) note += " ⚠ Native failed repeatedly this session — WASM is used until you press Recheck.";
   if (status.available && S.settings.enginePath === "native19" && !S.nativeTripped) note += " Native is much faster than WASM — 2-4 Workers are usually plenty.";
   const kids = [el("span", { class: "set-note" }, note)];
@@ -5662,12 +5673,13 @@ function scoringNote() {
   const build = S.activeEngineBuild || S.settings.enginePath;
   if (!PUBLIC_CALIB) return "Public scoring models could not be loaded, so reviews use the earlier accuracy and rating estimate.";
   if (publicScoringApplies(build, S.settings)) {
-    return build === "sf19lite"
-      ? "Accuracy and rating use the public Stockfish 19 Lite model (fixed 20,000-node search). Depth, hash and strength sliders only affect the live engine panel."
+    return isSf19Build(build)
+      ? `Accuracy and rating use the public Stockfish 19 model (fixed ${SF19_NODES.toLocaleString("en-US")}-node search, the same for ${ENGINE_NAME[build]}). Depth, hash and strength sliders only affect the live engine panel.`
       : "Accuracy and rating use the public Stockfish 18 NNUE model (depth 16, Hash 16 MB, full strength, 1 line).";
   }
   if (build === "nnue") return "These engine settings differ from the public Stockfish 18 model's protocol (depth 16, Hash 16 MB, full strength, 1 line), so the earlier accuracy and rating estimate is used. Reset to default to use the public model.";
-  return "This build has no public scoring model yet, so accuracy and rating use the earlier estimate. Stockfish 18 NNUE and Stockfish 19 Lite have public models.";
+  if (build === NATIVE_BUILD && S.nativeScoring === false) return "The installed native helper is older than the Stockfish 19 scoring protocol, so accuracy and rating use the earlier estimate. Run Install Native Engine.bat again to update it.";
+  return "This build has no public scoring model, so accuracy and rating use the earlier estimate.";
 }
 async function setEngineSetting(key, value) {
   S.settings[key] = value;
@@ -6078,7 +6090,7 @@ function analysisSettingsKey() {
 function publicEvidenceUsable(bests) {
   if (!scoringEvidenceComplete(bests, S.total, PUBLIC_CALIB)) return false;
   if (!needsMovesOnlyEvidence()) return true;
-  const engine = bests[0]?.calibration?.build === "sf19lite" ? "sf19" : "sf18";
+  const engine = isSf19Build(bests[0]?.calibration?.build) ? "sf19" : "sf18";
   const wanted = PUBLIC_CALIB.movesOnly?.[engine]?.candidateVersion;
   return !!wanted && bests.slice(0, S.total).every(root => root?.ratingEvidence?.candidateVersion === wanted);
 }
@@ -6498,6 +6510,9 @@ async function startAnalysis() {
   for (const eng of engines) if (eng.buildKey !== reviewBuild) eng.terminate();
   engines = engines.filter(eng => eng.buildKey === reviewBuild);
   const publicRun = publicScoringApplies(reviewBuild, S.settings);
+  if (publicRun === false && reviewBuild === NATIVE_BUILD && S.nativeScoring === false) {
+    console.warn("[Chess Review] the native helper predates the scoring protocol; using the earlier accuracy estimate. Re-run Install Native Engine.bat.");
+  }
   const scoringSettings = { ...S.settings, classifyLines: 1 };
   const needMovesOnly = needsMovesOnlyEvidence();
   S.evalEngines = engines;

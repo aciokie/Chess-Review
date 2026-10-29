@@ -63,6 +63,15 @@ jobs:
           Write-Host ("Built {0} bytes" -f (Get-Item $exe).Length)
           Write-Host ("SHA256 {0}" -f (Get-FileHash $exe -Algorithm SHA256).Hash)
 
+      - name: Record the built helper's hash for the release package
+        shell: powershell
+        run: |
+          $path = "native\host\checksums.json"
+          $manifest = @(Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json)
+          $hash = (Get-FileHash "native\host\ChessReviewHost.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+          foreach ($entry in $manifest) { if ($entry.file -eq "ChessReviewHost.exe") { $entry.sha256 = $hash } }
+          ConvertTo-Json -InputObject $manifest -Depth 5 | Set-Content -LiteralPath $path -Encoding UTF8
+
       - name: Package ChessReview-NativeEngine-Windows.zip
         shell: powershell
         run: |

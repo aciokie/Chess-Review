@@ -240,6 +240,23 @@ await check('search limits are honoured: MultiPV yields one line per requested l
   assert(result.lines[0].score.cp > result.lines[2].score.cp, 'the test engine reports decreasing scores per line');
 });
 
+await check('scoring-v1: fixed-node, restricted, exact-only searches report WDL and ignore bounds', async () => {
+  const hello = host.state.messages.find((message) => message.type === 'hello');
+  assert(Array.isArray(hello.capabilities) && hello.capabilities.includes('scoring-v1'), `capability missing: ${JSON.stringify(hello)}`);
+  host.send({ type: 'setoption', name: 'UCI_ShowWDL', value: 'true' });
+  host.send(analyse({ id: 21, budget: { kind: 'nodes', value: 20000 }, cold: true, requireExact: true }));
+  const plain = await host.waitFor((message) => message.type === 'bestmove' && message.id === 21, 10000, 'node-budget bestmove');
+  assert(plain.bestmove === 'e2e4' && plain.score.cp === 35, `the bound line must not become the score: ${JSON.stringify(plain.score)}`);
+  assert(Array.isArray(plain.score.wdl) && plain.score.wdl.length === 3 && plain.score.wdl.reduce((a, b) => a + b, 0) === 1000, `WDL missing: ${JSON.stringify(plain.score)}`);
+  host.send(analyse({ id: 22, budget: { kind: 'nodes', value: 20000 }, cold: true, requireExact: true, searchMove: 'g1f3' }));
+  const restricted = await host.waitFor((message) => message.type === 'bestmove' && message.id === 22, 10000, 'restricted bestmove');
+  assert(restricted.bestmove === 'g1f3' && restricted.pv.startsWith('g1f3'), `searchmoves did not reach the engine: ${JSON.stringify(restricted)}`);
+  host.send(analyse({ id: 23, budget: { kind: 'nodes', value: 20000 }, searchMove: 'zzzz' }));
+  const rejected = await host.waitFor((message) => message.type === 'error' && message.id === 23, 5000, 'invalid searchMove error');
+  assert(!rejected.fatal, 'an invalid restricted move is rejected without killing the host');
+  host.send({ type: 'setoption', name: 'UCI_ShowWDL', value: 'false' });
+});
+
 await check('a game history is replayed and an invalid position is rejected without killing the host', async () => {
   host.send(analyse({
     id: 7, depth: 4,

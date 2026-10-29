@@ -106,7 +106,7 @@ Distributed by Lichess (lila); high-quality vector SVGs.
 - **Origin:** ported from the upstream project, <https://github.com/T-Julsgaard/Chess-Review> (GPL-3.0).
 - **Fitting data:** normalized public games from the [Lichess open database](https://database.lichess.org/)
   (**CC0 1.0**); `tools/calibration/public/sources.json` records the archives, byte ranges and hashes.
-- **Stockfish 19 Lite accuracy display:** uses the published Lichess centipawn winning-chance curve and move
+- **Stockfish 19 accuracy display (Lite, Full and Native):** uses the published Lichess centipawn winning-chance curve and move
   transform (<https://lichess.org/page/accuracy>); it is a re-implementation of the formulas, not Lichess code,
   and does not reproduce official Lichess scores.
 - The earlier tuned parameters remain in `data/calibration-legacy.json`.

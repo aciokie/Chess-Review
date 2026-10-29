@@ -28,6 +28,8 @@ internal static class FakeEngine
     private static int _multipv = 1;
     private static volatile bool _stop;
     private static volatile string _bestmove = "e2e4";
+    private static volatile bool _showWdl;
+    private static volatile string _searchMove = "";
 
     private static void Out(string line)
     {
@@ -74,6 +76,10 @@ internal static class FakeEngine
                 Out("option name Skill Level type spin default 20 min 0 max 20");
                 Out("option name EvalFile type string default nn-test.nnue");
                 Out("option name UCI_AnalyseMode type check default false");
+                Out("option name UCI_ShowWDL type check default false");
+                Out("option name UCI_LimitStrength type check default false");
+                Out("option name UCI_Chess960 type check default false");
+                Out("option name Clear Hash type button");
                 Out("uciok");
             }
             else if (line == "isready")
@@ -88,6 +94,7 @@ internal static class FakeEngine
                 {
                     string name = line.Substring(nameAt + 6, valueAt - nameAt - 6).Trim();
                     string value = line.Substring(valueAt + 7).Trim();
+                    if (name.Equals("UCI_ShowWDL", StringComparison.OrdinalIgnoreCase)) _showWdl = value == "true";
                     if (name.Equals("MultiPV", StringComparison.OrdinalIgnoreCase))
                     {
                         int parsed;
@@ -122,6 +129,24 @@ internal static class FakeEngine
         if (Regex.IsMatch(_position, @"\s9999\s*$")) { Crash(); return; }
         if (Regex.IsMatch(_position, @"\s9998\s*$")) return;   // wedge: no reply at all
         _bestmove = Regex.IsMatch(_position, @"\s9997\s*$") ? "(none)" : "e2e4";
+
+        // `go nodes N [searchmoves m]` (the scoring protocol): one bounded line, then one exact line.
+        _searchMove = "";
+        int movesAt = goLine.IndexOf(" searchmoves ", StringComparison.Ordinal);
+        if (movesAt >= 0) _searchMove = goLine.Substring(movesAt + 13).Trim().Split(' ')[0];
+        int nodesAt = goLine.IndexOf(" nodes ", StringComparison.Ordinal);
+        if (nodesAt >= 0)
+        {
+            int nodes;
+            string text = goLine.Substring(nodesAt + 7).Trim().Split(' ')[0];
+            if (Int32.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out nodes))
+            {
+                Thread nodeWorker = new Thread(delegate() { SearchNodes(nodes); });
+                nodeWorker.IsBackground = true;
+                nodeWorker.Start();
+                return;
+            }
+        }
 
         int depth = 12;
         int depthAt = goLine.IndexOf(" depth ", StringComparison.Ordinal);
@@ -159,6 +184,25 @@ internal static class FakeEngine
         }
         Out("bestmove " + _bestmove);
         _stop = false;
+    }
+
+    private static void SearchNodes(int nodes)
+    {
+        string move = _searchMove.Length > 0 ? _searchMove : "e2e4";
+        // A bound first (must be ignored by an exact-only search), then the exact line.
+        Out(String.Format(CultureInfo.InvariantCulture,
+            "info depth 3 seldepth 3 multipv 1 score cp 999 lowerbound{0} nodes {1} pv d2d4", Wdl(999), nodes));
+        Out(String.Format(CultureInfo.InvariantCulture,
+            "info depth 4 seldepth 4 multipv 1 score cp 35{0} nodes {1} pv {2} e7e5 g1f3", Wdl(35), nodes, move));
+        Out("bestmove " + move);
+    }
+
+    private static string Wdl(int cp)
+    {
+        if (!_showWdl) return "";
+        int win = Math.Max(0, Math.Min(1000, 500 + cp));
+        int loss = Math.Max(0, Math.Min(1000 - win, 400 - cp));
+        return String.Format(CultureInfo.InvariantCulture, " wdl {0} {1} {2}", win, 1000 - win - loss, loss);
     }
 
     private static string Pv(int multipv)

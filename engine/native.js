@@ -6,7 +6,10 @@
 // between the two without touching the classification, accuracy or UI code:
 //
 //   await eng.setOptions({Hash, "Skill Level"})           // handshake (rejects when the host is missing)
-//   await eng.analyse(fen, depth, multipv, history)       // -> {bestmove, score, pv, lines}
+//   await eng.analyse(fen, depth, multipv, history, onProgress, options)
+//                                                         // -> {bestmove, score, pv, lines}
+//     options = {budget:{kind:"nodes"|"depth",value}, cold, requireExact, searchMove} is the
+//     "scoring-v1" protocol (helper 1.1+): fixed-node, exact-only, restricted-move searches with WDL.
 //   eng.stop() / eng.cancelPending() / eng.terminate() / eng.dead / eng.buildKey
 //
 // Everything the host sends back is validated here: a Native Messaging reply is not trusted just
@@ -41,6 +44,8 @@ export const NATIVE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
 export const NATIVE_MAX_HISTORY_MOVES = 1024;
 
 const HOST_MESSAGE_TYPES = new Set(["hello", "ready", "pong", "info", "bestmove", "error"]);
+// Search-protocol extensions a helper may advertise in `hello`/`ready`. Helpers older than 1.1 omit them.
+export const NATIVE_SCORING_CAPABILITY = "scoring-v1";
 
 /** Is the Native Messaging API present in this browser context? (Absent in page-world/tests.) */
 export function nativeMessagingSupported(runtime = browserAPI?.runtime) {
@@ -58,10 +63,19 @@ function asInt(value, min, max) {
   return Math.max(min, Math.min(max, Math.trunc(n)));
 }
 
+// Stockfish's UCI_ShowWDL triple: win/draw/loss permille from the side to move, summing to 1000.
+function normalizeWdl(raw) {
+  if (!Array.isArray(raw) || raw.length !== 3) return null;
+  const wdl = raw.map((value) => (Number.isInteger(value) && value >= 0 && value <= 1000 ? value : null));
+  return wdl.includes(null) || wdl[0] + wdl[1] + wdl[2] !== 1000 ? null : wdl;
+}
+
 function normalizeScore(raw) {
   if (!raw || typeof raw !== "object") return null;
-  if (raw.cp != null) { const cp = asInt(raw.cp, -100000, 100000); if (cp !== null) return { cp }; }
-  if (raw.mate != null) { const mate = asInt(raw.mate, -1000, 1000); if (mate !== null) return { mate }; }
+  const wdl = normalizeWdl(raw.wdl);
+  const extra = wdl ? { wdl } : {};
+  if (raw.cp != null) { const cp = asInt(raw.cp, -100000, 100000); if (cp !== null) return { cp, ...extra }; }
+  if (raw.mate != null) { const mate = asInt(raw.mate, -1000, 1000); if (mate !== null) return { mate, ...extra }; }
   return null;
 }
 
@@ -90,6 +104,9 @@ function normalizeHostMessage(raw) {
   if (raw.fatal === true) out.fatal = true;
   if (typeof raw.version === "string") out.version = raw.version.slice(0, 40);
   if (typeof raw.engineConfigured === "boolean") out.engineConfigured = raw.engineConfigured;
+  if (Array.isArray(raw.capabilities)) {
+    out.capabilities = raw.capabilities.filter((c) => typeof c === "string" && /^[a-z0-9-]{1,32}$/.test(c)).slice(0, 16);
+  }
   if (raw.engine && typeof raw.engine === "object") {
     out.engine = {
       name: typeof raw.engine.name === "string" ? raw.engine.name.slice(0, 120) : null,
@@ -154,6 +171,7 @@ export function probeNativeHost({ runtime = browserAPI?.runtime, hostName = NATI
         available: true,
         engineConfigured: msg.engineConfigured !== false,
         version: msg.version || null,
+        capabilities: msg.capabilities || [],
         engine: msg.engine || null,
       });
     });
@@ -186,6 +204,7 @@ export class NativeEngine {
     this.buildKey = null;
     this.engineInfo = null;   // { name, verified } reported by the helper once Stockfish is up
     this.hello = null;
+    this.capabilities = [];   // search-protocol extensions advertised by the helper (hello/ready)
     this._nextId = 0;
     this._onReady = null;
     this._onFail = null;
@@ -209,6 +228,9 @@ export class NativeEngine {
     this._ready = this._handshake(uciOptions);
     this._ready.catch(() => {}); // pre-attach: an unconsumed handshake (nobody awaited) must not warn
   }
+
+  /** The helper's own `id name` (e.g. "Stockfish 19"), the same field engine/uci.js exposes. */
+  get identity() { return this.engineInfo?.name || null; }
 
   _rejectReady(err) {
     this.dead = true;
@@ -295,19 +317,38 @@ export class NativeEngine {
     const replay = job.history && job.history.initialFen && Array.isArray(job.history.moves) && job.history.moves.length
       && job.history.moves.length <= NATIVE_MAX_HISTORY_MOVES
       ? { initialFen: job.history.initialFen, moves: job.history.moves } : null;
-    this._post({ type: "analyse", id: job.id, fen: job.fen, depth: job.depth, multipv: job.multipv, history: replay });
+    const message = { type: "analyse", id: job.id, fen: job.fen, depth: job.depth, multipv: job.multipv, history: replay };
+    if (job.budget) message.budget = { kind: job.budget.kind, value: job.budget.value };
+    if (job.cold) message.cold = true;
+    if (job.requireExact) message.requireExact = true;
+    if (job.searchMove) message.searchMove = job.searchMove;
+    this._post(message);
   }
 
   /**
    * Analyze one position. Same contract as Engine.analyse: resolves to
    * { bestmove, score:{cp|mate}, pv, lines:[{score,pv,depth,bound,multipv}] } sorted best→worst.
    */
-  async analyse(fen, depth = 12, multipv = 1, history = null) {
+  async analyse(fen, depth = 12, multipv = 1, history = null, _onProgress = null, options = {}) {
+    const { searchMove = null, budget = null, cold = false, requireExact = false } = options || {};
+    if (budget && (!["nodes", "depth"].includes(budget.kind) || !Number.isSafeInteger(budget.value) || budget.value < 1)) {
+      throw new Error("Invalid search budget");
+    }
+    if (searchMove && (!/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(searchMove) || multipv !== 1)) {
+      throw new Error("Invalid restricted search move");
+    }
     await this._ready;
     if (this.dead) throw new Error("native engine is no longer running");
+    if ((budget || cold || requireExact || searchMove) && !this.capabilities.includes(NATIVE_SCORING_CAPABILITY)) {
+      // An older helper would silently run a plain `go depth`, which is not the scoring protocol.
+      const error = new Error("the installed native helper is too old for scored reviews - run 'Install Native Engine.bat' again");
+      error.code = "native-helper-outdated";
+      throw error;
+    }
     return new Promise((resolve, reject) => {
       const id = ++this._nextId;
-      this.queue.push({ id, fen, depth, multipv, history, resolve, reject, lines: {}, lastScore: null, lastPv: "" });
+      this.queue.push({ id, fen, depth, multipv, history, budget, cold, requireExact, searchMove,
+        resolve, reject, lines: {}, lastScore: null, lastPv: "" });
       this._pump();
     });
   }
@@ -318,6 +359,7 @@ export class NativeEngine {
     if (!msg) return;
     if (msg.type === "hello") {
       this.hello = msg;
+      if (msg.capabilities) this.capabilities = msg.capabilities;
       if (msg.engine) this.engineInfo = msg.engine;
       // The helper is up. Start a fresh phase budget for the engine it is about to launch, so a slow
       // first launch (antivirus scanning Stockfish) doesn't eat the time budgeted for the host start.
@@ -330,6 +372,7 @@ export class NativeEngine {
     }
     if (msg.type === "pong") return;
     if (msg.type === "ready") {
+      if (msg.capabilities) this.capabilities = msg.capabilities;
       if (msg.engine) this.engineInfo = msg.engine;
       if (!this._onReady) return;
       clearTimeout(this._initTimer);
@@ -356,6 +399,20 @@ export class NativeEngine {
       this.current = null;
       clearTimeout(this._searchTimer);
       const lines = Object.keys(job.lines).map(Number).sort((a, b) => a - b).map((k) => job.lines[k]);
+      if (job.requireExact) {
+        // The helper reports only completed (exact) lines for a scoring search. No PV, or a PV for a
+        // different move than the one Stockfish chose (or the one we restricted it to), is not an
+        // observation of this position; the calibrated coordinator re-asks with a restricted search.
+        const best = msg.bestmove, pv = msg.pv || "";
+        if (!best || !pv || pv.split(" ")[0] !== best || (job.searchMove && best !== job.searchMove)) {
+          const error = new Error("Missing exact completed scoring evidence");
+          if (!job.searchMove && pv && best) error.scoringMove = best;
+          try { job.reject(error); } catch {}
+          this._pump();
+          return;
+        }
+        job.lastScore = msg.score; job.lastPv = pv;
+      }
       job.resolve({
         bestmove: msg.bestmove,
         score: job.lastScore || msg.score || { cp: 0 },
