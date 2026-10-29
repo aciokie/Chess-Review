@@ -605,6 +605,13 @@ button { font-family: inherit; cursor: pointer; }
 .acc-bar i { display: block; height: 100%; border-radius: 4px; }
 .acc-vs { font-size: 11px; color: var(--ink-3); font-weight: 700; letter-spacing: .1em; }
 
+.ip-grade { font-family: var(--font-mono); font-size: 12px; font-weight: 700; margin-left: auto; padding: 1px 7px; border: 1px solid currentColor; border-radius: 999px; cursor: default; }
+.ip-grade + .ip-eval { margin-left: 8px; }
+.gstats { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.gstat-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; font-size: 12.5px; cursor: default; }
+.gstat-l { font-family: var(--font-ui); color: var(--ink-3); text-align: center; }
+.gstat-v { font-family: var(--font-mono); color: var(--ink); }
+.gstat-v:last-child { text-align: right; }
 .qbreak { margin-top: 14px; display: flex; flex-direction: column; gap: 7px; }
 .qbreak-row { display: grid; grid-template-columns: 30px 1fr 30px; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 12.5px; cursor: default; border-radius: 8px; transition: background .12s; }
 .qbreak-row:hover { background: var(--panel-2); }

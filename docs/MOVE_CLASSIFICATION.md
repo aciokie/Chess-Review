@@ -1,21 +1,36 @@
-# Move classification: Brilliant and special-move rules
+# Move classification
 
-This document describes what this fork's classifier does today (`classifyMove`, `isSacrifice`,
-`classifyLine` in `analysis.js`). It is a description of the implemented rules, not a proposal.
-The last section compares them with the upstream project's published policy.
+This document describes what the classifier does today (`classifyMove`, `isSacrifice`,
+`brilliantEligible`, `onlyGoodReply`, `classifyLine` in `analysis.js`). The rules follow the upstream
+project's published policy (<https://github.com/T-Julsgaard/Chess-Review>); the category names, icons,
+coach wording and the tunable thresholds below are this fork's.
 
-Evaluations are read from the white-relative `S.evals[]` and converted to the mover's point of view.
-"Loss" is the eval drop (in pawns) caused by the move; the baseline bucket uses the **win% drop**.
+Categories are **annotations**. They never change accuracy or the rating estimate, which come only from
+the scoring models (`lib/calibrated-review.js`).
+
+## Evidence
+
+* **Paired evidence (`annotationPair`).** For a completed review the best score and the played move's
+  score come from the *same* root search (the played move is searched separately with `searchmoves`
+  when it is not the best move). Scores are mover-relative. A position still streaming in, or a side
+  line in Explore, falls back to the two neighbouring evaluations, or to MultiPV lines that are exact,
+  at one depth, legal, and for the right move.
+* **Expected points, not centipawns.** The bucket is the drop in expected points (0–100) between the
+  best and the played move, using the public outcome curve of the engine that searched the position:
+  Lichess's curve for every Stockfish 19 build (Lite, Full, Native), the fitted public curve for
+  Stockfish 18 NNUE (`data/calibration.json` → `quality.outcome`). If the public model failed to load,
+  the earlier win% curve is used instead.
+* **Mate scores** are compared by sign and distance, never converted to centipawns.
 
 ## Baseline buckets
 
-`getStandardRating` buckets a move by win% drop (`data/calibration-legacy.json` → `clsWp`):
+`getStandardRating` buckets the expected-points drop (`data/calibration-legacy.json` → `clsWp`):
 
-| Win% drop | Bucket |
-|-----------|--------|
+| Drop | Bucket |
+|------|--------|
 | below 2   | excellent |
 | 2 to 5    | good |
-| 5 to 20   | inaccuracy (split to mistake at 10 or more, in the plain-move fallback) |
+| 5 to 20   | inaccuracy (mistake from 10 in the plain-move fallback) |
 | 20 or more | blunder |
 
 Special categories are decided first; anything not claimed by a rule below falls back to this bucket.
@@ -33,77 +48,76 @@ Special categories are decided first; anything not claimed by a rule below falls
 `classifyMove` evaluates top to bottom and returns at the first match.
 
 1. **Book.** The resulting position is in `data/book.json`. Theory is ignored if the move walks into
-   a losing mate or its win% drop is 5 or more (`safeBook` in `classifyLine`).
-2. **Forced move → Best.** Only one legal move existed. There is no separate "forced" icon.
+   a losing mate or its drop is 5 or more (`safeBook` in `classifyLine`).
+2. **Forced move → Best.** Only one legal move existed.
 3. **Brilliant** (below).
 4. **Great** (below).
-5. **Best.** The move is the engine's top move (including a mating move).
-6. **Mate handling** (excellent / good): starting or keeping a forced mate is Excellent; delaying
-   your own mate, or slowing an unavoidable mate against you, is Good.
-7. **Miss** (below).
-8. **Mistake / Blunder from mate or advantage swings.**
-9. **Fallback** to the baseline bucket.
+5. **Mate transitions** (mover-relative): throwing a mate away into being mated is a Blunder; delaying
+   your own mate is Good; escaping a mate against you is Best/Excellent; slowing an unavoidable mate
+   keeps the ordinary bucket.
+6. **Best.** The move is the engine's top move.
+7. Starting or keeping a forced mate is Excellent.
+8. **Miss** (below).
+9. **Mistake / Blunder from mate or advantage swings.**
+10. **Fallback** to the baseline bucket.
 
 ## Brilliant
 
-A Brilliant move is a sound, voluntary piece sacrifice evaluated using strict board and engine evidence (`isSacrifice` and `brilliantEligible`). It requires:
+A sound, voluntary piece offer with strict board and engine evidence. All of these hold:
 
-- **Sound material offer.** The move must be in the `excellent` win%-drop bucket. The resulting position score must meet a soundness floor of at least -0.5 pawns (or a winning mate).
-- **Sound mate maintenance.** If a winning mate existed before, the move must maintain or accelerate a winning mate (`soundMate`).
-- **Already-winning gate / Real alternative.** In undecided positions (< +5 pawns), the sound sacrifice qualifies. In clearly winning positions (>= +5 pawns or pre-existing winning mate), it requires MultiPV > 1 with the top alternative line falling below +5 pawns and not retaining a winning mate.
+- **Real offer (`isSacrifice`).** A non-pawn piece is left capturable at a strictly positive local
+  material cost, after crediting what the move itself captured or promoted. Bounded legal exchange
+  search (128 nodes) finds the cost; the piece must have had a legal way to avoid the loss
+  (`couldBeSaved`); an offer that was already there is not credited to this move; and the offer must
+  be **lasting** (`hasLastingOffer`): a short forcing capture sequence (3 plies, 512 nodes, finishing
+  each exchange) must not simply win the material back.
+- **Sound.** The move is in the Excellent bucket, is evaluated at least -0.5 pawns for the mover (or a
+  winning mate), and does not delay a known mate.
+- **Not already won.** In an undecided position (below +5 pawns) the sound offer qualifies. In a clearly
+  winning position it also needs a second exact MultiPV line at the same depth showing the best
+  alternative is below +5 pawns. With a single line this is unknown, so the move stays Best/Excellent.
 
-Promotions credit captured material and promotion gains before requiring a strictly positive net material cost; pure pawn offers never qualify.
-
-### Sacrifice test (`isSacrifice`)
-
-Sacrifices are evaluated via bounded legal exchange analysis (`exchangeGain`, capped at 128 nodes per candidate square) on non-pawn pieces:
-
-- **Net material cost.** The local exchange gain on the attacked square must strictly exceed any material captured or gained via promotion on the played move. Equal or profitable trades do not qualify.
-- **Move attribution.** For unmoved hanging pieces, exchange gains before and after are compared (or prior threats / tempo sacrifices evaluated) to ensure the offer was created or increased by the move itself.
-- **Real choice (`couldBeSaved`).** The piece must have had a legal alternative move that avoided the material loss (moving, defending, attacking, or equal trading). Forced sole legal moves remain Best.
+A preceding opponent error is not required.
 
 ## Great
 
-A Great move is an only-good move that capitalises on the opponent's error. All of these hold:
+A Great move is the **only good reply**, not merely a reply after an error:
 
-- Excellent bucket, no mate score involved, no mate in the two preceding positions.
-- The opponent's previous move was a Blunder, or a Mistake-sized slip (an Inaccuracy-bucket move that
-  lost at least `clsMistakeLoss` and gave up or handed over a clear advantage).
-- The previous move was not itself part of a "miss" chain (`previousMiss`).
-
-Great is not awarded on top of an existing Brilliant, which is checked first.
+- Excellent bucket, no mate involved, and the opponent's previous move was a Blunder or a Mistake-sized
+  slip that was not itself part of a "miss" chain.
+- `onlyGoodReply`: the root has an exact second line at the same depth for a different legal move, and
+  that runner-up is at least the Inaccuracy threshold (5 expected points) worse than the played move.
+  With one line this is unknown and the move keeps its ordinary category.
 
 ## Miss
 
-A Miss means an opportunity was not taken:
-
 - **Lost mate.** A forced mate existed, was thrown away, and the mover had been winning.
-- **Failed to punish.** The opponent just blundered or made a punishable mistake, the mover's move is
-  an Inaccuracy or Blunder, and its loss is no more than the opponent's loss plus `clsMissTol`.
+- **Failed to punish.** The opponent just erred, the mover's move is an Inaccuracy or Blunder, it does
+  not leave the mover clearly ahead, and its loss is no more than the opponent's loss plus `clsMissTol`.
 
-Miss is contextual: the opponent's earlier error is not charged to the mover.
+## Extra annotation lines
 
-## Mistake and Blunder involving mate or a clear advantage
+Brilliant in a won position and Great need a second line. With **Analysis lines = 1** (the default)
+the review searches one line per position (fast) and those two cases stay at Best/Excellent. Raising
+**Analysis lines** to 2 or more makes the review run one extra multi-line search per position at the
+chosen depth (stored as `annotationSearch`, validated for exactness/depth/legality). It is used only
+for categories and never replaces the scored best/played pair.
 
-- Inaccuracy-sized loss of at least `clsMistakeLoss` that drops the mover from a clear advantage to
-  below it, or from not-clearly-worse to clearly worse, becomes a **Mistake**.
-- Walking into a mate becomes a **Mistake** if the mover wasn't already clearly lost, otherwise a **Blunder**.
-- Throwing a win straight into a mate is a **Blunder**.
+## Move grades
+
+`lib/move-grades.js` (`moveGrade`) gives each move a 0–10 score *within* its category (for example an
+Excellent move that lost 1 point scores lower than one that lost none; a Great move scores higher the
+larger its gap to the runner-up). Grades are shown in the move-info header. They do not feed accuracy
+or rating.
+
+## Game statistics
+
+When a public scoring model applies and the review is complete, `lib/game-statistics.js` derives
+top-move match, average pawn loss, largest loss, longest clean streak and (when the game has a clock
+record) average think time from the already-scored decisions. Nothing is re-searched, and mate scores
+are excluded from the centipawn statistics.
 
 ## Not covered by these rules
 
 - Delayed or multi-move sacrifices, and compensation that only shows up later.
 - Intermediate checks elsewhere on the board.
-- Brilliant is only judged against single-line evaluations. There is no check that the sacrifice was
-  the only winning option, so a sacrifice that wins when many moves also win can still be labelled.
-- Accuracy and the rating estimate are computed from the win%-based method, not from these labels
-  (see `computeDerived`). The displayed accuracy is derived from categories; the Elo estimate is not.
-
-## Stricter Brilliant Policy Alignment
-
-This fork aligns with the stricter Brilliant policy:
-- Uses bounded exchange analysis (`exchangeGain` with 128-node cap) to confirm strictly positive material loss.
-- Requires attribution to the move itself for unmoved pieces.
-- Enforces a soundness floor of -0.5 pawns or winning mate.
-- Gates already-winning positions (>= +5 pawns) by checking that the MultiPV > 1 runner-up line drops below +5 pawns.
-- Does not require a preceding opponent error.

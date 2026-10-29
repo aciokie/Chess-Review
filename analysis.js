@@ -12,10 +12,12 @@ import { canonicalGameId, analysisCacheKey } from "./gameid.js";
 import { ConceptSession, conceptKey } from "./lib/concepts/session.js";
 import { CONCEPT_GROUPS, DEFAULT_CONCEPT_GROUPS, normalizeConceptGroups, FAST_CONCEPT_REMOVALS, CONCEPT_ITEMS, normalizeDisabledConcepts } from "./lib/concepts/controls.js";
 import { coachInsights, coachReply } from "./lib/coach-insights.js";
-import { publicGameAccuracy, sf19GameAccuracy } from "./lib/public-scoring.js";
+import { publicGameAccuracy, sf19GameAccuracy, expectedPoints, SF19_OUTCOME } from "./lib/public-scoring.js";
 import { calibratedReview, scoringEvidenceComplete } from "./lib/calibrated-review.js";
 import { analyseCalibratedPosition } from "./lib/calibrated-search.js";
 import { isSf19Build, SF19_NODES } from "./lib/scoring-builds.js";
+import { moveGrade } from "./lib/move-grades.js";
+import { gameStatistics } from "./lib/game-statistics.js";
 
 // Development-only diagnostics for game identity / cache routing. Silent in production; enable by
 // opening the page with ?debug (analysis.html?debug#<job>) or setting globalThis.CHESS_REVIEW_DEBUG.
@@ -712,7 +714,7 @@ function playWrongSound() {
 const S = {
   pgn: "", headers: {}, meta: {},
   positions: [], clocks: [], evals: [], bests: [],
-  classif: [], accMove: [], _sacCache: [], _forcedCache: [],
+  classif: [], accMove: [], moveGrades: [], _sacCache: [], _forcedCache: [],
   players: { w: {}, b: {} }, meSide: "w",
   // acc = displayed (category-based) accuracy; accElo = win%-based accuracy that feeds the Elo estimate.
   acc: { w: null, b: null }, accElo: { w: null, b: null }, counts: { w: {}, b: {} },
@@ -964,6 +966,63 @@ function terminalScore(fen, plyIndex) {
 }
 function winPct(cp) { return 50 + 50 * (2 / (1 + Math.exp(-calWinK() * cp)) - 1); }
 function moverWin(wr, mover) { const wp = winPct(scoreToCp(wr)); return mover === "w" ? wp : 100 - wp; }
+// Move categories are annotations on EXPECTED POINTS (the public outcome curve of the engine that
+// searched the position), never on raw centipawns, and they never feed accuracy or rating.
+// Stockfish 19 builds use Lichess's public curve; Stockfish 18 uses the public model's fitted curve.
+// Without a public model (it failed to load) the earlier win% curve is used.
+function annotationOutcome(i, state) {
+  const build = state.bests[i - 1]?.calibration?.build || S.engineFallbackBuild || S.activeEngineBuild || state.settings.enginePath;
+  return isSf19Build(build) ? SF19_OUTCOME : PUBLIC_CALIB?.quality?.outcome;
+}
+function annotationPoints(score, i, state) {
+  const outcome = annotationOutcome(i, state);
+  try { return outcome ? 100 * expectedPoints(score, outcome) : winPct(scoreToCp(score)); } catch { return null; }
+}
+// Completed review decisions use best and played scores from one original root.
+// Position evaluations remain useful for streamed/variation annotations only.
+function annotationPair(i, state) {
+  const root = state.bests[i - 1], p = state.positions[i];
+  const played = p.from + p.to + (p.promotion || "");
+  const valid = score => score?.mate != null ? Number.isInteger(score.mate) && score.mate !== 0 : Number.isFinite(score?.cp);
+  if (root && Object.hasOwn(root, "playedScore")) {
+    const best = root.score, actual = root.bestmove === played ? best : root.playedScore;
+    return valid(best) && valid(actual) ? {best, played: actual, paired: true} : null;
+  }
+  if (!state.evals[i - 1] || !state.evals[i]) return null;
+  const sign = p.color === "w" ? 1 : -1;
+  const relative = score => score.mate != null ? {mate: score.mate * sign} : {cp: score.cp * sign};
+  const lines = root?.lines || [], top = lines.find(line => line.multipv === 1) || lines[0];
+  const actual = lines.find(line => (line.pv || "").split(" ")[0] === played);
+  // Check the line actually supplying the played score, including in variations.
+  // A valid root top does not make an older or bounded secondary score exact.
+  if (actual) {
+    const first = (top?.pv || "").split(" ")[0];
+    if (!top || top.bound !== "exact" || actual.bound !== "exact"
+      || !Number.isInteger(top.depth) || top.depth <= 0 || actual.depth !== top.depth
+      || top.multipv !== 1 || !root.bestmove || first !== root.bestmove
+      || !Number.isInteger(actual.multipv) || (played === first ? actual.multipv !== 1 : actual.multipv < 2)) return null;
+    try {
+      const legal = new Chess(state.positions[i - 1].fen).moves({ verbose: true }).map(move => move.lan);
+      if (!legal.includes(first) || !legal.includes(played)) return null;
+    } catch { return null; }
+  }
+  const best = top?.score || relative(state.evals[i - 1]);
+  const after = actual?.score || relative(state.evals[i]);
+  return valid(best) && valid(after) ? {best, played: after, paired: false} : null;
+}
+function decisionScore(i, which, mover, state) {
+  const score = state.annotationEvidence?.[i]?.[which];
+  if (!score) return null;
+  const sign = state.positions[i].color === mover ? 1 : -1;
+  return score.mate != null ? {mate: score.mate * sign} : {cp: score.cp * sign};
+}
+function decisionPawns(i, which, mover, state) {
+  const score = decisionScore(i, which, mover, state);
+  return score ? scoreToCp(score) / 100 : null;
+}
+function decisionMate(i, which, mover, state) {
+  return decisionScore(i, which, mover, state)?.mate ?? null;
+}
 // Classify a move from the win% drop. "best" is given ONLY when the move actually is
 // the engine's top move (isTop) — so the label always matches the best-move arrow. A
 // near-optimal move that isn't #1 becomes "excellent"/"good" (standard grading).
@@ -1136,6 +1195,41 @@ function couldBeSaved(chess, square, color, budget = { nodes: 0, maxNodes: 128 }
   return false;
 }
 
+function captureMaterial(move) {
+  return (SAC_VAL[move.captured] || 0) + (move.promotion ? SAC_VAL[move.promotion] - SAC_VAL.p : 0);
+}
+// A short material-only search across ALL squares detects apparent sacrifices repaid by an
+// immediate countercapture (or a short forcing capture sequence). Quiet check evasions are real
+// moves, not permission to pass while checked. At the horizon, finish each local exchange rather
+// than crediting a hanging queen/rook at face value. Mate/stalemate has no material reward here:
+// the independent engine evidence still decides whether a lasting investment is sound.
+function shortCaptureGain(chess, plies, budget) {
+  const memo = budget.captureMemo || (budget.captureMemo = new Map());
+  const key = chess.fen().split(" ").slice(0, 4).join(" ") + ":" + plies;
+  if (memo.has(key)) return memo.get(key);
+  if (++budget.nodes > budget.maxNodes) return null;
+  const legal = chess.moves({ verbose: true });
+  if (!legal.length) { memo.set(key, 0); return 0; }
+  const mustEvade = plies > 0 && chess.isCheck();
+  const candidates = legal.filter(m => m.captured || m.promotion || mustEvade);
+  let best = legal.length > candidates.length ? 0 : -Infinity;
+  for (const m of candidates) {
+    const after = new Chess(m.after);
+    const reply = plies > 0 ? shortCaptureGain(after, plies - 1, budget) : exchangeGain(after, m.to, budget);
+    if (reply == null) return null;
+    best = Math.max(best, captureMaterial(m) - reply);
+  }
+  memo.set(key, best);
+  return best;
+}
+function hasLastingOffer(chess, square, credit, budget) {
+  for (const m of chess.moves({ verbose: true }).filter(m => m.to === square && m.captured)) {
+    const recovery = shortCaptureGain(new Chess(m.after), 3, budget);
+    if (recovery == null) return false;
+    if (captureMaterial(m) - credit - recovery > 0) return true;
+  }
+  return false;
+}
 // A voluntary offer of a non-pawn piece with a strictly positive local material cost. Material
 // captured by the played move is credited first, so equal/profitable trades do not count. A rook
 // for a minor and pawn can still count (one pawn net); there is no fitted sacrifice-size threshold.
@@ -1145,7 +1239,8 @@ function isSacrifice(move) {
   try { after = new Chess(move.after); before = new Chess(move.before); } catch { return false; }
   if (before.turn() !== move.color || after.turn() !== _opp(move.color)) return false;
   const budget = { nodes: 0, maxNodes: 128 };
-  const captured = (SAC_VAL[move.captured] || 0) + (move.promotion ? SAC_VAL[move.promotion] - SAC_VAL.p : 0);
+  const recoveryBudget = { nodes: 0, maxNodes: 512 };
+  const captured = captureMaterial(move);
   let priorThreats = null;
   const targets = after.board().flat().filter(p => p && p.color === move.color
     && ["n", "b", "r", "q"].includes(p.type) && after.attackers(p.square, _opp(move.color)).length);
@@ -1174,22 +1269,28 @@ function isSacrifice(move) {
         if (previousGain <= earlierGain) continue;
       }
     }
-    if (couldBeSaved(before, source, move.color, budget)) return true;
+    if (couldBeSaved(before, source, move.color, budget)
+      && hasLastingOffer(after, square, captured, recoveryBudget)) return true;
   }
   return false;
 }
 
+// Independent annotation policy, deliberately not coefficients fitted to recorded ratings.
 const BRILLIANT_POLICY = { minAfterPawns: -0.5, clearlyWinningPawns: 5 };
 function brilliantEligible(i, mover, std, wpDrop, state) {
   if (std[i] !== "excellent" || !Number.isFinite(wpDrop?.[i])) return false;
-  const root = state.bests[i - 1], topLine = root?.lines?.[0];
+  const root = annotationRoot(i - 1, state), topLine = root?.lines?.[0];
   const afterLine = state.bests[i]?.lines?.[0];
-  if ([topLine, ...(state.annotationEvidence?.[i]?.paired ? [] : [afterLine])].some(l => l?.bound && l.bound !== "exact")) return false;
-  const after = _evalPawns(i, mover, state), before = _evalPawns(i - 1, mover, state);
-  const mateAfter = _mateFor(i, mover, state), mateBefore = _mateFor(i - 1, mover, state);
+  if ([topLine, ...(state.annotationEvidence[i]?.paired ? [] : [afterLine])].some(l => l?.bound && l.bound !== "exact")) return false;
+  const after = decisionPawns(i, "played", mover, state), before = decisionPawns(i, "best", mover, state);
+  const mateAfter = decisionMate(i, "played", mover, state), mateBefore = decisionMate(i, "best", mover, state);
   if (!Number.isFinite(after) || !Number.isFinite(before)
     || (mateAfter != null ? mateAfter <= 0 : after < BRILLIANT_POLICY.minAfterPawns)) return false;
+  // A sound offer in an undecided position does not depend on a preceding opponent error.
   if (!(mateBefore > 0) && before < BRILLIANT_POLICY.clearlyWinningPawns) return true;
+  // Root MultiPV scores are already from the mover's perspective, unlike state.evals. The
+  // highest-ranked other move tests whether a clearly winning alternative is available. With
+  // only one line this counterfactual is unknown: keep Best/Excellent instead of inventing it.
   const p = state.positions[i], played = (p.from || "") + (p.to || "") + (p.promotion || "");
   const topMove = (topLine?.pv || "").split(" ")[0];
   if (!topMove || topMove !== root?.bestmove || topLine?.multipv !== 1 || !topLine.depth) return false;
@@ -1201,26 +1302,68 @@ function brilliantEligible(i, mover, std, wpDrop, state) {
   if (alternative.mate != null) return alternative.mate < 0;
   return Number.isFinite(alternative.cp) && alternative.cp / 100 < BRILLIANT_POLICY.clearlyWinningPawns;
 }
-// --- Eval readouts (all from our white-relative S.evals[]) ---
-function _evalPawnsWhite(k, state = S) { const e = state.evals[k]; return e ? scoreToCp(e) / 100 : null; }
-function _evalPawns(k, mover, state = S) { const p = _evalPawnsWhite(k, state); return p == null ? null : (mover === "w" ? p : -p); }
-function _isMateEval(k, state = S) { const e = state.evals[k]; return !!(e && e.mate != null); }
-// Mate distance from `mover`'s POV at position k (>0 = mover mating, <0 = mover being mated).
-function _mateFor(k, mover, state = S) { const e = state.evals[k]; if (!e || e.mate == null) return null; return mover === "w" ? e.mate : -e.mate; }
-function _isCheckmate(k, state = S) { try { return new Chess(state.positions[k].fen).isCheckmate(); } catch { return false; } }
-// Eval loss (pawns, the mover's own POV) of the move that produced position k.
-function _moveLoss(k, state = S) {
-  if (k < 1) return null;
-  const m = state.positions[k].color;
-  const a = _evalPawns(k - 1, m, state), b = _evalPawns(k, m, state);
-  return (a == null || b == null) ? null : a - b;
+// Identifies a search context (position, history, build and search settings) so an extra annotation
+// search is only ever used for exactly the review it was made for.
+function engineContextKey(fen, history) {
+  return JSON.stringify([fen, history,
+    S.settings.enginePath, S.engineFallbackBuild || S.activeEngineBuild || S.settings.enginePath,
+    S.settings.engineDepth, S.settings.engineHash, S.settings.engineSkill]);
 }
+// Validate an extra multi-line search for annotation use only: every line exact, at one common
+// depth, legal and distinct, and the first line must agree with the engine's best move.
+function annotationSearchFor(i, result, count) {
+  const top = result?.lines?.find(line => line.multipv === 1);
+  if (count < 2 || !top || !Number.isInteger(top.depth) || top.depth < S.settings.engineDepth
+    || result.bestmove !== (top.pv || "").split(" ")[0]) return null;
+  let legal;
+  try { legal = new Set(new Chess(S.positions[i].fen).moves({ verbose: true }).map(move => move.lan)); } catch { return null; }
+  const lines = result.lines.slice(0, Math.min(count, legal.size));
+  if (lines.length < Math.min(count, legal.size) || lines.some((line, rank) => line.multipv !== rank + 1
+    || line.depth !== top.depth || line.bound !== "exact" || !legal.has((line.pv || "").split(" ")[0])
+    || (line.score?.mate != null ? !Number.isInteger(line.score.mate) || line.score.mate === 0 : !Number.isFinite(line.score?.cp)))
+    || new Set(lines.map(line => line.pv.split(" ")[0])).size !== lines.length) return null;
+  return { key: engineContextKey(S.positions[i].fen, searchHistory(S.positions, i)), count, result: { ...result, lines } };
+}
+// Annotation searches never replace the original best/played pair used by numerical scoring.
+function annotationRoot(index, state = S) {
+  const root = state.bests[index], extra = root?.annotationSearch;
+  return state.settings.classifyLines > 1 && extra?.key === engineContextKey(state.positions[index].fen, searchHistory(state.positions, index))
+    ? extra.result : root;
+}
+// Great means finding the only good reply, not merely replying after an error. The runner-up
+// must be worse than the Good band in the same completed root depth. With one line, this is
+// unknown; retain the ordinary category without scheduling more engine searches.
+function onlyGoodReply(i, state) {
+  const root = annotationRoot(i - 1, state), top = root?.lines?.find(l => l.multipv === 1);
+  const next = root?.lines?.find(l => l.multipv === 2);
+  const move = state.positions[i];
+  const played = (move.from || "") + (move.to || "") + (move.promotion || "");
+  const topMove = (top?.pv || "").split(" ")[0], nextMove = (next?.pv || "").split(" ")[0];
+  if (!top || !next || top.bound !== "exact" || next.bound !== "exact"
+    || !Number.isInteger(top.depth) || top.depth <= 0 || next.depth !== top.depth
+    || topMove !== played || topMove !== root.bestmove || !nextMove || nextMove === topMove
+    || !Number.isFinite(top.score?.cp)) return false;
+  if (!state.annotationEvidence[i]?.paired && state.bests[i]?.lines?.some(l => l.multipv === 1 && l.bound && l.bound !== "exact")) return false;
+  const other = next.score;
+  if (!other || (other.mate != null ? !Number.isFinite(other.mate) || other.mate === 0 : !Number.isFinite(other.cp))) return false;
+  // Root PVs must identify distinct legal moves, including promotion identity.
+  try {
+    const before = new Chess(state.positions[i - 1].fen);
+    if (before.turn() !== move.color) return false;
+    const legal = before.moves({ verbose: true }).map(m => m.from + m.to + (m.promotion || ""));
+    if (!legal.includes(topMove) || !legal.includes(nextMove)) return false;
+  } catch { return false; }
+  const threshold = CALIB?.clsWp?.inacc ?? 5;
+  return Number.isFinite(threshold) && threshold > 0
+    && annotationPoints(top.score, i, state) - annotationPoints(other, i, state) >= threshold;
+}
+function _isCheckmate(k, state = S) { try { return new Chess(state.positions[k].fen).isCheckmate(); } catch { return false; } }
 // Baseline bucket on the WIN%-DROP (the "expected points" model),
 // not raw pawns: losing 0.8 pawns at +0.2 is a real slip, but at +6 it's nothing. Thresholds are
 // in win% points (0–100); defaults mirror the standard table (≤2 excellent … >20 blunder,
 // with the add-on deriving Mistake from the clear-advantage logic). Overridable via calibration.json.
 function getStandardRating(wp) {
-  if (wp == null) return null;
+  if (!Number.isFinite(wp)) return null;
   const t = (typeof CALIB !== "undefined" && CALIB?.clsWp) || { good: 2, inacc: 5, blunder: 20 };
   let r = "excellent";
   if (wp >= t.good) r = "good";
@@ -1229,27 +1372,29 @@ function getStandardRating(wp) {
   return r;
 }
 // Per-ply move category, ported from getMoveRating(). `mover` made move i; `isTop` = it was the
-// engine's #1; `book` = the resulting position is theory; arrays sac/std/loss are indexed by ply.
-function classifyMove(i, mover, isTop, book, sac, std, loss, wpDrop, state = S) {
+// engine's #1; `book` = the resulting position is theory; std/loss are indexed by ply.
+function classifyMove(i, mover, isTop, book, std, loss, wpDrop, state = S) {
   if (book) return "book";
   // "Forced": only one legal move in the position before — we have no separate icon, so it reads
   // as Best (you couldn't have done better).
   if (_forcedAt(i, state)) return "best";   // only one legal move — you couldn't have done better
 
-  // User-tunable thresholds (Engine settings → Move classification), all in pawns of eval.
+  // Contextual thresholds in pawns of eval; retain saved values from earlier versions.
   const CA = state.settings.clsClearAdv, ML = state.settings.clsMistakeLoss, MT = state.settings.clsMissTol;
-  const mate = (k) => _isMateEval(k, state), evalFor = (k) => _evalPawns(k, mover, state);
+  const mate = (k) => decisionMate(i, k === i ? "played" : "best", mover, state) != null;
+  const evalFor = (k) => decisionPawns(i, k === i ? "played" : "best", mover, state);
   const winningNow = (evalFor(i) ?? 0) > 0;
   const prevWinning = (evalFor(i - 1) ?? 0) > 0;
   const notMateRel = !mate(i) && !mate(i - 1);
-  const wasNotMateRel = (n) => i - 2 - n >= 0 && !mate(i - 1 - n) && !mate(i - 2 - n);
+  const wasNotMateRel = (n) => { const k = i - 1 - n; return k >= 1 && state.annotationEvidence[k]
+    && decisionMate(k, "best", state.positions[k].color, state) == null
+    && decisionMate(k, "played", state.positions[k].color, state) == null; };
   const pStd = (n) => (i - 1 - n >= 1 ? std[i - 1 - n] : null);
   const pLoss = (n) => (i - 1 - n >= 1 ? loss[i - 1 - n] : null);
   // mover-POV "lost a clear advantage" / "fell into a clear disadvantage" (CA pawns) for move k.
-  const losingAdvAt = (k) => { const m = state.positions[k].color; const a = _evalPawns(k - 1, m, state), b = _evalPawns(k, m, state); return a != null && b != null && a >= CA && b < CA; };
-  const givingAdvAt = (k) => { const m = state.positions[k].color; const a = _evalPawns(k - 1, m, state), b = _evalPawns(k, m, state); return a != null && b != null && a >= -CA && b < -CA; };
-  const keepMating = (k) => { const c = _mateFor(k, state.positions[k].color, state), p = _mateFor(k - 1, state.positions[k].color, state); return c != null && p != null && c > 0 && p > 0 && c <= p; };
-  const advanceMate = (k) => { const c = _mateFor(k, state.positions[k].color, state), p = _mateFor(k - 1, state.positions[k].color, state); return c != null && p != null && c < 0 && p < 0 && c > p; };
+  const losingAdvAt = (k) => { const m = state.positions[k].color; const a = decisionPawns(k, "best", m, state), b = decisionPawns(k, "played", m, state); return a != null && b != null && a >= CA && b < CA; };
+  const givingAdvAt = (k) => { const m = state.positions[k].color; const a = decisionPawns(k, "best", m, state), b = decisionPawns(k, "played", m, state); return a != null && b != null && a >= -CA && b < -CA; };
+  const keepMating = (k) => { const m = state.positions[k].color, c = decisionMate(k, "played", m, state), p = decisionMate(k, "best", m, state); return c != null && p != null && c > 0 && p > 0 && c <= p; };
 
   const previousMistake = wasNotMateRel(0) && pStd(0) === "inacc" && pLoss(0) >= ML && (losingAdvAt(i - 1) || givingAdvAt(i - 1));
   const previousPreviousMistake = wasNotMateRel(1) && pStd(1) === "inacc" && pLoss(1) >= ML && (losingAdvAt(i - 2) || givingAdvAt(i - 2));
@@ -1258,13 +1403,21 @@ function classifyMove(i, mover, isTop, book, sac, std, loss, wpDrop, state = S) 
 
   // Material offer and engine quality are separate: board evidence alone cannot prove soundness.
   // Do not reward delays of a known mate or moves that merely remain best in a decided position.
-  const beforeMate = _mateFor(i - 1, mover, state), afterMate = _mateFor(i, mover, state);
+  const beforeMate = decisionMate(i, "best", mover, state), afterMate = decisionMate(i, "played", mover, state);
   const soundMate = !(beforeMate > 0) || (afterMate > 0 && keepMating(i));
-  if (sac[i] && soundMate && brilliantEligible(i, mover, std, wpDrop, state)) return "brilliant";
+  // Legal exchange searches are needed only after the cheap scoring conditions pass.
+  if (soundMate && brilliantEligible(i, mover, std, wpDrop, state) && _sacAt(i, state)) return "brilliant";
 
   // Great — an only-good move that capitalises on the opponent's mistake/blunder.
   if (!previousMiss && wasNotMateRel(0) && notMateRel && std[i] === "excellent"
-    && (previousMistake || pStd(0) === "blunder")) return "great";
+    && (previousMistake || pStd(0) === "blunder") && onlyGoodReply(i, state)) return "great";
+
+  // Mate signs are relative to the mover. Reversing who wins is not delaying one's own mate;
+  // already being mated supplies no expected-result reason to reward faster defeat.
+  if (beforeMate > 0 && afterMate < 0) return "blunder";
+  if (beforeMate > 0 && afterMate > beforeMate) return "good";
+  if (beforeMate < 0 && afterMate > 0) return isTop ? "best" : "excellent";
+  if (beforeMate < 0 && afterMate < 0) return isTop ? "best" : std[i];
 
   if (isTop && _isCheckmate(i, state)) return "best";
   if (isTop) return "best";
@@ -1272,12 +1425,11 @@ function classifyMove(i, mover, isTop, book, sac, std, loss, wpDrop, state = S) 
   if (_isCheckmate(i, state)) return "excellent";
   if (!mate(i - 1) && mate(i) && winningNow) return "excellent";                                             // starts a mate
   if (mate(i - 1) && mate(i) && keepMating(i) && winningNow) return "excellent";                             // keeps the mate
-  if (mate(i - 1) && mate(i) && !keepMating(i) && winningNow) return "good";                                 // delays own mate
-  if (mate(i - 1) && mate(i) && advanceMate(i) && !winningNow) return "good";                                // being mated, unavoidable
 
   if (mate(i - 1) && !mate(i) && prevWinning) return "miss";                                                 // threw away a forced mate
   if (!previousMiss && notMateRel && (previousMistake || pStd(0) === "blunder")
     && (std[i] === "blunder" || std[i] === "inacc")
+    && evalFor(i) < CA
     && (loss[i] != null && pLoss(0) != null && loss[i] <= pLoss(0) + MT)) return "miss";                     // failed to punish
 
   if (notMateRel && std[i] === "inacc" && loss[i] >= ML && losingAdvAt(i)) return "mistake";                 // lost a clear advantage
@@ -1303,10 +1455,22 @@ function classifyVariationMoves() {
   if (!v) return;
   const branch = v.branchIdx;
   const nodes = v.positions.slice(1);
+  const bests = [...S.bests.slice(0, branch), ...v.positions.map(p => p.searchPreview || p.best)];
+  const original = S.positions[branch + 1], first = nodes[0];
+  // The inherited root's paired playedScore belongs to the original game move.
+  // Keep it only when that same move is replayed, including promotion identity.
+  // Other replies use their candidate/position evaluation; copy before discarding
+  // the pair so entering a variation cannot change completed mainline evidence.
+  if (first && Object.hasOwn(bests[branch] || {}, "playedScore")
+    && (!original || first.from !== original.from || first.to !== original.to
+      || (first.promotion || "") !== (original.promotion || ""))) {
+    bests[branch] = { ...bests[branch] };
+    delete bests[branch].playedScore;
+  }
   const state = {
     positions: [...S.positions.slice(0, branch + 1), ...nodes],
-    evals: [...S.evals.slice(0, branch), ...v.positions.map(p => p.eval)],
-    bests: [...S.bests.slice(0, branch), ...v.positions.map(p => p.best)],
+    evals: [...S.evals.slice(0, branch), ...v.positions.map(p => p.searchPreview ? whiteRel(p.searchPreview.score, p.fen) : p.eval)],
+    bests,
     settings: S.settings, players: S.players, openingHeader: S.openingHeader,
     _sacCache: [...S._sacCache.slice(0, branch + 1), ...nodes.map(p => p._sac)],
     _forcedCache: [...S._forcedCache.slice(0, branch + 1), ...nodes.map(p => p._forced)],
@@ -1316,6 +1480,7 @@ function classifyVariationMoves() {
   nodes.forEach((p, i) => {
     const ply = branch + i + 1;
     p.classif = state.classif[ply];
+    p.moveGrade = state.moveGrades[ply];
     p._sac = state._sacCache[ply];
     p._forced = state._forcedCache[ply];
   });
@@ -1403,14 +1568,15 @@ function classifyLine(state) {
   const N = state.total;
   state.classif = new Array(N + 1).fill(null);
   state.accMove = new Array(N + 1).fill(null);
+  state.moveGrades = new Array(N + 1).fill(null);
+  state.annotationEvidence = new Array(N + 1).fill(null);
   if (!state._sacCache || state._sacCache.length !== N + 1) { state._sacCache = new Array(N + 1).fill(undefined); state._forcedCache = new Array(N + 1).fill(undefined); }
 
-  // Per-ply inputs for the ported classifier. The classifier only ever looks BACKWARDS, so one
-  // forward pass to fill std/loss/sac/isTop is enough; a second pass assigns the final category.
+  // Per-ply inputs for the classifier. It only ever looks BACKWARDS, so one forward pass to fill
+  // std/loss/isTop is enough; a second pass assigns the final category.
   const std = new Array(N + 1).fill(null);
   const loss = new Array(N + 1).fill(null);
-  const wpDrop = new Array(N + 1).fill(null); // win%-drop per ply ("expected points" basis)
-  const sac = new Array(N + 1).fill(false);
+  const wpDrop = new Array(N + 1).fill(null); // expected-points drop per ply
   const isTop = new Array(N + 1).fill(false);
   const bookAt = new Array(N + 1).fill(false);
 
@@ -1425,36 +1591,35 @@ function classifyLine(state) {
 
     const mover = state.positions[i].color;
     const bestSearch = state.bests[i - 1];
-    const before = state.evals[i - 1];
 
-    // win%-based move accuracy (kept solely as the Elo estimate's input). With MultiPV=1 the played
-    // move is rarely in the single line, so winAfter falls back to the after-position search —
-    // i.e. the same consecutive-eval comparison the category logic uses.
-    if (bestSearch && before) {
+    // Best and played scores come from one root whenever the review recorded them (annotationPair).
+    const evidence = state.annotationEvidence[i] = annotationPair(i, state);
+    if (evidence) {
       const playedUci = (state.positions[i].from || "") + (state.positions[i].to || "") + (state.positions[i].promotion || "");
-      const lines = bestSearch.lines || [];
-      const winBefore = lines.length ? winPct(scoreToCp(lines[0].score)) : moverWin(before, mover);
-      let winAfter = null;
-      for (const ln of lines) { if ((ln.pv || "").split(" ")[0] === playedUci) { winAfter = winPct(scoreToCp(ln.score)); break; } }
-      if (winAfter == null && state.evals[i]) winAfter = moverWin(state.evals[i], mover);
-      if (winAfter != null) { state.accMove[i] = moveAccuracy(Math.max(0, winBefore - winAfter) * calAccMult(state.players[mover]?.rating)); wpDrop[i] = Math.max(0, winBefore - winAfter); }
-      const bestUci = bestSearch.bestmove || "";
+      const winBefore = annotationPoints(evidence.best, i, state), winAfter = annotationPoints(evidence.played, i, state);
+      if (winBefore != null && winAfter != null) wpDrop[i] = Math.max(0, winBefore - winAfter);
+      const bestUci = bestSearch?.bestmove || "";
       isTop[i] = !!bestUci && bestUci === playedUci;
+      loss[i] = (scoreToCp(evidence.best) - scoreToCp(evidence.played)) / 100;
+      // Earlier (non-public) accuracy input on the earlier win% curve; public builds overwrite it.
+      state.accMove[i] = moveAccuracy(Math.max(0, winPct(scoreToCp(evidence.best)) - winPct(scoreToCp(evidence.played)))
+        * calAccMult(state.players[mover]?.rating));
     }
-
-    loss[i] = _moveLoss(i, state);
-    std[i] = getStandardRating(wpDrop[i]);   // bucket on win%-drop, not raw pawns
-    sac[i] = _sacAt(i, state);
+    std[i] = getStandardRating(wpDrop[i]);   // bucket on the expected-points drop, not raw pawns
   }
-  // Second pass: final category per ply (Brilliant-Chess logic). A move stays unlabelled until both
-  // its own and the previous position's eval are in, so the panel fills in cleanly during analysis.
+  // Second pass: final category per ply. A move stays unlabelled until its own evidence is in,
+  // so the panel fills in cleanly during analysis.
   for (let i = 1; i <= N; i++) {
-    if (state.evals[i] == null || state.evals[i - 1] == null) { state.classif[i] = null; continue; }
+    if (!state.annotationEvidence[i] || wpDrop[i] == null) { state.classif[i] = null; continue; }
     // Some opening datasets include traps from the losing side. Never let theory
     // hide a losing mate or a move the engine rates as an error.
-    const safeBook = bookAt[i] && !((_mateFor(i, state.positions[i].color, state) ?? 0) < 0)
+    const safeBook = bookAt[i] && !((decisionMate(i, "played", state.positions[i].color, state) ?? 0) < 0)
       && wpDrop[i] != null && wpDrop[i] < (CALIB?.clsWp?.inacc ?? 5);
-    state.classif[i] = classifyMove(i, state.positions[i].color, isTop[i], safeBook, sac, std, loss, wpDrop, state);
+    state.classif[i] = classifyMove(i, state.positions[i].color, isTop[i], safeBook, std, loss, wpDrop, state);
+    const root = annotationRoot(i - 1, state);
+    const top = root?.lines?.find(l => l.multipv === 1), runnerUp = root?.lines?.find(l => l.multipv === 2);
+    const criticalLoss = top && runnerUp ? Math.max(0, annotationPoints(top.score, i, state) - annotationPoints(runnerUp.score, i, state)) : null;
+    state.moveGrades[i] = moveGrade(state.classif[i], wpDrop[i], CALIB?.clsWp, criticalLoss);
     if (state.classif[i] === "book") state.bookCount++;
   }
   // Opening name: prefer the book's clean name over the chess.com header's ECOUrl slug.
@@ -1577,6 +1742,12 @@ function computeDerived() {
   if (reviewUsesPublicScoring()) {
     try { publicAccs = applyPublicScoring(); S.publicScoring = true; }
     catch (error) { console.warn("[Chess Review] public scoring failed; using the earlier scoring", error); S.calibrated = null; }
+  }
+  // Per-game statistics reuse the scored decisions (never a new search); only once the review is complete.
+  S.gameStats = null;
+  if (S.publicScoring && !S.analyzing) {
+    try { S.gameStats = gameStatistics(S.positions, S.bests, S.calibrated, { classifications: S.classif, clocks: S.clocks, headers: S.headers || {} }); }
+    catch (error) { console.warn("[Chess Review] game statistics unavailable", error); }
   }
   S.phaseAcc = S.publicScoring ? publicPhaseAccuracy(S) : phaseAccuracy(S);
   S.phaseElo = S.publicScoring ? { w: {}, b: {} } : phaseElo(S);
@@ -3700,6 +3871,9 @@ function renderMoveComment() {
   // Special coach phrasing can omit the category, so name it beside the move.
   const sanDisplay = !S.settings.coachPlain && cfg ? `${san} ${categoryName(cls)}` : san;
   head.append(el("span", { class: "ip-move" }, sanDisplay));
+  // Score within the category (0-10), a finer reading than the category alone; never an input to accuracy.
+  const grade = S.analysisMode ? activePos()?.moveGrade : S.moveGrades?.[S.idx];
+  if (cfg && Number.isFinite(grade)) head.append(el("span", { class: "ip-grade", title: "Move score within its category (0–10). It does not change accuracy or rating.", style: { color: cfg.color } }, grade.toFixed(1)));
   if (evTxt) head.append(el("span", { class: "ip-eval " + (evCp >= 0 ? "pos" : "neg") }, evTxt));
   body.append(head);
 
@@ -3954,6 +4128,20 @@ function renderStats() {
     onclick: () => { S.qbreakExpanded = !S.qbreakExpanded; renderStats(); reflowAccuracy(S.qbreakExpanded); },
   }, icon("chevron"));
   const qbreak = el("div", { class: "qbreak" }, ...qrows, expander);
+  // Game statistics (public scoring only): one row per measure, the two players either side.
+  const gs = !S.analyzing && S.gameStats ? [S.gameStats[S.meSide], S.gameStats[opSide]] : null;
+  const moveNo = (ply) => Math.ceil(ply / 2);
+  const seconds = (v) => (v == null ? "–" : v < 10 ? v.toFixed(1) + "s" : Math.round(v) + "s");
+  const statRows = gs ? [
+    ["Top-move match", (g) => g.topMatch == null ? "–" : g.topMatch.toFixed(0) + "%", "Share of your non-forced moves that were the engine's first choice."],
+    ["Average loss", (g) => g.averageCpLoss == null ? "–" : (g.averageCpLoss / 100).toFixed(2), "Average pawns lost per move against the engine's best (mate scores excluded)."],
+    ["Largest loss", (g) => g.largestLoss ? `${(g.largestLoss.loss / 100).toFixed(1)} · move ${moveNo(g.largestLoss.ply)}` : "–", "The single move that cost the most, in pawns."],
+    ["Clean streak", (g) => g.cleanStreak?.count ? String(g.cleanStreak.count) : "–", "Longest run of non-forced moves rated Good or better (Brilliant, Great, Best, Excellent, Good, Book)."],
+    ["Think time", (g) => seconds(g.clock?.averageThink), "Average time per move from the game's clock record, when it has one."],
+  ].filter(([, value]) => gs.some((g) => value(g) !== "–")) : [];
+  const gstats = statRows.length ? el("div", { class: "gstats", "aria-label": "Game statistics" },
+    ...statRows.map(([label, value, tip]) => el("div", { class: "gstat-row", title: tip },
+      el("span", { class: "gstat-v" }, value(gs[0])), el("span", { class: "gstat-l" }, label), el("span", { class: "gstat-v" }, value(gs[1]))))) : null;
   const phaseVal = (v) => (v == null ? "–" : v.toFixed(0));
   const phaseLine = (side) => el("div", { class: "phase-line", "aria-label": "Accuracy and estimated Elo by game phase" },
     ...PHASES.map((p) => {
@@ -3989,6 +4177,7 @@ function renderStats() {
           phaseLine(opSide)),
       ),
       qbreak,
+      gstats,
     ),
   ));
   statsRefs = S.analyzing ? { expanded: S.qbreakExpanded, rows } : null;
@@ -5682,9 +5871,13 @@ function scoringNote() {
   return "This build has no public scoring model, so accuracy and rating use the earlier estimate.";
 }
 async function setEngineSetting(key, value) {
+  const keyBefore = analysisSettingsKey();
   S.settings[key] = value;
-  S.engineFallbackBuild = null;
-  S.activeEngineBuild = null;
+  // The scores of a finished review (or one still running on the same fixed protocol) are unaffected
+  // when the settings key is unchanged, so keep its results and the build label instead of restarting.
+  const sameScores = keyBefore === analysisSettingsKey() && key !== "enginePath"
+    && (!S.analyzing || (S.evalEngines || []).every(e => isSf19Build(e?.buildKey)));
+  if (!sameScores) { S.engineFallbackBuild = null; S.activeEngineBuild = null; }
   await browserAPI.storage.local.set({ settings: S.settings });
   resetLiveEngine();
   invalidateVariationEvals();
@@ -5702,7 +5895,9 @@ async function setEngineSetting(key, value) {
   // refresh the panel (which kicks off an on-demand search if more lines are wanted).
   const lineKey = key === "engineLines" || key === "fastLines" || key === "fastAnalysis";
   const displayOnly = lineKey && !S.analyzing;
-  if (!displayOnly && !S.meta?.explore) scheduleReanalyze();
+  // Pool size never changes a finished review's scores; only a review in progress must restart to use it.
+  const poolOnly = key === "engineWorkers" && !S.analyzing;
+  if (!displayOnly && !poolOnly && !sameScores && !S.meta?.explore) scheduleReanalyze();
   renderEngineCurrent();
   if (UI.settings && !UI.settings.hidden) renderSettings();
 }
@@ -6080,9 +6275,14 @@ function currentGameId() {
 }
 
 function analysisSettingsKey() {
+  // Stockfish 19 builds are scored by one fixed-node protocol, so depth, hash and strength do not
+  // change a finished review's scores (they only matter for the extra annotation lines, i.e. when
+  // Analysis lines > 1). Leaving them out lets those settings change without re-running the game.
+  const fixed = isSf19Build(S.settings.enginePath) && publicScoringApplies(S.settings.enginePath, S.settings)
+    && (S.settings.classifyLines || 1) <= 1;
   // The public model version is part of the key, so refreshed models never reuse older scores.
-  return JSON.stringify([S.settings.enginePath, S.settings.engineDepth, S.settings.classifyLines,
-    S.settings.engineHash, S.settings.engineSkill, PUBLIC_CALIB?.version || null]);
+  return JSON.stringify([S.settings.enginePath, fixed ? null : S.settings.engineDepth, S.settings.classifyLines,
+    fixed ? null : S.settings.engineHash, fixed ? null : S.settings.engineSkill, PUBLIC_CALIB?.version || null]);
 }
 // A saved review that was scored by a public model must still carry that model's observations (and,
 // when a rating needs them, the rating evidence) — otherwise it is re-analyzed rather than shown
@@ -6552,6 +6752,16 @@ async function startAnalysis() {
           settings: scoringSettings, calibration: PUBLIC_CALIB, needMovesOnly,
         });
         if (!stillCurrent()) return;
+        // "Analysis lines" > 1: search the alternatives once, separately, so Great/Brilliant can compare
+        // the played move with the runner-up. It never replaces the scored best/played pair above.
+        if (next && multipv > 1) {
+          try {
+            const extra = await eng.analyse(S.positions[i].fen, S.settings.engineDepth, multipv, searchHistory(S.positions, i));
+            if (!stillCurrent()) return;
+            const search = annotationSearchFor(i, extra, multipv);
+            if (search) res.annotationSearch = search;
+          } catch (error) { if (!stillCurrent()) return; console.warn("[Chess Review] annotation search failed; categories use the scored line only", error); }
+        }
       }
       if (!res && posCache) { try { res = await posCache.get(cacheKey(i)); } catch { res = null; } }
       if (!res) {

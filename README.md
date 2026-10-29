@@ -83,6 +83,11 @@ Settings → Engine → **Rating estimate** offers **Use recorded rating** (comp
 public players near the rating saved in the game) and **Moves only** (ignores that rating).
 Without a saved rating the review falls back to Moves only, which needs at least ten
 non-forced decisions. Move categories are annotations and never change accuracy or rating.
+Categories are judged on expected points from one root search per move (best and played move scored
+together). Brilliant and Great follow the upstream rules (a lasting, sound piece offer; the only good
+reply); in a won position they need a runner-up line, so raise **Analysis lines** to 2 to enable them
+there. Each move also shows a 0–10 score within its category, and completed reviews list top-move match,
+average loss and other game statistics. See [`docs/MOVE_CLASSIFICATION.md`](docs/MOVE_CLASSIFICATION.md).
 To reproduce the bundled coefficients offline (Node.js 22 or later), run
 `node tools/calibration/reproduce-public.mjs`; the method is in
 [`tools/calibration/PUBLIC_METHOD.md`](tools/calibration/PUBLIC_METHOD.md). Estimated

@@ -51,6 +51,7 @@ Verification order that works: `npm test` → `npm run lint` → `npm run verify
 | `native/` | Windows Native Messaging host (C# source + prebuilt exe), bundled SF19 exe, installer, docs |
 | `tools/calibration/` | Public scoring-model fitting + reproduction pipeline for `data/calibration.json` (never packaged) |
 | `tools/calibration-experiments/` | The fork's earlier offline calibration pilot and dataset updater (never packaged) |
+| `lib/move-grades.js`, `lib/game-statistics.js` | 0–10 per-move grade within a category; per-game statistics from scored decisions (annotations only) |
 | `lib/public-scoring.js`, `lib/calibrated-review.js`, `lib/calibrated-search.js` | Per-engine accuracy/rating scoring: pure formulas, per-game scoring, and the search protocol that produces its observations |
 | `data/calibration.json` / `data/calibration-legacy.json` | Public per-engine models (SF18 NNUE, SF19 family: Lite/Full/Native) / earlier tuned parameters used by non-default SF18 settings and by move classification |
 | `data/book.json` | Opening book (EPD format) |

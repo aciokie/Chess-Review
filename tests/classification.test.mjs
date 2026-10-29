@@ -89,33 +89,86 @@ test('original PGN IDs remain stable and distinct', t => {
   assert.equal(a.call('simpleHash',''),'45h');
 });
 
-test('stricter brilliant rules: bounded exchange analysis, soundness floor, and MultiPV gate', t => {
+function greatScenario(a, color = 'w') {
+  const white = color === 'w';
+  const S = loadGame(a, white ? '1. e4 e5 2. Nf3' : '1. e4 e5',
+    (white ? [0,0,400,400] : [0,-400,-400]).map(cp => ({cp})));
+  const ply = white ? 3 : 2, played = white ? 'g1f3' : 'e7e5', alternative = white ? 'd2d4' : 'c7c5';
+  S.bests[ply - 1] = {bestmove:played,lines:[
+    {score:{cp:400},pv:played,depth:16,bound:'exact',multipv:1},
+    {score:{cp:0},pv:alternative,depth:16,bound:'exact',multipv:2},
+  ]};
+  return {S,ply,played,alternative};
+}
+
+test('Great needs evidence that other replies are outside the Good band, for either side', t => {
   const a = app(t);
+  for (const color of ['w','b']) {
+    const {S,ply} = greatScenario(a,color);
+    a.call('computeDerived'); assert.equal(S.classif[ply],'great');
+    for (let start = 0; start < ply; start++) {
+      const v = branch(a,start); a.call('classifyVariationMoves');
+      assert.equal(v.positions[ply-start].classif,'great');
+    }
+    S.bests[ply-1].lines[1].score.cp = 390;
+    a.call('computeDerived'); assert.equal(S.classif[ply],'best');
+    S.bests[ply-1].lines.length = 1;
+    a.call('computeDerived'); assert.equal(S.classif[ply],'best');
+  }
+});
 
-  // 1. Equal trade is not a sacrifice
-  const tradePgn = '1. e4 e5 2. Nf3 Nc6 3. Nxe5 Nxe5';
-  const tradeS = loadGame(a, tradePgn, [{cp:0},{cp:0},{cp:0},{cp:0},{cp:0},{cp:0}]);
-  a.call('computeDerived');
-  assert.notEqual(tradeS.classif[6], 'brilliant');
+test('stale, bounded, duplicated, illegal or metadata-free alternatives cannot certify Great', t => {
+  const a = app(t);
+  const edits = [
+    root => {root.lines[1].depth = 15;},
+    root => {root.lines[1].bound = 'upperbound';},
+    root => {root.lines[0].bound = 'lowerbound';},
+    root => {root.lines[1].pv = root.bestmove;},
+    root => {root.lines[1].pv = 'd2d5';},
+    root => {root.lines[1].multipv = 3;},
+    root => {delete root.lines[0].depth;},
+    root => {root.lines[1].score = {};},
+    root => {root.bestmove = 'b1c3';},
+  ];
+  for (const edit of edits) {
+    const {S,ply} = greatScenario(a); edit(S.bests[ply-1]);
+    a.call('computeDerived'); assert.notEqual(S.classif[ply],'great');
+  }
+  const {S,ply} = greatScenario(a);
+  S.bests[ply].lines = [{multipv:1,bound:'upperbound'}];
+  a.call('computeDerived'); assert.notEqual(S.classif[ply],'great');
+});
 
-  // 2. Pure pawn move is not a sacrifice
-  const pawnPgn = '1. e4 e5';
-  const pawnS = loadGame(a, pawnPgn, [{cp:0},{cp:0}]);
+test('Great evidence uses the configured loss boundary and does not change evaluation scores', t => {
+  const a = app(t), {S,ply} = greatScenario(a);
+  a.run('CALIB.display = "winpct"');
   a.call('computeDerived');
-  assert.notEqual(pawnS.classif[2], 'brilliant');
+  const scores = JSON.stringify({acc:S.acc,elo:S.accElo,perMove:S.accMove,evals:S.evals});
+  a.run('CALIB.clsWp.inacc = 30');
+  a.call('computeDerived'); assert.equal(S.classif[ply],'best');
+  assert.equal(JSON.stringify({acc:S.acc,elo:S.accElo,perMove:S.accMove,evals:S.evals}),scores);
+  a.run('CALIB.clsWp.inacc = 5');
+  a.call('computeDerived'); assert.equal(S.classif[ply],'great');
+});
 
-  // 3. Unsound sacrifice (after score below -0.5 pawns / -50 cp) fails brilliantEligible
-  const unsoundPgn = '1. e4 e5 2. Qh5 Nc6 3. Qxf7+ Kxf7';
-  // Move 3: White plays Qxf7+ (loses queen for pawn -> -800 cp)
-  const unsoundS = loadGame(a, unsoundPgn, [{cp:0},{cp:0},{cp:0},{cp:0},{cp:0},{cp:-800}]);
-  a.call('computeDerived');
-  assert.notEqual(unsoundS.classif[5], 'brilliant');
+test('mate transitions distinguish escaping defeat, delaying a win and reversing the winner', t=>{
+  const a=app(t);
+  const cases=[[-3,3,'excellent'],[-3,-1,'excellent'],[-3,-5,'excellent'],[3,-3,'blunder'],[3,5,'good']];
+  for(const color of ['w','b'])for(const [before,after,label] of cases){
+    const white=color==='w',sign=white?1:-1;
+    const S=loadGame(a,white?'1. e4':'1. e4 e5',
+      (white?[before,after]:[before,before,after]).map(mate=>({mate:mate*sign})));
+    const ply=white?1:2;a.call('computeDerived');assert.equal(S.classif[ply],label);
+    const v=branch(a);a.call('classifyVariationMoves');assert.equal(v.positions[ply].classif,label);
+    if(before>0){S.bests[ply-1].bestmove=white?'e2e4':'e7e5';a.call('computeDerived');assert.equal(S.classif[ply],label);}
+  }
+});
 
-  // 4. Already winning position (>= +5 pawns / +500 cp) with MultiPV=1 does not grant Brilliant
-  // (requires MultiPV > 1 with runner-up line falling below +5 pawns)
-  const winningPgn = '1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. Bxf7+ Kxf7';
-  const winningS = loadGame(a, winningPgn, [{cp:600},{cp:600},{cp:600},{cp:600},{cp:600},{cp:600},{cp:600},{cp:600}]);
-  winningS.bests[6] = { bestmove: 'b2b3', lines: [{ multipv: 1, score: { cp: 600 }, depth: 16, pv: 'b2b3' }] };
-  a.call('computeDerived');
-  assert.notEqual(winningS.classif[7], 'brilliant');
+test('failed-punish Miss requires giving back the clear advantage',t=>{
+  const a=app(t);
+  const S=loadGame(a,'1. e4 e5 2. Nf3',[0,0,2000,800].map(cp=>({cp})));
+  a.call('computeDerived');assert.notEqual(S.classif[3],'miss');
+  loadGame(a,'1. e4 e5 2. Nf3',[0,0,500,0].map(cp=>({cp})));
+  a.call('computeDerived');assert.equal(S.classif[3],'miss');
+  const v=branch(a,1);a.call('classifyVariationMoves');assert.equal(v.positions[2].classif,'miss');
 });
