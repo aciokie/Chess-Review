@@ -24,5 +24,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: npm run lint
       - run: npm run verify:engines
       - run: node tools/calibration/reproduce-public.mjs
