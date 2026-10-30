@@ -20,12 +20,18 @@ there is no background service, no server, no network access, no telemetry.
 
 ---
 
-## 1. Get a genuine Stockfish 19 executable
+## 1. Stockfish 19 executable
 
-The repo does **not** ship or download one (no large binaries, and the executable must be one you
-chose and can trust). Download the official Windows build yourself, for example from
-<https://stockfishchess.org/download/> (or the `official-release` assets on GitHub), and unpack it
-anywhere, e.g. `C:\Tools\Stockfish\`.
+You do **not** need to download one. By default the installer uses the **official Stockfish 19 build
+bundled in this repo** at `native\engine\stockfish-windows-x86-64-universal.exe`. The repo records
+its SHA-256 in `native\engine\checksums.json`; the installer verifies the file and **hash-pins it
+automatically**, so the helper checks the actual bytes at every start and only reports *verified*
+when they match. (Nothing is downloaded at install time — the bundled build, or any build you pass,
+must already be on disk.)
+
+To use a different engine, pass your own with `-EnginePath` (step 2). Download an official Windows
+build yourself, for example from <https://stockfishchess.org/download/> (or the `official-release`
+assets on GitHub), and unpack it anywhere, e.g. `C:\Tools\Stockfish\`.
 
 * Use the **x86-64** Windows build that matches your CPU (the `universal` build picks the right CPU
   optimizations on its own). `dev-…` snapshots are unofficial test builds that report a name like
@@ -35,6 +41,7 @@ anywhere, e.g. `C:\Tools\Stockfish\`.
 * An engine's `id name` is only a **self-declaration** — any binary can print "Stockfish 19". To
   make verification cryptographic, pin the binary's SHA-256 with `-ExpectedSha256` (step 2): the
   helper then hashes the actual file at every start and only reports *verified* when it matches.
+  For the bundled build the installer records that hash for you.
 
 ## 2. Install - one double-click, no commands
 

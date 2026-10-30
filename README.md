@@ -1,5 +1,7 @@
 # ♟ Chess Review
 
+**Fork of [T-Julsgaard/Chess-Review](https://github.com/T-Julsgaard/Chess-Review).**
+
 Free, open-source game review for your online chess games, powered by Stockfish NNUE running
 locally in your browser. One click turns any **Chess.com** or **Lichess** game into a full
 review — accuracy scores, move-by-move classifications, an evaluation graph, and an estimated
@@ -24,14 +26,26 @@ immediately when disabled. Existing scores and coach comments are unchanged.
 - **Accuracy estimates** for both players, calculated from local Stockfish analysis using the extension's scoring rules. Scores can differ from other review tools.
 - **Accuracy by game phase**: each player's accuracy is also split into Opening (first 10 moves), Middlegame and Endgame (six or fewer knights, bishops, rooks and queens left), shown under the Elo estimate.
 - **Move classifications** from Masterstroke to Blunder, with an evaluation graph and best-move arrows.
+- **Forced-move badge**: a position with only one legal move is marked **Forced** rather than
+  Best, Great or Brilliant, and it is left out of the accuracy breakdown — a forced move is not
+  a decision, so it never changes your accuracy or rating.
 - **Estimated rating** — a rough guide to the level each player performed at in the game.
 - **Opening detection** from an offline book, named even for PGNs without headers.
 - **Explore board** from the popup, without loading a game: try legal moves, browse
   your move list, and see evaluations, opening names, and move ratings.
 - **Rated alternatives** while reviewing a game, using the same classification rules
   as the played moves. Exploring does not change the original game or its accuracy.
-- **Stockfish 18 NNUE is the default**, with **Stockfish 19 Lite** as a compact
-  alternative. Both are bundled locally and available in Settings.
+- **Progress page** (open it from the popup): accuracy and estimated-rating trends across
+  your saved games, accuracy split by game phase (opening, middlegame, endgame), an openings
+  report that flags openings you score badly with, and personal bests. It is engine-free —
+  it only reads your local Library.
+- **Backup and restore** on the Progress page's **Data** tab: export your Library plus
+  settings, handle, layout and account history to a JSON file, then import it later or on
+  another PC — either merged (games matched by id, the newer copy wins) or as a replacement.
+  The large per-game analysis caches are not included; they rebuild when a game is reopened.
+- **Stockfish 18 NNUE is the default**; **Stockfish 19 Full** is the strongest bundled
+  build and **Stockfish 19 Lite** a compact alternative. All three are bundled locally
+  and selectable in Settings → Engine.
 - **Optional native Stockfish 19 on Windows** — install the small per-user helper from
   [`native/`](native/README.md) and pick *Build: Stockfish 19 (Native)* to review with a native
   Stockfish 19 executable instead of WASM. Falls back to the bundled engines automatically.
