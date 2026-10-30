@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   libraryRecords, sortChronological, progressPoints, summarizeProgress,
   openingKey, openingReport, underperformingOpenings, movingAverage, linePath,
+  phaseReport, personalBests,
 } from "../lib/progress.js";
 
 // Minimal library-record factory; only the fields progress.js reads.
@@ -121,4 +122,72 @@ test("linePath returns an SVG path and skips gaps", () => {
   assert.equal(path.split("L").length - 1, 1); // two points → one line segment
   assert.equal(linePath([5], {}), "");         // a single point cannot form a line
   assert.equal(linePath([null, null], {}), "");
+});
+
+test("phaseReport averages each phase and skips games without phase data", () => {
+  const out = phaseReport([
+    rec({ id: "1", myPhases: { opening: 90, middlegame: 80, endgame: null } }),
+    rec({ id: "2", myPhases: { opening: 70, middlegame: 60, endgame: 50 } }),
+    rec({ id: "3" }),                                    // no phase data (an older record)
+  ]);
+  assert.equal(out.covered, 2);
+  const by = Object.fromEntries(out.phases.map((p) => [p.key, p]));
+  assert.deepEqual(Object.keys(by), ["opening", "middlegame", "endgame"]);
+  assert.equal(by.opening.accuracy, 80);
+  assert.equal(by.opening.games, 2);
+  assert.equal(by.endgame.accuracy, 50);
+  assert.equal(by.endgame.games, 1);
+});
+
+test("phaseReport only flags a worst phase once the evidence is thick enough", () => {
+  const thin = phaseReport([rec({ id: "1", myPhases: { opening: 40, middlegame: 80 } })]);
+  assert.equal(thin.covered, 1);
+  assert.equal(thin.worst, null);                        // fewer than 3 games per phase
+  const thick = phaseReport([1, 2, 3, 4].map((n) =>
+    rec({ id: String(n), myPhases: { opening: 85, middlegame: 60, endgame: 70 } })));
+  assert.equal(thick.worst, "middlegame");
+  assert.equal(thick.phases.find((p) => p.key === "middlegame").games, 4);
+});
+
+test("phaseReport tolerates junk phase values", () => {
+  const out = phaseReport([
+    rec({ id: "1", myPhases: { opening: "nope", middlegame: 80 } }),   // junk phase ignored
+    rec({ id: "2", myPhases: 5 }),                                     // not an object -> skipped
+    rec({ id: "3", myPhases: { opening: 90 } }),
+  ]);
+  assert.equal(out.covered, 2);
+  assert.equal(out.phases.find((p) => p.key === "opening").accuracy, 90);
+  assert.equal(out.phases.find((p) => p.key === "opening").games, 1);
+  assert.equal(out.phases.find((p) => p.key === "middlegame").accuracy, 80);
+});
+
+test("personalBests finds standout games and runs", () => {
+  const records = [
+    rec({ id: "1", savedAt: 1, result: "win", myAcc: 70, brilliantCount: 1, opRating: 1400, plies: 60, date: "2026.01.01", opName: "A" }),
+    rec({ id: "2", savedAt: 2, result: "win", myAcc: 92.4, brilliantCount: 0, opRating: 1700, plies: 40, date: "2026.01.02", opName: "B" }),
+    rec({ id: "3", savedAt: 3, result: "loss", myAcc: 88, brilliantCount: 3, opRating: 1500, plies: 80, date: "2026.01.03", opName: "C" }),
+    rec({ id: "4", savedAt: 4, result: "win", myAcc: 80, brilliantCount: 0, opRating: 1600, plies: 24, date: "2026.01.04", opName: "D" }),
+  ];
+  const best = Object.fromEntries(personalBests(records).map((b) => [b.key, b]));
+  assert.equal(best.accuracy.id, "2");
+  assert.equal(best.accuracy.text, "92.4");
+  assert.equal(best.accuracy.hint, "2026.01.02 · vs B");
+  assert.equal(best.winStreak.value, 2);                 // the two opening wins
+  assert.equal(best.winStreak.text, "2 games");
+  assert.equal(best.unbeaten.value, 2);
+  assert.equal(best.brilliants.id, "3");
+  assert.equal(best.brilliants.text, "3");
+  assert.equal(best.topWin.id, "2");
+  assert.equal(best.topWin.text, "1700");
+  assert.equal(best.fastestWin.id, "4");
+  assert.equal(best.fastestWin.text, "24 moves");
+});
+
+test("personalBests leaves a category empty until a game qualifies for it", () => {
+  const best = Object.fromEntries(personalBests([rec({ id: "1", result: "loss" })]).map((b) => [b.key, b]));
+  for (const key of ["accuracy", "winStreak", "unbeaten", "brilliants", "topWin", "fastestWin"]) {
+    assert.equal(best[key].text, null, `${key} should be empty`);
+    assert.equal(best[key].id, null);
+  }
+  assert.deepEqual(personalBests([]).map((b) => b.text), [null, null, null, null, null, null]);
 });

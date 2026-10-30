@@ -126,3 +126,14 @@ test('6: eviction still holds under concurrent writes', async t => {
   assert.equal(store[analysisCacheKey('999')], undefined); // evicted blob cleaned up
   assert.ok(store[analysisCacheKey('0')]);                 // untouched blob retained
 });
+
+test('7: the saved record carries the game length and per-phase accuracy', async t => {
+  const { tabs: [a], store } = sharedTabs(t);
+  a.state.meta = { gameId: 'p' };
+  await a.call('saveToLibrary');
+  const rec = store.library.find((g) => g.id === 'p');
+  assert.equal(rec.plies, a.state.total);                  // the Progress page's "fastest win"
+  // Per-phase accuracy is stored as an object of the three phases (or null when it couldn't be
+  // computed); the Progress page reads exactly this shape.
+  assert.ok(rec.myPhases === null || ["opening", "middlegame", "endgame"].every((k) => k in rec.myPhases));
+});

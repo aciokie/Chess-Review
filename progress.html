@@ -67,6 +67,36 @@
       .empty { text-align: center; color: var(--ink-3); padding: 60px 20px; line-height: 1.6; }
       .empty a { color: var(--accent); }
       .foot { margin-top: 26px; font-size: 12px; color: var(--ink-3); text-align: center; }
+
+      /* Buttons + the Data (backup) tab */
+      .btn { font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 9px 16px;
+        border-radius: 9px; border: 1px solid transparent; color: var(--accent-ink);
+        background: linear-gradient(160deg, var(--accent), var(--accent-strong)); }
+      .btn.ghost { background: var(--panel-2); border-color: var(--line); color: var(--ink-2); }
+      .btn:hover { filter: brightness(1.06); }
+      .btn:disabled { opacity: .5; cursor: default; filter: none; }
+      .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+      .status { font-size: 12.5px; color: var(--ink-2); min-height: 18px; margin: 10px 2px 0; }
+      .status.bad { color: var(--loss); }
+      .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); margin: 8px 0; }
+      .note { font-size: 12px; color: var(--ink-3); line-height: 1.55; margin: 0; }
+
+      /* Accuracy by phase */
+      .phase { display: grid; grid-template-columns: 120px 1fr 66px; gap: 12px; align-items: center;
+        padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+      .phase:last-child { border-bottom: 0; }
+      .phase .name { font-weight: 600; }
+      .phase .val { text-align: right; font-variant-numeric: tabular-nums; }
+      .bar { height: 8px; border-radius: 999px; background: var(--panel-3); overflow: hidden; }
+      .bar > i { display: block; height: 100%; border-radius: 999px;
+        background: linear-gradient(90deg, var(--accent-strong), var(--accent)); }
+      .phase.weak .bar > i { background: linear-gradient(90deg, var(--loss), color-mix(in oklab, var(--loss) 60%, var(--accent))); }
+
+      /* Personal bests */
+      .bests td.big { font-weight: 800; font-size: 15px; color: var(--accent); font-variant-numeric: tabular-nums; }
+      .bests td.hint { color: var(--ink-3); font-size: 12px; text-align: left; }
+      .bests tbody tr.none { cursor: default; }
+      .bests tbody tr.none:hover { background: none; }
     </style>
   </head>
   <body>
@@ -79,6 +109,7 @@
         <div class="tabs">
           <button class="tab" id="tab-progress" data-tab="progress" aria-pressed="true">Progress</button>
           <button class="tab" id="tab-openings" data-tab="openings" aria-pressed="false">Openings</button>
+          <button class="tab" id="tab-data" data-tab="data" aria-pressed="false">Data</button>
         </div>
       </div>
       <div id="view"></div>

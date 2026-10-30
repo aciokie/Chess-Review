@@ -6430,6 +6430,11 @@ function saveToLibrary() {
       date: S.headers.UTCDate || S.headers.Date || "",
       url: (S.meta && S.meta.url) || "",
       hasBrilliant, brilliantCount, myBrilliant,
+      // Per-phase accuracy for the analyzed side (opening/middlegame/endgame, null where a phase had
+      // too few scored moves) and the game length, so the Progress page can report phases and find a
+      // fastest win without re-reading the analysis.
+      plies: S.total,
+      myPhases: S.phaseAcc?.[S.meSide] || null,
     };
     const writes = { [analysisCacheKey(id)]: {
       pgn: S.pgn, settingsKey: analysisSettingsKey(), engineBuild: S.activeEngineBuild,

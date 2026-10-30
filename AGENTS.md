@@ -51,6 +51,8 @@ Requires Node 22+ (CI pins 22). Verification order that works: `npm test` → `n
 | `gameid.js` | Single source of truth for game identity + every game-scoped cache key (platform id; PGN-hash fallback) |
 | `gamecache.js` | Local PGN cache keyed by site + id (LRU-capped); re-analysis of a seen game costs 0 API calls |
 | `browser-compat.js` | `browserAPI` Promise wrapper (Firefox `browser` → Chrome `chrome`); used across popup/analysis/tools |
+| `progress.html`, `progress.js`, `lib/progress.js` | Engine-free Progress page (accuracy/rating trend, openings, per-phase accuracy, personal bests) + the **Data** tab (backup export/import); all math lives in `lib/progress.js` so Node can test it |
+| `lib/library-backup.js` | Pure export/import of the local library + settings (`chess-review-backup` v1 JSON); merge is id-keyed with the newer `savedAt` winning |
 | `lib/concepts/` | Concepts detectors + runtime (worker) + provenance |
 | `lib/coach-insights.js` | Concept finding presentation (ordering, perspective swap, wording) |
 | `native/` | Windows Native Messaging host (C# source; installer compiles it — no prebuilt exe is committed), bundled SF19 exe, installer, docs |
@@ -66,6 +68,10 @@ Requires Node 22+ (CI pins 22). Verification order that works: `npm test` → `n
 - `lib/concepts/detectors/E*.mjs` are generated copies of the `research/` experiments; their bytes and a source fingerprint are recorded in `lib/concepts/integration-provenance.json`. **Do not hand-edit detectors.**
 - Wording, scope phrasing and perspective belong in `lib/coach-insights.js`; `tests/concept-wording.test.mjs` exercises presentation on real detector output
 - Neither `scripts/promote-concept-integration.mjs` (the generator) nor `research/` exists in this checkout, so the hash/fingerprint assertions in `tests/concept-integration.test.mjs` self-skip — an accidental detector edit will not be caught by tests here
+
+## Progress page & backup (fork-native, not upstream)
+- The Progress page reads only `browserAPI.storage.local["library"]`; per-phase accuracy and personal bests depend on records saved *after* `saveToLibrary` began writing `plies` + `myPhases`, so older records are skipped (the reports tolerate missing fields)
+- `lib/library-backup.js` deliberately excludes the per-game analysis caches (`analysis:<id>`) and `gamecache:*` — they are large and rebuild on demand, keeping a 1000-game backup a few hundred KB
 
 ## Packaging & lint
 - `scripts/package.mjs` uses an **explicit allowlist** — any new file that `popup.js`/`analysis.js` imports MUST be added or the store ZIPs break (this bit `recent-games.js`)

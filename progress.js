@@ -6,8 +6,12 @@ import { browserAPI } from "./browser-compat.js";
 import { openAnalysisTab } from "./analyze-flow.js";
 import {
   progressPoints, summarizeProgress, openingReport, underperformingOpenings,
-  movingAverage, linePath,
+  movingAverage, linePath, phaseReport, personalBests,
 } from "./lib/progress.js";
+import {
+  createBackup, parseBackup, mergeLibraries, replaceLibrary, backupSummary,
+  restorableSettingsKeys, BACKUP_KEYS,
+} from "./lib/library-backup.js";
 
 /* ---------------- tiny DOM helpers ---------------- */
 function el(tag, attrs = {}, ...kids) {
@@ -16,6 +20,7 @@ function el(tag, attrs = {}, ...kids) {
     if (v == null || v === false) continue;
     if (k === "class") n.className = v;
     else if (k === "text") n.textContent = v;
+    else if (k === "style" && v && typeof v === "object") Object.assign(n.style, v);
     else if (k.startsWith("on") && typeof v === "function") n.addEventListener(k.slice(2).toLowerCase(), v);
     else n.setAttribute(k, v);
   }
@@ -91,7 +96,46 @@ function renderProgress(records) {
     cards,
     el("div", { class: "panel" }, el("h3", {}, "Accuracy over time"), el("p", { class: "sub" }, "Each game's accuracy, with a 5-game moving average."), lineChart(accuracySeries(points), { domain: [0, 100], label: "Accuracy trend" })),
     el("div", { class: "panel" }, el("h3", {}, "Rating estimate over time"), el("p", { class: "sub" }, "Your estimated rating per game."), lineChart(ratingSeries(points), { label: "Rating trend" })),
+    phasePanel(records),
+    bestsPanel(records),
   );
+}
+
+/* ---------------- accuracy by phase ---------------- */
+const PHASE_LABELS = { opening: "Opening", middlegame: "Middlegame", endgame: "Endgame" };
+
+function phasePanel(records) {
+  const { covered, phases, worst } = phaseReport(records);
+  const rows = phases.map((p) => el("div", { class: `phase ${p.key === worst ? "weak" : ""}` },
+    el("div", { class: "name" }, PHASE_LABELS[p.key] || p.key),
+    el("div", { class: "bar" }, el("i", { style: { width: `${p.accuracy == null ? 0 : Math.round(p.accuracy)}%` } })),
+    el("div", { class: "val" }, fmtAcc(p.accuracy)),
+  ));
+  const sub = covered
+    ? `${covered} ${covered === 1 ? "game" : "games"} carried phase data${worst ? ` · weakest: ${PHASE_LABELS[worst] || worst}` : ""}`
+    : "New games record this automatically; older saved games are skipped.";
+  return el("div", { class: "panel" },
+    el("h3", {}, "Accuracy by phase"),
+    el("p", { class: "sub" }, sub),
+    ...rows);
+}
+
+/* ---------------- personal bests ---------------- */
+function bestsPanel(records) {
+  const byId = recordById();
+  const rows = personalBests(records).map((b) => el("tr",
+    // Only rows that point at a real game are clickable (and get the hover/pointer styling).
+    { class: b.id ? "" : "none", onclick: b.id ? () => openGame(b.id) : null, title: b.id ? "Open this game" : "" },
+    el("td", {}, b.label),
+    el("td", { class: "big" }, b.text ?? "–"),
+    el("td", { class: "hint" }, b.id && byId.get(b.id) ? b.hint : ""),
+  ));
+  return el("div", { class: "panel" },
+    el("h3", {}, "Personal bests"),
+    el("p", { class: "sub" }, "Your standout games and runs. Click a row to reopen the game."),
+    el("table", { class: "bests" },
+      el("thead", {}, el("tr", {}, el("th", {}, "Best"), el("th", {}, "Value"), el("th", {}, "Game"))),
+      el("tbody", {}, ...rows)));
 }
 
 /* ---------------- openings tab ---------------- */
@@ -101,13 +145,6 @@ function renderOpenings(records) {
 
   const weak = underperformingOpenings(report);
   const weakKeys = new Set(weak.map((g) => g.key));
-  const byId = new Map(records.map((r) => [r.id, r]));
-
-  const openGame = (id) => {
-    const rec = byId.get(id);
-    if (!rec || !rec.pgn) return;
-    openAnalysisTab({ pgn: rec.pgn, meta: { ...(rec.meta || {}), flip: rec.meSide === "b" }, source: "library" });
-  };
 
   const rows = report.map((g) => el("tr", { class: weakKeys.has(g.key) ? "warn-row" : "", onclick: () => g.lastId && openGame(g.lastId), title: "Open your most recent game in this opening" },
     el("td", {}, el("span", { class: "op-name" }, g.name), g.eco ? el("span", { class: "op-eco" }, g.eco) : null),
@@ -140,21 +177,142 @@ function renderOpenings(records) {
   return el("div", {}, weak.length ? weakPanel : null, allPanel);
 }
 
-/* ---------------- boot ---------------- */
+/* ---------------- shared navigation + opening a game ---------------- */
 let activeTab = "progress";
 let library = [];
+// A one-shot message shown on the Data tab after a re-render (notice is consumed by renderData).
+let notice = "";
+let noticeBad = false;
 const view = document.getElementById("view");
+
+const recordById = () => new Map(library.map((r) => [r.id, r]));
+// Reopen a saved game in the analyzer, reproducing the exact perspective it was saved with (stored
+// flip hint first, else the saved side) - the same rule as openLibraryGame in analysis.js.
+function openGame(id) {
+  const rec = recordById().get(id);
+  if (!rec || !rec.pgn) return;
+  const flip = (rec.meta && rec.meta.flip != null) ? rec.meta.flip : (rec.meSide === "b");
+  openAnalysisTab({ pgn: rec.pgn, meta: { ...(rec.meta || {}), flip }, source: "library" });
+}
+
+function emptyState() {
+  return el("div", { class: "empty" }, "Your Library is empty.",
+    el("br"), "Analyze a game and its accuracy, rating and opening will appear here automatically.",
+    el("br"), "Have a backup? Restore it from the Data tab.");
+}
 
 function render() {
   for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-pressed", String(b.dataset.tab === activeTab));
+  // The Data tab must work on an empty library too - that is where you import one.
+  if (activeTab === "data") { view.replaceChildren(renderData()); return; }
   view.replaceChildren(library.length
     ? (activeTab === "openings" ? renderOpenings(library) : renderProgress(library))
-    : el("div", { class: "empty" }, "Your Library is empty.",
-        el("br"), "Analyze a game and its accuracy, rating and opening will appear here automatically."));
+    : emptyState());
 }
 
 for (const b of document.querySelectorAll(".tab")) {
   b.addEventListener("click", () => { activeTab = b.dataset.tab; render(); });
+}
+
+/* ---------------- data tab: backup + restore ---------------- */
+const LIBRARY_MAX = 1000;   // mirrors analysis.js: the analyzer keeps the newest 1000 games
+const LIBRARY_LOCK = "chess-review-library";
+const fmtDateTime = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(); };
+
+function download(name, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  const a = el("a", { href: url, download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function renderData() {
+  const withPhases = library.filter((r) => r.myPhases).length;
+  const status = el("div", { class: `status ${noticeBad ? "bad" : ""}` }, notice);
+  const say = (msg, bad = false) => { status.textContent = msg || ""; status.classList.toggle("bad", !!bad); };
+  notice = ""; noticeBad = false;   // consumed once
+
+  const includeSettings = el("input", { type: "checkbox", checked: true });
+  const mergeBtn = el("button", { class: "btn", disabled: true }, "Merge into library");
+  const replaceBtn = el("button", { class: "btn ghost", disabled: true }, "Replace library");
+  let pending = null;
+
+  const fileInput = el("input", { type: "file", accept: "application/json,.json", style: { display: "none" } });
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files && fileInput.files[0];
+    fileInput.value = "";   // let the same file be picked again
+    if (!file) return;
+    let text;
+    try { text = await file.text(); } catch { return say("That file could not be read.", true); }
+    const parsed = parseBackup(text);
+    if (!parsed.ok) { pending = null; mergeBtn.disabled = replaceBtn.disabled = true; return say(parsed.error, true); }
+    pending = parsed.backup;
+    const s = backupSummary(pending);
+    mergeBtn.disabled = replaceBtn.disabled = false;
+    say(`Read a backup from ${s.exportedAt ? fmtDateTime(s.exportedAt) : "an unknown date"}: ${s.games} games`
+      + `${s.hasSettings ? ", settings" : ""}${s.hasPlayerHistory ? ", account history" : ""}. Choose how to apply it.`);
+  });
+
+  const exportBtn = el("button", { class: "btn", onclick: async () => {
+    say("Preparing ...");
+    try {
+      const all = await browserAPI.storage.local.get(BACKUP_KEYS);
+      const backup = createBackup(all);
+      const name = `chess-review-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      download(name, JSON.stringify(backup, null, 2));
+      say(`Exported ${backupSummary(backup).games} games to ${name}.`);
+    } catch (e) { say(`Export failed: ${e && e.message ? e.message : e}`, true); }
+  } }, "Export backup");
+
+  async function apply(replace) {
+    if (!pending) return;
+    const s = backupSummary(pending);
+    if (replace && !window.confirm(`Replace your library with the ${s.games} games from this backup? This cannot be undone.`)) return;
+    say("Restoring ...");
+    try {
+      const keys = includeSettings.checked ? restorableSettingsKeys(pending) : [];
+      // Serialize under the analyzer's own library lock so a concurrent analysis tab cannot lose a
+      // save, and re-read the library inside the lock before merging.
+      const task = async () => {
+        const current = (await browserAPI.storage.local.get("library")).library;
+        const merged = replace
+          ? replaceLibrary(pending.data.library, { limit: LIBRARY_MAX })
+          : mergeLibraries(current, pending.data.library, { limit: LIBRARY_MAX });
+        const writes = { library: merged.library };
+        for (const key of keys) writes[key] = pending.data[key];
+        await browserAPI.storage.local.set(writes);
+        return merged;
+      };
+      const result = navigator.locks && navigator.locks.request
+        ? await navigator.locks.request(LIBRARY_LOCK, task) : await task();
+      library = result.library;
+      notice = replace
+        ? `Restored ${result.library.length} games from the backup.`
+        : `Merged the backup: ${result.added} new, ${result.updated} updated, ${result.unchanged} unchanged.`;
+      noticeBad = false;
+      render();
+    } catch (e) { say(`Restore failed: ${e && e.message ? e.message : e}`, true); }
+  }
+  mergeBtn.addEventListener("click", () => apply(false));
+  replaceBtn.addEventListener("click", () => apply(true));
+
+  return el("div", {},
+    el("div", { class: "panel" },
+      el("h3", {}, "Backup and restore"),
+      el("p", { class: "sub" }, "Save your library and settings to a file, or move them to another PC."),
+      el("div", { class: "actions" }, exportBtn,
+        el("button", { class: "btn ghost", onclick: () => fileInput.click() }, "Import backup"), fileInput),
+      status,
+      el("p", { class: "note" }, `Export carries your ${library.length} games plus whatever settings, handle, layout and account history are stored. `
+        + "Per-game analysis caches are left out (they are large and rebuild when a game is reopened). "
+        + `Phase data is present for ${withPhases} of ${library.length} games.`)),
+    el("div", { class: "panel" },
+      el("h3", {}, "When importing"),
+      el("label", { class: "check" }, includeSettings, el("span", {}, "Also restore settings, handle and layout")),
+      el("div", { class: "actions" }, mergeBtn, replaceBtn),
+      el("p", { class: "note" }, "Merging keeps both libraries: games are matched by id and the newer copy wins, so re-importing an older backup never rolls one back. "
+        + "Replacing asks for confirmation first.")),
+  );
 }
 
 try {
