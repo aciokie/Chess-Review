@@ -203,7 +203,10 @@ function recentStatus(msg, isError = false) {
 function setRecentSite(site) {
   recentSite = site === "chesscom" ? "chesscom" : "lichess";
   for (const btn of document.querySelectorAll("#sitePicker .site-btn")) {
-    btn.classList.toggle("on", btn.dataset.site === recentSite);
+    const on = btn.dataset.site === recentSite;
+    btn.classList.toggle("on", on);
+    // Keep the accessible state in step with the visual "on" class (screen readers get the toggle).
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
   }
 }
 
