@@ -147,6 +147,7 @@ Distributed by Lichess (lila); high-quality vector SVGs.
 - **Design record:** `design/icon-explorations/README.md`, `selection.json`, and
   preserved design iterations identify the selected drawings. Original snapshots
   are historical references, not the active badge set.
+- `icons/forced.svg` was generated with ChatGPT by the project owner (simple circle + arrow shapes, not Chess.com artwork).
 
 ## App logo / icon
 - **Files:** `icons/icon16.png`, `icons/icon48.png`, `icons/icon128.png`, `icons/icon.png`
