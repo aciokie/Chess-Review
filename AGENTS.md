@@ -98,6 +98,7 @@ Requires Node 22+ (CI pins 22). Verification order that works: `npm test` → `n
 - **Classification thresholds** in `CALIB` object (winK, clsWp) — tests inject overrides
 - **Engine builds**: `ENGINE_BUILDS` (WASM paths) + `NATIVE_BUILD = "native19"`; `isKnownEngineBuild()` gates migration and cache restore — native/WASM analysis caches are separate
 - **CSS variables** for move quality: `--q-brilliant` through `--q-blunder` (Chess.com palette)
+- **Board frame** (`boardFrame` wood/accent + `coordsOutside`, Visual → Board / Pieces) is a *transparent `border`* on `.board` painted by a background gradient (`.board.framed` in styles.css), not a wrapper: absolutely positioned overlays (arrows, badges, promotion picker, the `.coords-out` labels) keep resolving against the padding box, so the playing area is unchanged and no layout rule had to move. Any code measuring the board for pointer/drag geometry must use `boardInner()` (the padding box) instead of `getBoundingClientRect()` on the whole element, or the frame is counted as squares
 
 ## Engine Verification
 - WASM: `npm run verify:engines` checks SHA-256 in `engine/` against `engine/checksums.json`

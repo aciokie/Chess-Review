@@ -225,6 +225,11 @@ const qIcon = (cls) => _url("icons/" + (QUALITY[cls]?.icon || cls) + ".svg");
 const PIECE_STYLES = ["image","merida"];
 // Persisted "image" selects Cburnett; both remaining sets are bundled GPLv2+ SVGs.
 const PIECE_STYLE_LABEL = { image: "Cburnett", merida: "Merida" };
+// Board frames (Visual - Board / Pieces). The frame is a transparent CSS border on .board painted by
+// a background gradient, so the playing area itself is untouched (see .board.framed in styles.css).
+const BOARD_FRAMES = ["off", "wood", "accent"];
+const COORD_FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
+const COORD_RANKS = [8, 7, 6, 5, 4, 3, 2, 1];
 const CATEGORY_NAME_LIMIT = 24;
 function cleanCategoryName(value) {
   return typeof value === "string"
@@ -263,6 +268,10 @@ function migrateVisualAssetSettings(settings) {
   const replacement = REMOVED_BOARD_THEMES[settings.boardTheme];
   if (replacement) {
     settings.boardTheme = replacement;
+    changed = true;
+  }
+  if (!BOARD_FRAMES.includes(settings.boardFrame)) {
+    settings.boardFrame = DEFAULT_SETTINGS.boardFrame;
     changed = true;
   }
   // Remove source artwork metadata retained by older versions.
@@ -312,6 +321,12 @@ const DEFAULT_SETTINGS = {
   coach: "old_soviet", coachPlain: true,
   // Start with Honeywood (persisted as "maple") and bundled Cburnett pieces.
   boardTheme: "maple", pieceStyle: "image", sound: true,
+  // Board frame: a decorative bezel drawn around the playing area (Visual - Board / Pieces).
+  // "wood" is a walnut gradient, "accent" is tinted by the theme accent, "off" keeps the flat board.
+  boardFrame: "wood",
+  // Print the a-h / 1-8 coordinates on the frame's gutter instead of inside the corner squares.
+  // Only applies while a frame is on (and while Coordinates is enabled).
+  coordsOutside: true,
   // Master volume (0–100) applied to every sound the extension plays.
   soundVolume: 50,
   // Custom board colours (used when boardTheme === "custom" — the colour-picker chip, shown first).
@@ -2314,6 +2329,7 @@ function buildBoard() {
   if (existing) existing.replaceWith(board);
   else UI.boardWrap.append(board);
   clearBoardArt(board);
+  applyBoardFrame(board);
   paintBoard();
 }
 let mateMarkFen = null, mateMarkSquare = null;
@@ -2527,11 +2543,11 @@ function arrowNode(shaft, head, color, shaftWidth = S.settings.arrowShaft, opaci
 function squareFromEvent(e) {
   const board = UI.boardWrap.querySelector(".board");
   if (!board) return null;
-  const r = board.getBoundingClientRect();
-  const x = e.clientX - r.left, y = e.clientY - r.top;
-  if (x < 0 || y < 0 || x >= r.width || y >= r.height) return null;
-  const col = Math.max(0, Math.min(7, Math.floor(x / (r.width / 8))));
-  const row = Math.max(0, Math.min(7, Math.floor(y / (r.height / 8))));
+  const b = boardInner(board);
+  const x = e.clientX - b.left, y = e.clientY - b.top;
+  if (x < 0 || y < 0 || x >= b.width || y >= b.height) return null;
+  const col = Math.max(0, Math.min(7, Math.floor(x / (b.width / 8))));
+  const row = Math.max(0, Math.min(7, Math.floor(y / (b.height / 8))));
   const files = ["a","b","c","d","e","f","g","h"];
   const ranks = [8,7,6,5,4,3,2,1];
   const file = (S.flipped ? [...files].reverse() : files)[col];
@@ -2881,7 +2897,7 @@ function rightPointerDown(e) {
 function startDrag(e, from) {
   const board = UI.boardWrap.querySelector(".board");
   if (!board) return;
-  const cell = board.getBoundingClientRect().width / 8;
+  const cell = boardInner(board).width / 8;
   const orig = sqByName[from] && sqByName[from].querySelector(".piece, .piece-svg, .piece-img");
   const ghost = el("div", { class: "drag-piece ps-" + S.settings.pieceStyle });
   if (orig) ghost.append(orig.cloneNode(true));
@@ -5163,7 +5179,8 @@ const ARROW_SETTING_KEYS = ["bestArrow", "showThreat", "bestArrowColor", "arrowO
 const BACKGROUND_SETTING_KEYS = ["bg", "bgFit", "bgTile", "bgCustom", "bgHue", "bgSat", "bgLight"];
 const VISUAL_SETTING_KEYS = [
   "theme", "accent", "accentCustom", "density", "evalView", "mlStyle", "badgeStyle", "badgeScale",
-  "graphStyle", "barStyle", "insightFont", "showCoords", "coordSize", ...BACKGROUND_SETTING_KEYS,
+  "graphStyle", "barStyle", "insightFont", "showCoords", "coordSize", "boardFrame", "coordsOutside",
+  ...BACKGROUND_SETTING_KEYS,
   "coach", "coachPlain", "boardTheme", "pieceStyle", "boardCustomLight", "boardCustomDark",
   "sound", "soundVolume", "soundFx", ...ARROW_SETTING_KEYS,
   "moveAnim", "animSpeed", "loaderStyle",
@@ -5258,7 +5275,11 @@ function visualSettings() {
     section("Board / Pieces",
       colorChips("", "boardTheme", boardEntries),
       pieceGrid(),
+      seg("Frame", "boardFrame", BOARD_FRAMES, "A decorative bezel around the playing area. \"Accent\" tints the frame with the theme accent."),
       toggleRow("Coordinates", "showCoords"),
+      (S.settings.boardFrame && S.settings.boardFrame !== "off")
+        ? toggleRow("On the frame", "coordsOutside", setSetting, "Print the a-h / 1-8 coordinates on the frame instead of inside the corner squares.")
+        : null,
       slider("Size", "coordSize", 10, 25, 1, {
         fmt: (v) => v + " px",
         onChange: (v) => document.documentElement.style.setProperty("--coord-size", v + "px"),
@@ -5984,6 +6005,7 @@ function applySettings() {
   r.style.setProperty("--coord-size", (S.settings.coordSize ?? 12) + "px");
   r.classList.toggle("hide-coords", S.settings.showCoords === false);
   clearBoardArt(UI.boardWrap && UI.boardWrap.querySelector(".board"));
+  applyBoardFrame(UI.boardWrap && UI.boardWrap.querySelector(".board"));
   applyBackground();
 }
 // Bundled background presets (relative to the extension's analysis page).
@@ -6053,6 +6075,49 @@ function clearBoardArt(boardEl) {
   boardEl.classList.remove("cc-board");
   boardEl.style.backgroundImage = "";
   boardEl.style.backgroundSize = "";
+}
+
+/* ---------------- Board frame + coordinates on the frame ----------------
+   The frame is a transparent border on .board painted by a background gradient. Everything that is
+   absolutely positioned inside the board (arrows, classification badges, the promotion picker, the
+   coordinates) resolves against the padding box, so the playing area is exactly where it always was
+   and the frame only occupies the border ring. With "Coordinates: on the frame" the a-h / 1-8 labels
+   are printed along that ring instead of inside the corner squares (and follow a board flip). */
+// What the board should carry, from the settings and the flip state. Pure, so it can be unit-tested.
+function boardFramePlan(settings = S.settings, flipped = S.flipped) {
+  const frame = BOARD_FRAMES.includes(settings.boardFrame) ? settings.boardFrame : "wood";
+  const on = frame !== "off";
+  return {
+    frame,
+    on,
+    outside: on && settings.coordsOutside !== false && settings.showCoords !== false,
+    files: flipped ? [...COORD_FILES].reverse() : COORD_FILES.slice(),
+    ranks: flipped ? [...COORD_RANKS].reverse() : COORD_RANKS.slice(),
+  };
+}
+// Apply that plan to a freshly built or already mounted board element.
+function applyBoardFrame(board) {
+  if (!board) return;
+  const plan = boardFramePlan();
+  board.classList.toggle("framed", plan.on);
+  board.classList.toggle("frame-wood", plan.frame === "wood");
+  board.classList.toggle("frame-accent", plan.frame === "accent");
+  board.classList.toggle("coords-outside", plan.outside);
+  // Rebuilt rather than reused: the labels reverse when the board is flipped.
+  const old = board.querySelector(".coords-out");
+  if (old) old.remove();
+  if (!plan.outside) return;
+  const row = (cls, values) => el("div", { class: cls }, ...values.map((v) => el("span", {}, String(v))));
+  board.append(el("div", { class: "coords-out" },
+    row("co-files", plan.files), row("co-ranks", plan.ranks)));
+}
+// The playing area of the board (its padding box) rather than the whole element: with a decorative
+// frame the element is larger than the 8x8 grid, and the pointer/drag geometry must ignore the frame.
+function boardInner(board) {
+  const r = board.getBoundingClientRect();
+  const l = board.clientLeft || 0, t = board.clientTop || 0;
+  return { left: r.left + l, top: r.top + t,
+    width: Math.max(0, r.width - 2 * l), height: Math.max(0, r.height - 2 * t) };
 }
 
 /* ---------------- Practice your mistakes ----------------
