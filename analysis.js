@@ -203,7 +203,7 @@ const ENGINE_INFO = {
   engineLines:   "How many candidate moves (lines) the engine panel shows for the position you're viewing. Extra lines are searched on demand — changing this doesn't re-analyze the game.",
   classifyLines: "Lines searched per position during the analysis batch. 1 is fastest and is all the move classification needs; raising it measures your move in the same search (steadier accuracy/Elo) and pre-fills the panel. Re-analyzes the game.",
   engineDepth:   "How many plies (half-moves) deep Stockfish searches each position. Higher depth gives more accurate evaluations and fewer false mistakes, but takes longer.",
-  engineWorkers: "Number of Stockfish instances analysing positions in parallel. More workers finish the game faster on multi-core CPUs; the results are identical.",
+  engineWorkers: "Number of Stockfish instances analysing positions in parallel. The default uses available CPU cores, up to four workers. Your selection is respected; if a worker fails to start, the review continues with the workers that did start. Search depth and scoring settings stay the same.",
   fastAnalysis:  "Trades quality for speed: the classification pass uses fewer engine lines. ~1.3×/1.6× faster, but evals shift slightly and clean games can pick up a few false minor missteps.",
   enginePath:    "Stockfish 18 NNUE is the default. Stockfish 19 Full is the strongest bundled build. Stockfish 19 Lite uses a smaller evaluation network for a compact alternative. Stockfish 19 (Native) runs a Stockfish 19 executable you installed on Windows through a small local helper — faster than WASM, and it falls back to the bundled builds if the helper isn't installed.",
   ratingMode:    "Use recorded rating compares how you played with public players near the rating saved in the game. Moves only ignores that rating and estimates a blitz rating level from your moves alone. Both use the public per-engine models; builds without a public model keep the older estimate.",
@@ -274,6 +274,19 @@ function migrateVisualAssetSettings(settings) {
   return changed;
 }
 
+// Preserve the original CPU-based default and explicit worker choices. Missing or
+// approximate memory hints do not prove that a working pool needs shrinking; recover
+// from actual startup failures below instead of preemptively slowing the review.
+function engineWorkerCount(requested = null, positions = Infinity,
+  hardware = typeof navigator === "undefined" ? {} : navigator) {
+  const cores = Number(hardware.hardwareConcurrency);
+  const defaults = Math.max(1, Math.min(4,
+    (Number.isFinite(cores) && cores >= 1 ? Math.floor(cores) : 4) - 1));
+  const value = requested == null ? defaults : Number(requested);
+  const desired = Number.isFinite(value) ? Math.max(1, Math.min(8, Math.floor(value))) : defaults;
+  return Math.max(1, Math.min(desired, positions));
+}
+
 const DEFAULT_SETTINGS = {
   conceptsEnabled: false,
   conceptGroups: DEFAULT_CONCEPT_GROUPS,
@@ -330,8 +343,8 @@ const DEFAULT_SETTINGS = {
   // Parallel analysis workers: independent single-threaded Stockfish instances that pull
   // positions from a shared queue. Each position is still searched identically (cold, same
   // depth/lines), so results are unchanged — only the wall-clock is parallelized. Default ≈
-  // (CPU cores − 1), capped at 4.
-  engineWorkers: Math.max(1, Math.min(4, ((typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4) - 1)),
+  // (CPU cores − 1), capped at 4. Manual selections are respected.
+  engineWorkers: engineWorkerCount(),
   // Lines searched per position during the analysis batch. 1 = fastest (~2x faster than 2) and, per
   // the mpv1-vs-mpv2 study, tracks the reference values as well or better — so
   // the calibration is (re)built on MultiPV-1 evals to match. The runtime MultiPV MUST equal the mpv
@@ -6720,7 +6733,7 @@ async function startAnalysis() {
   // raise "Analysis lines" (classifyLines) to search more per position for steadier accuracy/Elo.
   const multipv = Math.max(1, Math.min(ENGINE_MAX_LINES, S.settings.classifyLines || 1));
   S.analyzedMultipv = multipv; // remember how many lines this run computed (for setEngineSetting)
-  const nWorkers = Math.max(1, Math.min(S.settings.engineWorkers || 1, S.total + 1));
+  const nWorkers = engineWorkerCount(S.settings.engineWorkers, S.total + 1);
   // createEngine() readies each worker AND falls back down the build chain if the chosen build can't
   // load — so the whole batch survives e.g. NNUE failing, and S.activeEngineBuild reflects the build
   // actually in use. If no build can start at all, surface it instead of leaving a stuck "Analyzing…".
@@ -6730,22 +6743,30 @@ async function startAnalysis() {
   let engines = starts.filter(r => r.status === "fulfilled").map(r => r.value);
   if (gen !== S.batchGen) { engines.forEach(e => e.terminate()); return; }
   const failed = starts.find(r => r.status === "rejected");
-  if (failed) {
-    engines.forEach(e => e.terminate());
-    console.error("[Chess Review] no Stockfish build could be started:", failed.reason);
+  if (!engines.length) {
+    console.error("[Chess Review] no Stockfish build could be started:", failed?.reason);
     S.evalEngines = []; S.analyzing = false;
-    S.analysisError = failed.reason?.code === "ENGINE_UNSUPPORTED"
+    S.analysisError = failed?.reason?.code === "ENGINE_UNSUPPORTED"
       ? failed.reason.message : "the engine could not be started in this browser.";
     S.verdict = "Engine unavailable — couldn't start Stockfish in this browser.";
     flushProgress(gen);
     return;
   }
+  // A failed allocation in one worker need not prevent the others reviewing the game: finish
+  // with the surviving pool instead of aborting the whole batch.
+  if (failed) console.warn("[Chess Review] continuing with a smaller engine pool:", failed.reason);
   // One build for the whole review, so every position is scored by the same model even if the
   // workers' fallbacks differed. Public scoring applies only to builds that have a public model
   // at the current protocol; every other build keeps the earlier search-and-score path.
   const reviewBuild = engines[0].buildKey;
   for (const eng of engines) if (eng.buildKey !== reviewBuild) eng.terminate();
   engines = engines.filter(eng => eng.buildKey === reviewBuild);
+  // Record the build the review will actually use, so the Engine tab names the model that
+  // scored every position (createEngine already does this, but the pool is authoritative).
+  if (reviewBuild) {
+    S.engineFallbackBuild = reviewBuild === S.settings.enginePath ? null : reviewBuild;
+    setActiveEngineBuild(reviewBuild);
+  }
   const publicRun = publicScoringApplies(reviewBuild, S.settings);
   if (publicRun === false && reviewBuild === NATIVE_BUILD && S.nativeScoring === false) {
     console.warn("[Chess Review] the native helper predates the scoring protocol; using the earlier accuracy estimate. Re-run Install Native Engine.bat.");
