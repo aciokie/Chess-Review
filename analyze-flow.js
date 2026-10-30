@@ -217,8 +217,8 @@ async function analyzeLichessTab(info, tabUrl) {
   try {
     pgn = await fetchLichessPgn(gameId);
   } catch (err) {
-    // API unreachable → use the moves scraped from the page, if the content script found any.
-    const fallback = info && info.movetext ? info.movetext.trim() : "";
+    // API unreachable → use the full replay PGN or the moves scraped from the page, if any.
+    const fallback = (info?.pgn || info?.movetext || "").trim();
     if (fallback) pgn = fallback;
     else throw new Error("Couldn't fetch this game from Lichess (try again in a moment, or paste the PGN).");
   }

@@ -33,3 +33,13 @@ test('colour segment gives the board perspective', () => {
   assert.equal(parseLichessFlip('https://lichess.org/CZmytj0X/white'), false);
   assert.equal(parseLichessFlip('https://lichess.org/CZmytj0X'), null);
 });
+
+test('pasted URLs must belong to Lichess, while paths and player tokens remain supported', () => {
+  for (const value of ['https://example.com/game/CZmytj0X', 'https://lichess.org.example.com/CZmytj0X',
+    '//example.com/CZmytj0X', 'ftp://lichess.org/CZmytj0X']) {
+    assert.equal(parseLichessGameId(value), null, value);
+  }
+  for (const value of ['/game/CZmytj0XNUnq', 'https://www.lichess.org/game/CZmytj0X', 'CZmytj0X']) {
+    assert.equal(parseLichessGameId(value)?.id, 'CZmytj0X', value);
+  }
+});

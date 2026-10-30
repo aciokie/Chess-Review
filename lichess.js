@@ -22,7 +22,10 @@ export function parseLichessGameId(urlOrPath) {
   if (!urlOrPath) return null;
   let path;
   try {
-    path = new URL(urlOrPath, SITE).pathname;
+    const url = new URL(urlOrPath, SITE);
+    // A pasted link must actually point at Lichess — reject foreign hosts and schemes.
+    if (!/^https?:$/.test(url.protocol) || !/^(www\.)?lichess\.org$/i.test(url.hostname)) return null;
+    path = url.pathname;
   } catch {
     path = String(urlOrPath);
   }

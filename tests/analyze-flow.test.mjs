@@ -93,3 +93,31 @@ test('a closed original tab never falls back to the active tab', async t => {
   await assert.rejects(reloadActiveAndAnalyze('', 1), /Tab closed/);
   assert.equal(s.opened.length, 0);
 });
+
+test('a Lichess /game/<id> URL imports the exported PGN', async t => {
+  const s = setup(t, 'https://lichess.org/game/9pnmvxvA');
+  await analyzeActiveTab('');
+  assert.equal(s.opened.length, 1);
+  assert.equal(s.payload().meta.gameId, '9pnmvxvA');
+  assert.equal(s.payload().pgn, '[Result "1-0"]\n\n1. e4 e5 1-0');
+});
+
+test('a cached Lichess signup page is ignored and the PGN is re-fetched', async t => {
+  const s = setup(t, 'https://lichess.org/game/9pnmvxvA');
+  s.store['gamecache:lichess:9pnmvxvA'] = { data: '<!DOCTYPE html><html>Sign up</html>', t: 0 };
+  await analyzeActiveTab('');
+  assert.equal(s.opened.length, 1);
+  assert.equal(s.payload().pgn, '[Result "1-0"]\n\n1. e4 e5 1-0');
+  assert.equal(s.store['gamecache:lichess:9pnmvxvA'].data, '[Result "1-0"]\n\n1. e4 e5 1-0');
+});
+
+test('Lichess replay recovery prefers the full PGN so ratings, result and setup are retained', async t => {
+  const s = setup(t, 'https://lichess.org/game/9pnmvxvA/black');
+  const pgn = '[Event "Replay"]\n[White "Player"]\n[WhiteElo "1500"]\n[Result "*"]\n[SetUp "1"]\n[FEN "7k/8/8/8/8/8/4P3/4K3 b - - 0 37"]\n\n37... Kh7 38. e4 *';
+  t.mock.method(chrome.tabs, 'sendMessage', async () => ({ site: 'lichess', gameId: '9pnmvxvA', pgn, movetext: '1. e4 e5', flip: true }));
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, text: async () => '<html>Sign up</html>' }));
+  await analyzeActiveTab('');
+  assert.equal(s.opened.length, 1);
+  assert.equal(s.payload().pgn, pgn);
+  assert.equal(s.payload().meta.flip, true);
+});
