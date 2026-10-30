@@ -19,21 +19,23 @@ npm run test:native-host  # real-protocol test of the native host (Windows-only;
 npm run update:dataset    # refresh the Lichess validation sample + lock (tools/calibration-experiments; not shipped)
 node tools/calibration/reproduce-public.mjs   # offline replay of the public scoring models (no engine, no network)
 ```
-Verification order that works: `npm test` → `npm run lint` → `npm run verify:engines` → `npm run build`.
+Requires Node 22+ (CI pins 22). Verification order that works: `npm test` → `npm run lint` → `npm run verify:engines` → `npm run build`.
 
 ## Test Notes
 - Tests in `tests/*.test.mjs` use Node's native test runner + JSDOM
 - Helper `tests/helpers/app.mjs` loads `analysis.js` in a vm context, stubs browser APIs and `Engine`; inject extra globals via `a.context.X` (imports are stripped from analysis.js)
-- Run a single suite: `node --test tests/classification.test.mjs` (31 suites cover app, concepts, native adapter, recent games, calibration)
+- One `tests/*.test.mjs` file = one suite (`npm test` globs them all; 45 suites cover app, concepts, native adapter, recent games, calibration)
+- Run a single suite: `node --test tests/classification.test.mjs`
 - Network code (`recent-games.js`) takes an injected `fetchImpl` — unit tests never touch the network
-- `tests/native-engine.test.mjs` (adapter) and `tests/recent-games.test.mjs` (username → game list) are the newest suites
+- `npm run test:browsers` reads `web-ext-artifacts/latest-release.json`, so it needs a prior `npm run build` (it drives the *packaged* extensions, not the working tree)
 
 ## Architecture
-- **Single-file app logic**: `analysis.js` (6000+ lines) — state machine, classification, UI rendering, engine coordination
+- **Single-file app logic**: `analysis.js` (~7000 lines) — state machine, classification, UI rendering, engine coordination
 - **Launch flow**: `analyze-flow.js` `openAnalysisTab()` is shared by popup click and the `Ctrl+Shift+Y` shortcut; it stashes the game under a per-job UUID key (`job:<uuid>`) and opens `analysis.html#<uuid>` (a timestamp alone collides across same-ms launches)
 - **WASM pool**: `engine/uci.js` wraps bundled Stockfish; `createEngine()` in analysis.js manages parallel workers
 - **Native engine**: `engine/native.js` (`NativeEngine`, same contract as uci.js) ↔ `native/host/ChessReviewHost.exe` ↔ real Stockfish 19. Build key `native19` is only tried when the user selects it; native falls back DOWN to WASM (`nnue` → `sf19full` → `sf19lite`), never the reverse
 - **Recent games**: `recent-games.js` pages through a user's games (30 per page via `createRecentGamesPager`; Lichess uses the export's `until`, Chess.com walks monthly archives) from the Lichess/Chess.com APIs by username (popup section "Recent games")
+- **Game identity & caching**: `gameid.js` owns what makes two games "the same" (the platform's immutable id, else a PGN hash) and every `gamecache:` key; `gamecache.js` stores fetched PGNs locally (LRU-capped) so re-opening a seen game costs no API calls
 - **Concepts pipeline**: `lib/concepts/` runs detectors off the UI thread in `worker.js`; `runtime.js` executes them by group, then `lib/coach-insights.js` (`coachInsights`/`coachReply`/`playerText`/`tidyText`) phrases the findings for the player. `controls.js` `CONCEPT_GROUPS` / `DEFAULT_CONCEPT_GROUPS` are implementation controls (cost-ordered, most heavy groups default off), not research acceptance
 - **No build step for source** — extension loads raw JS/CSS; `npm run build` only packages for stores
 
@@ -46,9 +48,12 @@ Verification order that works: `npm test` → `npm run lint` → `npm run verify
 | `engine/*.js/.wasm` | Bundled Stockfish 18 NNUE (default), 19 Full, 19 Lite |
 | `recent-games.js` | Username → all games, paged (Lichess + Chess.com APIs) |
 | `analyze-flow.js` | Popup/shortcut → resolve active game → open analysis tab |
+| `gameid.js` | Single source of truth for game identity + every game-scoped cache key (platform id; PGN-hash fallback) |
+| `gamecache.js` | Local PGN cache keyed by site + id (LRU-capped); re-analysis of a seen game costs 0 API calls |
+| `browser-compat.js` | `browserAPI` Promise wrapper (Firefox `browser` → Chrome `chrome`); used across popup/analysis/tools |
 | `lib/concepts/` | Concepts detectors + runtime (worker) + provenance |
 | `lib/coach-insights.js` | Concept finding presentation (ordering, perspective swap, wording) |
-| `native/` | Windows Native Messaging host (C# source + prebuilt exe), bundled SF19 exe, installer, docs |
+| `native/` | Windows Native Messaging host (C# source; installer compiles it — no prebuilt exe is committed), bundled SF19 exe, installer, docs |
 | `tools/calibration/` | Public scoring-model fitting + reproduction pipeline for `data/calibration.json` (never packaged) |
 | `tools/calibration-experiments/` | The fork's earlier offline calibration pilot and dataset updater (never packaged) |
 | `lib/move-grades.js`, `lib/game-statistics.js` | 0–10 per-move grade within a category; per-game statistics from scored decisions (annotations only) |
@@ -67,13 +72,17 @@ Verification order that works: `npm test` → `npm run lint` → `npm run verify
 - `native/` goes into the **source snapshot only**, never the browser ZIPs; `scripts/lint.mjs` skips `native/`, `web-ext-artifacts/` and `calibration-runs/` for the same reason
 - `manifest.version` must equal `package.json` `version` or the build throws
 
+## CI (GitHub Actions)
+- `.github/workflows/verify.yml` (ubuntu-24.04, Node 22) gates every push to `main` and every PR: `npm ci` → `npm test` → `npm run verify:engines` → `node tools/calibration/reproduce-public.mjs`. Changing `data/calibration.json` without regenerating the public models fails the offline replay
+- `.github/workflows/native-engine.yml` (windows-latest) runs the full `npm test` + `node scripts/native-host-smoke.mjs`; on `v*` tags it compiles the helper and publishes `ChessReview-NativeEngine-Windows.zip` to Releases
+- `.github/workflows/update-validation-dataset.yml` refreshes the Lichess validation sample monthly (commits `tools/calibration-experiments/dataset-lock.json`)
+
 ## Native engine (Windows)
 - SF19 scoring family: `lib/scoring-builds.js` (`sf19lite`, `sf19full`, `native19`) — one protocol (fixed 20,000 nodes, Hash 32, UCI_ShowWDL, exact-only, restricted-move searches). Native needs host ≥ 1.1.0 (`hello.capabilities` contains `scoring-v1`); `S.nativeScoring === false` means an old helper and the legacy path. Never hard-code `sf19lite`; use `isSf19Build`
 - Native helper source changes need a Windows build: no prebuilt `ChessReviewHost.exe` is committed for 1.1.0 (installer compiles from source; the release workflow records the built hash). Commit one + its hash in `native/host/checksums.json` when a Windows build is available
 - Installer: `Install Native Engine.bat` (repo root) → `native/install.ps1` — defaults to the **bundled official SF19** (`native/engine/`, SHA-256 pinned automatically) and the **prebuilt helper** (`native/host/ChessReviewHost.exe`, hash in `native/host/checksums.json`); local csc compile is only a fallback. Unpack extension ids are auto-detected from browser profiles **at install time, so the unpacked extension must already be loaded when the installer runs**; reload the extension afterwards (it needs `nativeMessaging`)
 - `native/README.md` section "Get a genuine Stockfish 19 executable" is stale prose: the installer now defaults to the bundled `native/engine/stockfish-windows-x86-64-universal.exe`
 - Checksums pattern: `native/engine/checksums.json`, `native/host/checksums.json` — refresh the hash whenever a binary changes
-- `.github/workflows/native-engine.yml`: windows-latest runs npm test + the native smoke test on push; on `v*` tags publishes `ChessReview-NativeEngine-Windows.zip` to Releases
 - `csc.exe` (in-box .NET Framework 4.8) only speaks **C# 5**: no string interpolation, no `?.`, no `catch … when`
 - **PowerShell 5.1 rules**: keep `.ps1` files pure ASCII + UTF-8 BOM (BOM-less files decode as ANSI and smart quotes inside strings break parsing); `New-Item -Force` fails on missing registry keys (guard with `Test-Path`); `Dictionary<K,V>` has no string `Contains()` — use `ContainsKey`
 - Non-git installs update via `Update Extension.bat` → `update-extension.ps1` (diffs GitHub, downloads only changed files); it follows the same PS 5.1 rules
@@ -86,17 +95,21 @@ Verification order that works: `npm test` → `npm run lint` → `npm run verify
 
 ## Engine Verification
 - WASM: `npm run verify:engines` checks SHA-256 in `engine/` against `engine/checksums.json`
+- `engine/checksums.json` pins only 4 files — SF18 NNUE (`stockfish-nnue.js/.wasm`) and SF19 **Lite** (`stockfish-19-lite-single.js/.wasm`). The SF19 **Full** pair (`stockfish-19-single.js/.wasm`, build key `sf19full`) is bundled but **not** checksum-verified, so a green `verify:engines` says nothing about it
+- `.gitattributes` keeps the engines byte-exact (`engine/stockfish*.js -text`, `engine/*.wasm binary`, `native/engine/*.exe binary`): never reformat, re-save or hand-regenerate an engine file, or the checksums stop matching
 - Native: engine exe pinned in `native/engine/checksums.json` (auto-verified + hash-pinned at install); prebuilt helper pinned in `native/host/checksums.json`
 - Bundled native engine is 98 MB — GitHub warns >50 MB (hard limit 100 MB); use Releases, not LFS, if it ever needs to move
 
 ## Testing in a real browser
 - Unpacked extensions need `playwright-core` + `chromium.launchPersistentContext` with `--load-extension` — the Playwright MCP browser cannot load unpacked extensions
+- `opencode.json` holds a `PLAYWRIGHT_MCP_EXTENSION_TOKEN` secret — never `git add` it (keep it ignored). It runs the Playwright MCP with `--extension` against the local **Brave** (`PLAYWRIGHT_MCP_EXECUTABLE_PATH`); that bridge controls your own browser, it does not launch one with `--load-extension`
 - **Lichess 404s `HeadlessChrome` user agents** on its API — set a normal Chrome `userAgent` in the test context or live fetches fail with "user not found"
 - MV3 service workers idle out (~30 s): seed storage through an extension **page** context, not a captured worker
 - `npm run test:browsers` uses packaged ZIPs + isolated profiles; it falls back to `C:\Program Files\Google\Chrome\Application\chrome.exe` / `C:\Program Files\Mozilla Firefox\firefox.exe` unless `CHROME_PATH` / `FIREFOX_PATH` is set. Ad-hoc tests should use their own profile dir per run
 
 ## Workflow & environment
-- Push verified changes straight to `main` (this repo's convention; no PR flow)
+- This is a fork of `T-Julsgaard/Chess-Review` (the public upstream). `README.md`, `CONTRIBUTING.md`, `.github/pull_request_template.md`, `.github/ISSUE_TEMPLATE/` and `.github/dependabot.yml` describe the upstream contribution flow
+- Push verified changes straight to `main` (this repo's convention; no PR flow) and never push upstream
 - When asked to *audit/check* something, stay read-only — report findings and wait for an explicit go-ahead before editing
 - `git push` writes to stderr, so PowerShell reports exit code 1 even on success — verify the `old..new main -> main` line instead
 - This machine runs Avast: freshly compiled exes get scanned (slow cold starts, occasional `EPERM` on `Process.Start` — the host already retries)

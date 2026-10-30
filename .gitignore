@@ -3,3 +3,6 @@ web-ext-artifacts/
 *.log
 calibration-runs/
 .playwright-mcp/
+# Project-local OpenCode config (contains a browser-extension secret token).
+opencode.json
+.opencode/

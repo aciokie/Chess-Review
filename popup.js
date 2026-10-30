@@ -126,6 +126,21 @@ $("exploreMode").addEventListener("click", async () => {
   }
 });
 
+$("progressMode").addEventListener("click", async () => {
+  const btn = $("progressMode");
+  btn.disabled = true;
+  setStatus("Opening your progress ...");
+  try {
+    // The Progress page is engine-free: it only reads the saved Library, so it opens instantly.
+    await browserAPI.tabs.create({ url: browserAPI.runtime.getURL("progress.html") });
+    window.close();
+  } catch (err) {
+    setStatus(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 $("analyzeManual").addEventListener("click", async () => {
   const btn = $("analyzeManual");
   const raw = $("manualInput").value.trim();

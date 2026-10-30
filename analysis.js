@@ -5375,6 +5375,10 @@ function nativeFailureHint(status, failure) {
 // When the helper is missing, a small "Install native engine" button opens the one step the browser
 // cannot do itself (Windows only lets a browser-launched helper register native messaging, so the
 // first install has to happen outside the page), then rechecks automatically on window focus.
+// The release asset users download to install the native helper. A browser page cannot run an
+// installer or register a native-messaging host itself, so the extension can only hand the user the
+// one file to double-click; the install-watch below then detects the helper the moment it registers.
+const NATIVE_ENGINE_DOWNLOAD_URL = "https://github.com/T-Julsgaard/Chess-Review/releases/latest/download/ChessReview-NativeEngine-Windows.zip";
 function nativeStatusRow(status) {
   const hint = nativeFailureHint(status, S.nativeFailure);
   let note = !status.available
@@ -5409,17 +5413,19 @@ function nativeStatusRow(status) {
   }, S.nativeDiag && S.nativeDiag.running ? "Testing…" : "Diagnostics"));
   if (!status.available && S.nativeInstallOpen) {
     kids.push(el("div", { class: "set-note" },
-      "The browser is not allowed to start installers itself, so this one step happens outside the page:",
-      el("div", { style: { margin: "6px 0 0 12px" } },
-        "1. Open the Chess Review folder on your PC (the folder the extension was loaded from)."),
-      el("div", { style: { margin: "3px 0 0 12px" } },
-        "2. Double-click ", el("b", {}, "Install Native Engine.bat"),
+      "A browser is not allowed to start installers by itself, so this one step happens outside the page:",
+      el("div", { style: { margin: "8px 0 0 12px" } },
+        el("button", { class: "set-reset inline", onclick: () => { try { browserAPI.tabs.create({ url: NATIVE_ENGINE_DOWNLOAD_URL }); } catch {} } },
+          "⤓ Download installer (.zip)")),
+      el("div", { style: { margin: "8px 0 0 12px" } },
+        "1. Unzip it and double-click ", el("b", {}, "Install Native Engine.bat"),
         " — it installs the official Stockfish 19 and registers the helper (per user, no admin rights)."),
       el("div", { style: { margin: "3px 0 0 12px" } },
-        "3. Come back to this tab — it rechecks by itself and switches to Stockfish 19 (Native)."),
-      el("div", { style: { margin: "6px 0 0 12px" } },
-        el("span", { class: "set-note" },
-          "Chrome Web Store copies do not include the helper; download the Chess Review folder from the GitHub releases page and run the same file.")),
+        "2. Come back to this tab — it rechecks by itself and switches to Stockfish 19 (Native)."),
+      el("div", { style: { margin: "3px 0 0 12px" } },
+        el("span", { class: "set-note" }, "Already have the source folder? Double-click "),
+        el("b", {}, "Install Native Engine.bat"),
+        el("span", { class: "set-note" }, " in the folder you loaded.")),
     ));
   }
   if (S.nativeDiag) {
