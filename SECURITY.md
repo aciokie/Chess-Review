@@ -27,8 +27,8 @@ Android debugging and does not affect the extension's browser behaviour.
 
 ## Report a vulnerability privately
 
-Use GitHub's **[Report a vulnerability](https://github.com/T-Julsgaard/Chess-Review/security/advisories/new)**
-form to send a private report to the maintainer.
+Use GitHub's **[Report a vulnerability](https://github.com/aciokie/Chess-Review/security/advisories/new)**
+form to send a private report to this fork's maintainer.
 
 If you cannot use GitHub's reporting form, email
 **[Thomas@Julsgaard.dev](mailto:Thomas@Julsgaard.dev)** with the subject
@@ -47,5 +47,5 @@ we investigate and coordinate a fix and disclosure with you. Reports are reviewe
 as maintainer time allows; there is no guaranteed response or resolution time.
 
 For ordinary bugs, analysis disagreements, and feature requests, use
-[GitHub issues](https://github.com/T-Julsgaard/Chess-Review/issues).
+[GitHub issues](https://github.com/aciokie/Chess-Review/issues).
 For information about data handling, see [PRIVACY.md](PRIVACY.md).
