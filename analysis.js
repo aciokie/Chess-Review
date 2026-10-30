@@ -161,6 +161,9 @@ const QUALITY = {
   brilliant: { sym: "!!", name: "Brilliant", color: "var(--q-brilliant)", icon: "brilliant" },
   great:     { sym: "!",  name: "Great",     color: "var(--q-great)",     icon: "great" },
   best:      { sym: "★",  name: "Best",      color: "var(--q-best)",      icon: "best" },
+  // Forced: the position had exactly one legal move, so there was nothing to decide. Chess.com
+  // badges it separately, so it is not shown as Best and stays out of the accuracy breakdown.
+  forced:    { sym: "→",  name: "Forced",    color: "var(--q-forced)",    icon: "forced" },
   excellent: { sym: "✓",  name: "Excellent", color: "var(--q-excellent)", icon: "excellent" },
   good:      { sym: "✓",  name: "Good",      color: "var(--q-good)",      icon: "good" },
   book:      { sym: "📖", name: "Book",      color: "var(--q-book)",      icon: "book" },
@@ -169,12 +172,15 @@ const QUALITY = {
   miss:      { sym: "✕",  name: "Miss",      color: "var(--q-miss)", icon: "miss" },
   blunder:   { sym: "??", name: "Blunder",   color: "var(--q-blunder)", icon: "blunder" },
 };
-const QUALITY_ORDER = ["brilliant","great","best","excellent","good","book","inacc","mistake","miss","blunder"];
-// Accuracy breakdown: compact (default) vs. full list (expanded via the expander arrow).
+const QUALITY_ORDER = ["brilliant","great","best","forced","excellent","good","book","inacc","mistake","miss","blunder"];
+// Accuracy breakdown: compact (default) vs. full list (expanded via the expander arrow). Forced is
+// deliberately absent from both: it was not the player's decision, so it does not belong in the
+// accuracy breakdown (Chess.com omits it too), and adding a row would resize the accuracy panel and
+// shift the saved desktop canvas. Its count is still tracked in S.counts; only the badge shows it.
 const QBREAK_SUMMARY = ["brilliant","great","best","mistake","miss","blunder"];
 const QBREAK_FULL = ["brilliant","great","book","best","excellent","good","inacc","mistake","miss","blunder"];
 const QUALITY_LABEL = {
-  brilliant: "Brilliant!", great: "Great move!", best: "Best move",
+  brilliant: "Brilliant!", great: "Great move!", best: "Best move", forced: "Forced",
   excellent: "Excellent", good: "Good move", book: "Book move",
   inacc: "Inaccuracy", mistake: "Mistake", miss: "Miss", blunder: "Blunder",
 };
@@ -186,7 +192,8 @@ const NOTEWORTHY = new Set(["brilliant","great","inacc","mistake","miss","blunde
 const QUALITY_DESC = {
   brilliant: "A sound sacrifice: you give up material for a strong move (typically punishing the opponent's slip, or to start/keep a forced mate). Real sacrifices only — never a plain trade.",
   great:     "An only-good move that capitalises on the opponent's mistake or blunder.",
-  best:      "Exactly the engine's top move — the best possible move in the position (also shown for forced, only-legal moves).",
+  best:      "Exactly the engine's top move — the best possible move in the position (a forced, only-legal move is no longer counted as Best - it has its own badge).",
+  forced:    "Only one legal move was available in this position, so there was nothing to choose. Chess.com gives this its own badge; it is neither a strength nor a mistake, and it is left out of the accuracy breakdown.",
   excellent: "Not the top move, but nearly as strong (loses well under half a pawn), or a move that begins or keeps a forced mate.",
   good:      "A solid move (loses roughly half to one pawn), or one that delays an unavoidable mate.",
   book:      "A known opening move — the position is in the opening book (theory from a large game dataset).",
@@ -1435,9 +1442,10 @@ function getStandardRating(wp) {
 // engine's #1; `book` = the resulting position is theory; std/loss are indexed by ply.
 function classifyMove(i, mover, isTop, book, std, loss, wpDrop, state = S) {
   if (book) return "book";
-  // "Forced": only one legal move in the position before — we have no separate icon, so it reads
-  // as Best (you couldn't have done better).
-  if (_forcedAt(i, state)) return "best";   // only one legal move — you couldn't have done better
+  // "Forced": exactly one legal move in the position before (a board fact, no eval involved - see
+  // _forcedAt). It now gets its own badge instead of reading as Best, and it stays out of the
+  // accuracy breakdown because there was no decision to make.
+  if (_forcedAt(i, state)) return "forced";   // only one legal move — you couldn't have done better
 
   // Contextual thresholds in pawns of eval; retain saved values from earlier versions.
   const CA = state.settings.clsClearAdv, ML = state.settings.clsMistakeLoss, MT = state.settings.clsMissTol;
@@ -1562,7 +1570,8 @@ function variationOpening() {
 // Accuracy points). The Elo estimate keeps using the win%-based accuracy (sideAccuracies), not this.
 function catAcc(cls) {
   switch (cls) {
-    case "brilliant": case "great": case "best": case "book": return 100;
+    // Forced scores exactly like Best so accuracy/phase figures are unchanged by having its own badge.
+    case "brilliant": case "great": case "best": case "forced": case "book": return 100;
     case "excellent": return S.settings.accExcellent;
     case "good": return S.settings.accGood;
     case "inacc": return S.settings.accInacc;
@@ -2456,7 +2465,8 @@ function renderBestArrow() {
   // on a Book move it's meaningless (it's opening theory, not a single "best" move) — so the
   // arrow isn't shown on the mainline for any of those classifications.
   const cls = (!S.analysisMode && S.idx > 0) ? S.classif[S.idx] : null;
-  if (cls === "best" || cls === "great" || cls === "brilliant" || cls === "book") { if (svg) svg.remove(); return; }
+  // Forced belongs here too: with one legal move the arrow can only point at the move already played.
+  if (cls === "best" || cls === "forced" || cls === "great" || cls === "brilliant" || cls === "book") { if (svg) svg.remove(); return; }
 
   if (!S.settings.bestArrow) { if (svg) svg.remove(); return; }
 
@@ -3464,6 +3474,7 @@ const COMMENT_PHRASE = {
   brilliant: (m) => `${m} is brilliant.`,
   great:     (m) => `${m} is a great move.`,
   best:      (m) => `${m} is the best move.`,
+  forced:    (m) => `${m} was the only legal move.`,
   excellent: (m) => `${m} is excellent.`,
   good:      (m) => `${m} is a good move.`,
   book:      (m) => `${m} follows opening theory.`,
@@ -3584,6 +3595,8 @@ const COACH_QUALITY_EMOTION = {
   brilliant: "surprised", great: "happy", best: "happy", excellent: "happy",
   good: "happy", book: "neutral", inacc: "skeptical", mistake: "sad",
   miss: "sad", blunder: "angry",
+  // A forced move was not a decision, so the coach stays neutral (this is also the fallback).
+  forced: "neutral",
 };
 let _coachFrame = null;        // the live <iframe>, or null when hidden
 let _coachReady = false;       // iframe loaded → safe to postMessage
@@ -3690,7 +3703,8 @@ function coachReactPly(idx) {
   if (idx > 0) {
     const r = Math.random();
     if (cls === "brilliant" || cls === "great") { coachSend({ coachCmd: "nod" }); coachSpecial(); }
-    else if (cls === "best" || cls === "excellent") { coachSend({ coachCmd: "nod" }); if (r < 0.5) coachSpecial(); }
+    // Forced keeps the old reaction (it used to read as Best), so only its badge changed.
+    else if (cls === "best" || cls === "forced" || cls === "excellent") { coachSend({ coachCmd: "nod" }); if (r < 0.5) coachSpecial(); }
     else if (cls === "good" || cls === "book") { if (r < 0.35) coachSpecial(); }
     else if (cls === "inacc" || cls === "mistake" || cls === "miss") {
       // disapproval — frequently an eye-roll, otherwise a head-shake
@@ -3807,7 +3821,8 @@ function coachMoveEvent(idx) {
   if (idx >= 2 && S.classif[idx - 1] === "book" && S.classif[idx] !== "book") return { section: "derived_events", key: "leaving_theory" };
   if (cpPrev != null && cpNow != null && Math.abs(cpNow - cpPrev) >= 200) return { section: "derived_events", key: "eval_swing_large" };
   const runOf = (set) => { let n = 0; for (let i = idx; i >= 1; i--) { if (set.has(S.classif[i])) n++; else break; } return n; };
-  if (runOf(new Set(["brilliant", "great", "best", "excellent"])) === 3) return { section: "derived_events", key: "streak_good", n: 3 };
+  // Forced counts here exactly as it did when it read as Best, so the streak insight is unchanged.
+  if (runOf(new Set(["brilliant", "great", "best", "forced", "excellent"])) === 3) return { section: "derived_events", key: "streak_good", n: 3 };
   if (runOf(new Set(["blunder", "mistake"])) === 3) return { section: "derived_events", key: "streak_bad", n: 3 };
   if (cls && coachArr("move_quality", cls)) return { section: "move_quality", key: cls };
   if (idx === coachTurningPly()) return { section: "derived_events", key: "turning_point" };

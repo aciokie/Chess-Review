@@ -43,11 +43,11 @@ test('a materially costly move with an evaluation error is not a sound brilliant
   assert.notEqual(S.classif[1], 'brilliant');
 });
 
-test('the only legal blocking move remains Best rather than a voluntary sacrifice', t => {
+test('the only legal blocking move is Forced, never a voluntary sacrifice', t => {
   const a = app(t), fen = 'k5rr/8/8/8/8/3B4/8/7K w - - 0 1';
   assert.deepEqual(new Chess(fen).moves(), ['Bh7']);
   const S = loadGame(a, pgn(fen, '1. Bh7'), [{ cp: 0 }, { cp: 0 }]);
-  a.call('computeDerived'); assert.equal(S.classif[1], 'best');
+  a.call('computeDerived'); assert.equal(S.classif[1], 'forced');
 });
 
 test('clearly winning positions require scored alternatives and reject another easy win', t => {
