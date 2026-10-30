@@ -19,6 +19,7 @@ import { analyseCalibratedPosition } from "./lib/calibrated-search.js";
 import { isSf19Build, SF19_NODES } from "./lib/scoring-builds.js";
 import { moveGrade } from "./lib/move-grades.js";
 import { gameStatistics } from "./lib/game-statistics.js";
+import { rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY } from "./lib/player-history.js";
 
 // Development-only diagnostics for game identity / cache routing. Silent in production; enable by
 // opening the page with ?debug (analysis.html?debug#<job>) or setting globalThis.CHESS_REVIEW_DEBUG.
@@ -946,6 +947,16 @@ function derivePlayers(h, meta, username) {
   if (me && b.name.toLowerCase() === me && w.name.toLowerCase() !== me) meSide = "b";
   const playerKnown = !!me && (w.name.toLowerCase() === me) !== (b.name.toLowerCase() === me);
   return { players: { w, b }, meSide, playerKnown };
+}
+// Identity fallback for a launch with no stored/typed handle: infer the account from local game
+// history so the review can still seat and annotate the game around the right player. An explicit
+// page identity (meta.myName / meta.playerKnown) or a stored handle always wins, and an explore
+// board has no player at all. The history itself is written by applyGame via rememberAnalyzedGame.
+function inferUsername(store, payload) {
+  const meta = payload?.meta || {};
+  if (meta.myName != null || meta.playerKnown != null || meta.explore === true) return "";
+  const seen = historyGame(payload);
+  return (seen && inferredPlayer(store, seen.site, seen)) || "";
 }
 
 /* ---------------- Math ---------------- */
@@ -7006,6 +7017,9 @@ async function applyGame(payload) {
   requestAnimationFrame(alignPlayers);
   rememberReviewJob();
   if (!restored) startAnalysis();
+  // Record this game as local evidence for account inference on later launches. Fire-and-forget:
+  // history is optional and must never delay or fail a review.
+  rememberAnalyzedGame(payload, browserAPI.storage.local);
 }
 
 /* ---------------- Start ---------------- */
@@ -7127,7 +7141,7 @@ async function resetLegacyZoom() {
     // them in parallel and don't block the first paint on them — buildUI() can run as soon as the
     // job and settings are in, while the book is still downloading.
     const dataReady = Promise.all([loadBook(), loadCalibration()]);
-    const [payload, store] = await Promise.all([loadJob(), browserAPI.storage.local.get(["settings", "username", "layout", "layoutMode", "layoutVersion", "library"])]);
+    const [payload, store] = await Promise.all([loadJob(), browserAPI.storage.local.get(["settings", "username", "layout", "layoutMode", "layoutVersion", "library", PLAYER_HISTORY_KEY])]);
     S.library = Array.isArray(store.library) ? store.library : [];
     S.settings = { ...DEFAULT_SETTINGS, ...(store.settings || {}) };
     delete S.settings.learningTransition;
@@ -7175,7 +7189,7 @@ async function resetLegacyZoom() {
     S.layoutMode = useStored && store.layoutMode === "custom" ? "custom" : "auto";
     if (!useStored) saveLayout();
     if (store.layoutVersion != null && store.layoutVersion !== LAYOUT_VERSION) await resetLegacyZoom();
-    S.username = store.username || "";
+    S.username = store.username || inferUsername(store, payload);
 
     // Everything the first render needs must be resolved BEFORE buildUI(), so that buildUI() and
     // applyGame() run back-to-back with no await between them — i.e. the browser paints the whole

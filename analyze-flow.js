@@ -5,6 +5,7 @@ import { findGameById, gameMeta, parseFlip, parseGameId } from "./chesscom.js";
 import { parseLichessGameId, parseLichessFlip, fetchGamePgn as fetchLichessPgn } from "./lichess.js";
 import { browserAPI } from "./browser-compat.js";
 import { canonicalGameId } from "./gameid.js";
+import { archivePlayers } from "./lib/player-history.js";
 
 // Dev-only diagnostics; set globalThis.CHESS_REVIEW_DEBUG = true to see game-identity resolution.
 function dbg(...args) { if (globalThis.CHESS_REVIEW_DEBUG === true) console.log("[Chess Review]", ...args); }
@@ -131,6 +132,9 @@ async function analyzeTab(tab, username) {
   };
   detected.forEach(addCand);
   addCand(provided);
+  // Local game history offers extra lookup candidates (the recurring players for this platform).
+  // They are lookup hints, never ownership claims, so they only fill the slots the page left open.
+  try { (await archivePlayers(browserAPI.storage.local, "")).forEach(addCand); } catch {}
   // Bound the archive lookups: on a busy page the sweep may surface a few extra handles, but the
   // two players + the stored handle are always at the front, so 4 candidates is plenty.
   candidates.length = Math.min(candidates.length, 4);
