@@ -5,6 +5,7 @@
 
 import { Chess } from "./lib/chess.js";
 import { Engine } from "./engine/uci.js";
+import { matedKingSquare, mateMark } from "./lib/mate-mark.js";
 import { NativeEngine, nativeMessagingSupported, probeNativeHost, NATIVE_SCORING_CAPABILITY } from "./engine/native.js";
 import { flagCodeForCountryId, countryNameForId } from "./flags.js";
 import { browserAPI } from "./browser-compat.js";
@@ -2275,6 +2276,14 @@ function buildBoard() {
   clearBoardArt(board);
   paintBoard();
 }
+let mateMarkFen = null, mateMarkSquare = null;
+function matedSquare(fen) {
+  if (fen !== mateMarkFen) {
+    mateMarkFen = fen;
+    try { mateMarkSquare = matedKingSquare(new Chess(fen)); } catch { mateMarkSquare = null; }
+  }
+  return mateMarkSquare;
+}
 function paintBoard() {
   hideBoardBadgeTip();
   const pos = activePos();
@@ -2311,6 +2320,7 @@ function paintBoard() {
   const tint = cls && QUALITY[cls]
     ? `color-mix(in srgb, ${QUALITY[cls].color} 50%, transparent)`
     : null;
+  const mated = matedSquare(pos.fen);
   for (const [name, sq] of Object.entries(sqByName)) {
     sq.querySelectorAll(".piece, .piece-svg, .piece-img, .sq-badge").forEach((n) => n.remove());
     const isHl = hl.has(name);
@@ -2324,6 +2334,7 @@ function paintBoard() {
       sq.append(makeBoardBadge(cls));
     }
   }
+  if (boardEl) mateMark(boardEl, sqByName[mated], mated, S.flipped);
   renderBestArrow();
   renderUserArrows();
   renderThreatArrow();

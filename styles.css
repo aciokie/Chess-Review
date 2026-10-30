@@ -437,7 +437,7 @@ button { font-family: inherit; cursor: pointer; }
 
 /* classification badge on the board — SVG icon in the destination square's top-right
    corner, ~42% of the square (cqmin: the square is a size container). */
-.sq-badge {
+.sq-badge, .mate-badge {
   /* ~42% of the square (was 52% — ~20% smaller), centred almost on the
      destination square's top-right corner but tugged slightly inward. The icon half is
      21cqmin × scale; the 7cqmin inset keeps the centre just inside the corner at any size. */
@@ -463,12 +463,24 @@ button { font-family: inherit; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .board-badge-tip { transition: none; transform: none; } }
 /* top row: nudge the icon down so it doesn't poke past the board's top edge (the badge half-height
    is 21cqmin·scale, so 22cqmin keeps the icon's top just inside the 8th-rank border) */
-.sq.top-row .sq-badge { top: calc(22cqmin - 21cqmin * var(--badge-scale, 1)); }
+.sq.top-row .sq-badge, .mate-badge-layer.top-row .mate-badge { top: max(0px, calc(22cqmin - 21cqmin * var(--badge-scale, 1))); }
 /* right column (h-file): pull the icon fully inside so it isn't clipped by the board's right edge */
-.sq.right-col .sq-badge { right: calc(21cqmin - 21cqmin * var(--badge-scale, 1)); }
+.sq.right-col .sq-badge, .mate-badge-layer.right-col .mate-badge { right: max(0px, calc(21cqmin - 21cqmin * var(--badge-scale, 1))); }
 /* destination square with a badge is raised above neighboring squares so the badge isn't clipped
    (the arrow overlay sits even higher, z-index 8/9, and is drawn on top of the badge) */
 .sq.has-badge { z-index: 7; }
+/* checkmate (lib/mate-mark.js): a red glow behind the mated king, like Lichess's check glow, and a
+   "#" badge in the grade-badge corner. Clicks pass through to the square. */
+.mate-badge-layer {
+  position: absolute; width: 12.5%; height: 12.5%; container-type: size;
+  z-index: 7; pointer-events: none;
+}
+.mate-glow {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: radial-gradient(ellipse at center, #f00 0%, #e70000 25%, rgba(169,0,0,0) 89%, rgba(158,0,0,0) 100%);
+}
+.mate-badge { pointer-events: none; }
+.mate-badge > svg { display: block; width: 100%; height: 100%; }
 
 /* ---------- ANALYSIS MODE ---------- */
 /* the whole board is made lighter/desaturated as an indicator */
