@@ -161,8 +161,8 @@ const QUALITY = {
   brilliant: { sym: "!!", name: "Brilliant", color: "var(--q-brilliant)", icon: "brilliant" },
   great:     { sym: "!",  name: "Great",     color: "var(--q-great)",     icon: "great" },
   best:      { sym: "★",  name: "Best",      color: "var(--q-best)",      icon: "best" },
-  // Forced: the position had exactly one legal move, so there was nothing to decide. Chess.com
-  // badges it separately, so it is not shown as Best and stays out of the accuracy breakdown.
+  // Forced: only one legal move was available, so there was nothing to choose. It gets its own
+  // badge rather than being shown as Best, and it stays out of the accuracy breakdown.
   forced:    { sym: "→",  name: "Forced",    color: "var(--q-forced)",    icon: "forced" },
   excellent: { sym: "✓",  name: "Excellent", color: "var(--q-excellent)", icon: "excellent" },
   good:      { sym: "✓",  name: "Good",      color: "var(--q-good)",      icon: "good" },
@@ -174,9 +174,9 @@ const QUALITY = {
 };
 const QUALITY_ORDER = ["brilliant","great","best","forced","excellent","good","book","inacc","mistake","miss","blunder"];
 // Accuracy breakdown: compact (default) vs. full list (expanded via the expander arrow). Forced is
-// deliberately absent from both: it was not the player's decision, so it does not belong in the
-// accuracy breakdown (Chess.com omits it too), and adding a row would resize the accuracy panel and
-// shift the saved desktop canvas. Its count is still tracked in S.counts; only the badge shows it.
+// deliberately absent from both: only one legal move was available, so there was no decision to
+// score, and adding a row would resize the accuracy panel and shift the saved desktop canvas. Its
+// count is still tracked in S.counts; only the badge shows it.
 const QBREAK_SUMMARY = ["brilliant","great","best","mistake","miss","blunder"];
 const QBREAK_FULL = ["brilliant","great","book","best","excellent","good","inacc","mistake","miss","blunder"];
 const QUALITY_LABEL = {
@@ -192,8 +192,8 @@ const NOTEWORTHY = new Set(["brilliant","great","inacc","mistake","miss","blunde
 const QUALITY_DESC = {
   brilliant: "A sound sacrifice: you give up material for a strong move (typically punishing the opponent's slip, or to start/keep a forced mate). Real sacrifices only — never a plain trade.",
   great:     "An only-good move that capitalises on the opponent's mistake or blunder.",
-  best:      "Exactly the engine's top move — the best possible move in the position (a forced, only-legal move is no longer counted as Best - it has its own badge).",
-  forced:    "Only one legal move was available in this position, so there was nothing to choose. Chess.com gives this its own badge; it is neither a strength nor a mistake, and it is left out of the accuracy breakdown.",
+  best:      "Exactly the engine's top move — the best possible move in the position (a position with only one legal move is shown as Forced, not Best).",
+  forced:    "Only one legal move was available, so there was nothing to choose. It is neither a strength nor a mistake, and it is left out of the accuracy breakdown.",
   excellent: "Not the top move, but nearly as strong (loses well under half a pawn), or a move that begins or keeps a forced mate.",
   good:      "A solid move (loses roughly half to one pawn), or one that delays an unavoidable mate.",
   book:      "A known opening move — the position is in the opening book (theory from a large game dataset).",
@@ -1443,8 +1443,8 @@ function getStandardRating(wp) {
 function classifyMove(i, mover, isTop, book, std, loss, wpDrop, state = S) {
   if (book) return "book";
   // "Forced": exactly one legal move in the position before (a board fact, no eval involved - see
-  // _forcedAt). It now gets its own badge instead of reading as Best, and it stays out of the
-  // accuracy breakdown because there was no decision to make.
+  // _forcedAt). It gets its own badge instead of reading as Best, and it stays out of the accuracy
+  // breakdown because there was no decision to make.
   if (_forcedAt(i, state)) return "forced";   // only one legal move — you couldn't have done better
 
   // Contextual thresholds in pawns of eval; retain saved values from earlier versions.
