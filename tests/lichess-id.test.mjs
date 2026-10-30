@@ -9,6 +9,15 @@ test('8-char game ids and 12-char ids with a player token reduce to the 8-char i
   assert.deepEqual(parseLichessGameId('/CZmytj0X?color=white#12'), { id: 'CZmytj0X' });
 });
 
+test('current /game/<id> URLs parse the same as the older /<id> form', () => {
+  assert.deepEqual(parseLichessGameId('https://lichess.org/game/CZmytj0X'), { id: 'CZmytj0X' });
+  assert.deepEqual(parseLichessGameId('https://lichess.org/game/CZmytj0X/black'), { id: 'CZmytj0X' });
+  assert.deepEqual(parseLichessGameId('https://lichess.org/game/CZmytj0XNUnq/white/analysis'), { id: 'CZmytj0X' });
+  // The colour/flip helpers keep working on the new route too.
+  assert.equal(parseLichessFlip('https://lichess.org/game/CZmytj0X/black'), true);
+  assert.equal(parseLichessFlip('https://lichess.org/game/CZmytj0X/white'), false);
+});
+
 test('route names that happen to be 8-12 letters are never game ids', () => {
   for (const route of ['training', 'analysis', 'practice', 'streamer', 'tournament', 'broadcast']) {
     assert.equal(parseLichessGameId(`https://lichess.org/${route}`), null, route);

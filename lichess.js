@@ -26,7 +26,7 @@ export function parseLichessGameId(urlOrPath) {
   } catch {
     path = String(urlOrPath);
   }
-  const seg = path.replace(/^\/+/, "").split(/[/?#]/)[0] || "";
+  const seg = path.replace(/^\/+/, "").replace(/^game\//, "").split(/[/?#]/)[0] || "";
   // Game ids are 8 chars; URLs sometimes append the 4-char player token (12 total).
   // Exactly 8 chars, or 12 with the player token — 9–11 char segments are route names, not games.
   if (!/^(?:[A-Za-z0-9]{8}|[A-Za-z0-9]{12})$/.test(seg)) return null;
@@ -57,12 +57,15 @@ export async function fetchGamePgn(gameId) {
   if (!/^[A-Za-z0-9]{8}$/.test(id)) throw new Error("Invalid Lichess game id.");
   // Cache first: a finished game's PGN is immutable, so a re-analysis costs no API call.
   const cached = await getCachedGame("lichess", id);
-  if (typeof cached === "string" && cached.trim()) return cached;
+  if (typeof cached === "string" && cached.trim() && !/^\s*</.test(cached)) return cached;
   const url = `${SITE}/game/export/${encodeURIComponent(id)}?clocks=false&evals=false&literate=false`;
   const res = await fetch(url, { headers: { Accept: "application/x-chess-pgn" } });
   if (!res.ok) throw new Error(`Lichess returned HTTP ${res.status} for game ${id}.`);
   const pgn = (await res.text()).trim();
   if (!pgn) throw new Error("Lichess returned an empty PGN.");
+  // A redirect to signup can succeed with HTTP 200. Let active-tab imports use their DOM fallback
+  // instead of caching the HTML and handing it to the PGN parser.
+  if (/^</.test(pgn)) throw new Error("Lichess returned a web page instead of a PGN. Open the game page and try again.");
   // Only cache a finished game — an in-progress game exports a partial PGN with [Result "*"], which we
   // must not freeze (the next analysis should re-fetch the completed game).
   if (!/\[Result\s+"\*"\]/.test(pgn)) setCachedGame("lichess", id, pgn);

@@ -17,9 +17,10 @@ browserAPI.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     openAnalysisTab(msg.payload);
   }
   if (msg && msg.type === "freeGameReview") {
-    // Reply once the flow finishes (analysis tab opened, or fell back) so the in-page button can
-    // drop its "Opening review…" cue immediately instead of waiting out its 5s hard cap.
-    runAnalyze(stashError, sender.tab?.id).finally(() => { try { sendResponse({ done: true }); } catch {} });
+    // Reply once the flow finishes so the in-page button can drop its "Opening review" cue
+    // immediately (instead of waiting out its 5s hard cap) and report a failure honestly
+    // rather than pretending the review opened.
+    runAnalyze(stashError, sender.tab?.id).then((ok) => { try { sendResponse({ ok, done: true }); } catch {} });
     return true; // keep the message channel open for the async sendResponse
   }
 });
@@ -37,14 +38,15 @@ async function runAnalyze(onFail, tabId = null) {
   } catch (err) {
     // Only a "can't see the game on the page" failure is worth a reload (the SPA hasn't exposed
     // the finished game yet). Username/archive/network errors won't be fixed by reloading.
-    if (err.code !== "NO_GAME") { onFail(err); return; }
+    if (err.code !== "NO_GAME") { onFail(err); return false; }
     try {
       await reloadActiveAndAnalyze(username, err.tabId);
     } catch (err2) {
       console.warn("[Chess Analyzer] couldn't analyze active game:", (err2 && err2.message) || err.message);
-      onFail(err2 || err);
+      onFail(err2 || err); return false;
     }
   }
+  return true;
 }
 
 // Stash the failure reason so the popup can surface it (with the paste box open) next time it opens.
