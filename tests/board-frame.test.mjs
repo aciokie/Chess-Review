@@ -58,6 +58,29 @@ test('boardInner reports the playing area, not the whole frame', (t) => {
     { left: 10, top: 20, width: 320, height: 320 });
 });
 
+test('pointer geometry ignores the frame, so clicks map to the square under the cursor', (t) => {
+  const a = app(t);
+  // A 600px board with a 20px frame: the grid is 560px, so 70px squares starting at (120,120).
+  const board = {
+    getBoundingClientRect: () => ({ left: 100, top: 100, width: 600, height: 600 }),
+    clientLeft: 20, clientTop: 20,
+  };
+  a.replace('UI', { boardWrap: { querySelector: () => board } });
+  const at = (x, y) => a.call('squareFromEvent', { clientX: x, clientY: y });
+  assert.equal(at(435, 435), 'e4');              // dead centre of e4 (120 + 4.5 * 70)
+  assert.equal(at(155, 155), 'a8');              // first square, inset by the frame
+  // The g/h and rank-1/2 boundaries are at 120 + 7*70 = 610. Treating the frame as part of the
+  // 8x8 grid (the pre-frame maths, 75px "squares") would call these g4 and e2.
+  assert.equal(at(611, 435), 'h4');
+  assert.equal(at(435, 611), 'e1');
+  assert.equal(at(110, 435), null);              // the frame itself is not a square
+  assert.equal(at(435, 110), null);
+  assert.equal(at(699, 435), null);              // nor is the outer edge
+  a.state.flipped = true;
+  // Flipped, the top row is rank 1 and the left column is the h-file, so row 3 / column 0 is h4.
+  assert.equal(at(155, 365), 'h4');
+});
+
 test('the Visual panel offers the frame and only offers the on-frame coords with a frame', (t) => {
   const a = app(t);
   a.state.settings.boardFrame = 'wood';
