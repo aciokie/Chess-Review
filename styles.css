@@ -440,27 +440,63 @@ button { font-family: inherit; cursor: pointer; }
    where they always were (see boardInner in analysis.js). --frame-w scales with the window, and the
    coordinate labels move onto the ring with .coords-outside. */
 .board.framed {
-  --frame-w: clamp(10px, 2.2vmin, 28px);
-  --frame-ink: #dcc7a1;
+  --frame-w: clamp(8px, 1.6vmin, 20px);
+  --frame-radius: 12px;
+  --frame-ink: #e6d3ae;
+  --frame-hi: rgba(255, 236, 200, .20);    /* light catching an edge */
+  --frame-lo: rgba(0, 0, 0, .30);          /* shaded edge */
   overflow: visible;                       /* the frame's labels sit outside the padding box */
   border: var(--frame-w) solid transparent;
-  border-radius: 14px;
-  background-image: linear-gradient(150deg, #6b4a2a 0%, #4a3018 45%, #38240f 100%);
+  border-radius: var(--frame-radius);
+  /* A stack of background layers builds the moulding: two grain bands, a key light from the
+     top-left, a 1px catch/shade on each edge, and the base ramp underneath. */
+  background-image:
+    repeating-linear-gradient(93deg, rgba(255,255,255,.032) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(87deg, rgba(0,0,0,.055) 0 2px, transparent 2px 12px),
+    radial-gradient(125% 130% at 22% 5%, rgba(255,216,158,.22), transparent 62%),
+    linear-gradient(180deg, var(--frame-hi) 0 1px, transparent 1px),
+    linear-gradient(90deg, var(--frame-hi) 0 1px, transparent 1px),
+    linear-gradient(0deg, var(--frame-lo) 0 1px, transparent 1px),
+    linear-gradient(270deg, var(--frame-lo) 0 1px, transparent 1px),
+    linear-gradient(160deg, #7d5933 0%, #644626 48%, #4e3419 100%);
   background-clip: border-box;
-  box-shadow: 0 26px 48px -28px rgba(0,0,0,.85), 0 0 0 1px rgba(0,0,0,.45),
-              inset 0 1px 0 rgba(255,255,255,.09);
+  box-shadow:
+    0 1px 0 rgba(0,0,0,.25),
+    0 12px 20px -14px rgba(0,0,0,.72),
+    0 38px 64px -36px rgba(0,0,0,.9);
 }
 .board.framed.frame-accent {
-  background-image: linear-gradient(150deg, color-mix(in oklab, var(--accent) 30%, #26251f), #16150f 72%);
-  --frame-ink: color-mix(in oklab, var(--accent) 42%, #f0eee6);
+  --frame-ink: color-mix(in oklab, var(--accent) 32%, #f6f4ec);
+  --frame-hi: rgba(255,255,255,.15);
+  --frame-lo: rgba(0,0,0,.42);
+  background-image:
+    repeating-linear-gradient(93deg, rgba(255,255,255,.03) 0 1px, transparent 1px 7px),
+    radial-gradient(125% 130% at 22% 5%, color-mix(in oklab, var(--accent) 30%, transparent), transparent 62%),
+    linear-gradient(180deg, var(--frame-hi) 0 1px, transparent 1px),
+    linear-gradient(90deg, var(--frame-hi) 0 1px, transparent 1px),
+    linear-gradient(0deg, var(--frame-lo) 0 1px, transparent 1px),
+    linear-gradient(270deg, var(--frame-lo) 0 1px, transparent 1px),
+    linear-gradient(155deg, color-mix(in oklab, var(--accent) 26%, #26251f), #14140e 74%);
 }
-/* the grid's inner bevel, drawn just inside the frame (under the pieces, above the squares) */
+/* The grid sits in a shallow recess: a dark groove at its edge, a light catch just inside it, and
+   the frame's shadow falling inward (lit from the top-left). Drawn under the pieces and badges. */
 .board.framed::before {
-  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: 2px;
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,.5), inset 0 2px 16px rgba(0,0,0,.28);
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: 3px;
+  box-shadow:
+    inset 0 0 0 1px rgba(0,0,0,.5),
+    inset 0 1px 0 rgba(255,235,200,.09),
+    inset 2px 3px 18px rgba(0,0,0,.26),
+    inset -2px -2px 14px rgba(0,0,0,.16);
 }
+/* The recess has a rounded well, so the grid's four corners stop at a radius instead of stepping
+   hard against the frame at 90 degrees. buildBoard() lays the squares out row-major, so child 1 /
+   8 / 57 / 64 are the four visual corners whatever the board orientation. */
+.board.framed .sq:nth-child(1)  { border-top-left-radius: 3px; }
+.board.framed .sq:nth-child(8)  { border-top-right-radius: 3px; }
+.board.framed .sq:nth-child(57) { border-bottom-left-radius: 3px; }
+.board.framed .sq:nth-child(64) { border-bottom-right-radius: 3px; }
 /* in analysis mode the grey wash must stay inside the grid, not run over the frame */
-.board.framed.analysis::after { border-radius: 2px; }
+.board.framed.analysis::after { border-radius: 3px; }
 
 /* coordinates printed on the frame's gutter */
 .coords-out { display: none; }
@@ -468,9 +504,14 @@ button { font-family: inherit; cursor: pointer; }
 .hide-coords .board.coords-outside .coords-out { display: none; }
 .board.coords-outside .coords-out {
   display: block; position: absolute; inset: 0; z-index: 3; pointer-events: none;
-  font-family: var(--font-mono); font-weight: 700; letter-spacing: .02em;
-  font-size: min(var(--coord-size, 12px), calc(var(--frame-w, 18px) * .78));
-  color: var(--frame-ink, #dcc7a1);
+  font-family: var(--font-mono); font-weight: 600; letter-spacing: .06em;
+  font-variant-numeric: tabular-nums; opacity: .92;
+  /* never smaller than 8px, never larger than the Coordinates size the user chose */
+  font-size: clamp(8px, calc(var(--frame-w, 18px) * .82), var(--coord-size, 12px));
+  color: var(--frame-ink, #e6d3ae);
+  /* a hair of shadow so the labels read as stamped into the wood rather than printed on it, and
+     stay legible over both the lighter top band and the shaded bottom band */
+  text-shadow: 0 1px 0 rgba(0,0,0,.42), 0 -1px 0 rgba(0,0,0,.16);
 }
 .coords-out .co-files {
   position: absolute; left: 0; right: 0; bottom: calc(-1 * var(--frame-w, 18px));
