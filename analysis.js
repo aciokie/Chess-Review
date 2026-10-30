@@ -7084,8 +7084,13 @@ async function initTabZoom() {
       if (!tab || tab.id == null) return;
       const settings = await browserAPI.tabs.getZoomSettings(tab.id);
       _defaultZoom = settings.defaultZoomFactor || 1;
-      // Keep a resized analysis window from changing other extension tabs' zoom.
-      await browserAPI.tabs.setZoomSettings(tab.id, { scope: "per-tab", mode: "automatic" }).catch(() => {});
+      // Reapplying the zoom scope can reset Chrome's per-tab zoom to its inherited value and
+      // bounce back with a zoom notification, jolting the layout on every open and reload.
+      // Keep a resized analysis window from changing other extension tabs' zoom, but only set
+      // the scope when this tab doesn't already use it.
+      if (settings.scope !== "per-tab") {
+        await browserAPI.tabs.setZoomSettings(tab.id, { scope: "per-tab", mode: "automatic" }).catch(() => {});
+      }
       _zoomTabId = tab.id;
     })();
     await _zoomInit;

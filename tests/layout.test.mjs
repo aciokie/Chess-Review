@@ -191,6 +191,28 @@ test('reset refits automatic layout after manual zoom and concurrent initializat
   assert.equal(a.zoom(), .86); assert.equal(scopes, 1);
 });
 
+test('an already isolated tab is not re-scoped on reopen, but still fits', async t => {
+  const a = layout(t); a.viewport(1920, 920);
+  let scopes = 0;
+  const tabs = a.context.browserAPI.tabs;
+  tabs.getZoomSettings = async () => ({ defaultZoomFactor: 1, scope: 'per-tab' });
+  tabs.setZoomSettings = async () => { scopes++; };
+  await a.call('initTabZoom');
+  assert.equal(scopes, 0, 'an already per-tab scope must not be reapplied');
+  assert.equal(a.zoom(), .87); assert.equal(a.desktop(), true);
+});
+
+test('a shared-scope tab is isolated once before fitting', async t => {
+  const a = layout(t); a.viewport(1920, 920);
+  let scopes = 0;
+  const tabs = a.context.browserAPI.tabs;
+  tabs.getZoomSettings = async () => ({ defaultZoomFactor: 1, scope: 'per-origin' });
+  tabs.setZoomSettings = async () => { scopes++; };
+  await a.call('initTabZoom');
+  assert.equal(scopes, 1, 'a per-origin tab must be isolated before the fitted zoom is applied');
+  assert.equal(a.zoom(), .87); assert.equal(a.desktop(), true);
+});
+
 test('failed zoom writes can be retried at the same window size', async t => {
   const a = layout(t); a.viewport(1920, 916);
   const tabs = a.context.browserAPI.tabs, setZoom = tabs.setZoom;
