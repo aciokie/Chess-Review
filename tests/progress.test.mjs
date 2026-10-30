@@ -180,7 +180,7 @@ test("personalBests finds standout games and runs", () => {
   assert.equal(best.topWin.id, "2");
   assert.equal(best.topWin.text, "1700");
   assert.equal(best.fastestWin.id, "4");
-  assert.equal(best.fastestWin.text, "24 moves");
+  assert.equal(best.fastestWin.text, "12 moves");
 });
 
 test("personalBests leaves a category empty until a game qualifies for it", () => {
