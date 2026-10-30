@@ -103,7 +103,7 @@ Requires Node 22+ (CI pins 22). Verification order that works: `npm test` → `n
 
 ## Engine Verification
 - WASM: `npm run verify:engines` checks SHA-256 in `engine/` against `engine/checksums.json`
-- `engine/checksums.json` pins only 4 files — SF18 NNUE (`stockfish-nnue.js/.wasm`) and SF19 **Lite** (`stockfish-19-lite-single.js/.wasm`). The SF19 **Full** pair (`stockfish-19-single.js/.wasm`, build key `sf19full`) is bundled but **not** checksum-verified, so a green `verify:engines` says nothing about it
+- `engine/checksums.json` pins 6 files — SF18 NNUE (`stockfish-nnue.js/.wasm`), SF19 **Lite** (`stockfish-19-lite-single.js/.wasm`) and SF19 **Full** (`stockfish-19-single.js/.wasm`, build key `sf19full`). This pins the *committed bytes* only: it proves the working tree has not drifted from what was committed, **not** that those bytes came from the official Stockfish release
 - `.gitattributes` keeps the engines byte-exact (`engine/stockfish*.js -text`, `engine/*.wasm binary`, `native/engine/*.exe binary`): never reformat, re-save or hand-regenerate an engine file, or the checksums stop matching
 - Native: engine exe pinned in `native/engine/checksums.json` (auto-verified + hash-pinned at install); prebuilt helper pinned in `native/host/checksums.json`
 - Bundled native engine is 98 MB — GitHub warns >50 MB (hard limit 100 MB); use Releases, not LFS, if it ever needs to move

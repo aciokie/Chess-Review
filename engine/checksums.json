@@ -26,5 +26,19 @@
     "source": "https://github.com/nmrugg/stockfish.js/tree/v19.0.0",
     "url": "https://github.com/nmrugg/stockfish.js/releases/download/v19.0.0/stockfish-19-lite-single.wasm",
     "sha256": "57ac2d72312aba346760e3f173f687a8c211208e97a87268436f7f0e10bb5387"
+  },
+  {
+    "file": "stockfish-19-single.js",
+    "version": "19.0.0",
+    "source": "https://github.com/nmrugg/stockfish.js/tree/v19.0.0",
+    "url": "https://github.com/nmrugg/stockfish.js/releases/download/v19.0.0/stockfish-19-single.js",
+    "sha256": "72772f8bdd7353e4e24245d946bb831f56bcccf02fa16a779c1b92a6c00e5cc2"
+  },
+  {
+    "file": "stockfish-19-single.wasm",
+    "version": "19.0.0",
+    "source": "https://github.com/nmrugg/stockfish.js/tree/v19.0.0",
+    "url": "https://github.com/nmrugg/stockfish.js/releases/download/v19.0.0/stockfish-19-single.wasm",
+    "sha256": "8725c26572762617fd96b2ea83ff130e6640b85815890d682bf8c49db0820721"
   }
 ]
