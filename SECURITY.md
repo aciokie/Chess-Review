@@ -6,6 +6,25 @@ Security fixes target the latest published release and the current `main` branch
 Older releases are not maintained separately; please update before checking
 whether a problem still occurs.
 
+## Development dependency alerts
+
+All packages below are transitive development dependencies of `web-ext` and are
+excluded from the browser store ZIPs. Checked on 2026-10-08:
+
+- [shell-quote command injection](https://github.com/advisories/GHSA-pqg4-j6r4-53mv):
+  upgraded from 1.10.0 to 1.12.0 (fixed in 1.11.0). An npm override is needed
+  because `fx-runner@1.6.0` pins 1.10.0. Remove the override once its dependency
+  accepts a fixed version.
+- [source-map-js denial of service](https://github.com/advisories/GHSA-68fv-2mgg-jv7q):
+  upgraded from 1.2.1 to the patched 1.2.2 within `css-tree`'s existing range.
+
+`tests/dependency-security.test.mjs` checks rejection of the shell-quote attack
+inputs and excessive indexed source-map offsets, alongside valid input behavior.
+
+`node-forge` (a transitive `web-ext`/`@devicefarmer/adbkit` dependency, also
+excluded from the ZIPs) has no fixed npm release yet; it is only used for
+Android debugging and does not affect the extension's browser behaviour.
+
 ## Report a vulnerability privately
 
 Use GitHub's **[Report a vulnerability](https://github.com/T-Julsgaard/Chess-Review/security/advisories/new)**
