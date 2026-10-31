@@ -3075,11 +3075,11 @@ function applyUserMove(from, to, animate = true, promotion = null) {
     return;
   }
   if (!S.analysisMode) {
-    // On the mainline (and only if the position is analyzed): if the move matches the next
-    // mainline move, just stay on the mainline.
+    // Following the recorded game stays on the mainline, including over positions whose evaluation is
+    // still pending - only a *different* legal move starts a variation (upstream d79a1e58).
     const nextMain = S.positions[S.idx + 1];
-    const reachable = !S.analyzing || S.idx < S.progress;
-    if (reachable && nextMain && nextMain.from === from && nextMain.to === to) {
+    if (nextMain && nextMain.from === from && nextMain.to === to
+      && (nextMain.promotion || "") === (mv.promotion || "")) {
       S.selectedSq = null; go(S.idx + 1); return;
     }
     S.variation = { 
@@ -3292,6 +3292,7 @@ function invalidateVariationEvals() {
 
 function resetLiveEngine() {
   S.liveToken++; S.panelToken++; S.liveEngineGeneration++;
+  panelPending.clear();        // in-flight panel searches belong to the engine being dropped
   S.liveEngine?.terminate();
   S.liveEngine = null; S.liveEnginePromise = null; S.liveError = null;
 }
@@ -3720,8 +3721,8 @@ function renderControls() {
     );
     return;
   }
-  // The forward buttons are blocked when at the analysis front (only during analysis).
-  const maxPly = S.analyzing ? S.progress : S.total;
+  // The forward buttons are blocked at the furthest evaluation we have (only during analysis).
+  const maxPly = mainlineNavigationLimit();
   const atEnd = S.idx >= maxPly;
   UI.controls.replaceChildren(
     el("button", { "aria-label": "Start", onclick: () => go(0) }, icon("first")),
@@ -5038,9 +5039,11 @@ function renderEngineCurrent() {
     const b = S.bests[S.idx];
     let lines = b ? b.lines : null;
     // The batch only stored the single best line. If the user wants more, show the richer set we
-    // searched on demand for THIS position (requestPanelLines), then ensure that search is running.
+    // searched on demand for THIS position (requestPanelLines) or already have cached for it, then
+    // ensure that search is running.
     const panelReady = !!(S._panelCache && S._panelCache.idx === S.idx && S._panelCache.lines);
-    if (panelReady && (!lines || S._panelCache.lines.length > lines.length)) lines = S._panelCache.lines;
+    const extra = panelReady ? S._panelCache.lines : panelCachedLines(S.idx, S.settings.engineLines);
+    if (extra && (!lines || extra.length > lines.length)) lines = extra;
     // While the richer search for THIS position is still pending, keep the previous render's extra
     // lines on screen so the panel doesn't shrink to one line then grow back on every move.
     const padFromCache = S.settings.engineLines > 1 && !panelReady && !!lines && lines.length < S.settings.engineLines;
@@ -5051,6 +5054,29 @@ function renderEngineCurrent() {
 // Live, on-demand search of the position you're viewing on the mainline, to fill the extra engine-
 // panel candidate lines beyond the single line the batch stored. Cheap: it only runs for the
 // position currently shown, is cancelled when you navigate away, and no-ops when 1 line is enough.
+// The extra candidate lines exist only to be displayed - they are not scoring evidence - so they are
+// cached by exact context (position + move history + effective build + search settings + line count)
+// and a request that is already running is shared instead of searched twice. Bounded, because a long
+// game only revisits a handful of positions (upstream fdeda4b8 + 0c0328f8).
+const PANEL_CACHE_MAX = 16;
+const panelLineCache = new Map();
+const panelPending = new Map();
+function panelContextKey(i, want) {
+  const node = S.positions[i];
+  return JSON.stringify([node?.fen || "", searchHistory(S.positions, i), want,
+    S.activeEngineBuild || S.settings.enginePath, S.settings.engineDepth, S.settings.engineHash, S.settings.engineSkill]);
+}
+function panelCachedLines(i, want) {
+  const entry = panelLineCache.get(panelContextKey(i, want));
+  return entry ? entry.lines : null;
+}
+function rememberPanelLines(i, want, lines) {
+  if (!lines) return;
+  const key = panelContextKey(i, want);
+  panelLineCache.delete(key);                        // re-insert so the newest use is last
+  panelLineCache.set(key, { lines });
+  while (panelLineCache.size > PANEL_CACHE_MAX) panelLineCache.delete(panelLineCache.keys().next().value);
+}
 async function requestPanelLines() {
   if (S.analyzing || S.analysisMode) return;          // not during the batch, not in variation mode
   const want = S.settings.engineLines;
@@ -5059,19 +5085,30 @@ async function requestPanelLines() {
   const stored = S.bests[i];
   if (!stored || !stored.lines) return;               // position not analysed yet
   if (stored.lines.length >= want) return;            // batch already has enough (old saved games)
-  if (S._panelCache && S._panelCache.idx === i && S._panelCache.lines.length >= want) return; // cached
+  if (S._panelCache && S._panelCache.idx === i && S._panelCache.lines.length >= want) return; // on screen
   const fen = S.positions[i].fen;
   if (terminalScore(fen)) return;
-  const token = ++S.panelToken;
-  let res;
-  try {
-    const eng = await ensureLiveEngine();
-    if (token !== S.panelToken || S.analysisMode || activePos().fen !== fen) return;
-    eng.cancelPending(); eng.stop();
-    res = await eng.analyse(fen, S.settings.engineDepth, want);
-  } catch { return; }
-  if (token !== S.panelToken || S.idx !== i || S.analysisMode || activePos().fen !== fen) return;
-  S._panelCache = { idx: i, fen, lines: res.lines };
+  // Already searched for this exact context: show it instead of searching it again.
+  const cached = panelCachedLines(i, want);
+  if (cached && cached.length >= want) { S._panelCache = { idx: i, fen, lines: cached }; renderEngineCurrent(); return; }
+  const key = panelContextKey(i, want);
+  const generation = S.liveEngineGeneration;
+  let pending = panelPending.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const eng = await ensureLiveEngine();
+      eng.cancelPending(); eng.stop();
+      return (await eng.analyse(fen, S.settings.engineDepth, want)).lines;
+    })();
+    panelPending.set(key, pending);
+    pending.catch(() => {}).finally(() => { if (panelPending.get(key) === pending) panelPending.delete(key); });
+  }
+  let lines = null;
+  try { lines = await pending; } catch { return; }
+  rememberPanelLines(i, want, lines);
+  // Only show it if we are still on the position that asked for it, on the same engine.
+  if (generation !== S.liveEngineGeneration || S.idx !== i || S.analysisMode || activePos().fen !== fen) return;
+  S._panelCache = { idx: i, fen, lines };
   renderEngineCurrent();
 }
 const ENGINE_NAME = { nnue: "Stockfish 18 NNUE", sf19full: "Stockfish 19 Full", sf19lite: "Stockfish 19 Lite", native19: "Stockfish 19 (Native)" };
@@ -7074,11 +7111,20 @@ function renderLibrary() {
 }
 
 /* ---------------- Navigation ---------------- */
+// How far the mainline may be navigated right now. Workers return positions out of order, so the
+// furthest *published* evaluation can be well ahead of the contiguous prefix: pending gaps inside
+// that range can be crossed, and the graph leaves them empty (upstream d79a1e58 + 14592873).
+function mainlineNavigationLimit() {
+  if (!S.analyzing) return S.total;
+  let furthest = 0;
+  for (let i = 0; i <= S.total; i++) if (S.evals[i]) furthest = i;
+  return Math.max(Math.max(0, S.progress || 0), furthest);
+}
 function go(to) {
   const prev = S.idx;
-  // During analysis you can't go further than the move that HAS been analyzed (S.progress).
-  // When the analysis is done, the whole game (S.total) is free.
-  const maxPly = S.analyzing ? S.progress : S.total;
+  // While analysis runs, navigation stops at the furthest completed evaluation; when it is finished
+  // the whole game is free.
+  const maxPly = mainlineNavigationLimit();
   S.idx = Math.max(0, Math.min(maxPly, to));
   // Changing moves resets the user's own arrows, square marks and piece selection. The sound must
   // match the move that actually animates: stepping FORWARD = the move just made (lands on idx);
