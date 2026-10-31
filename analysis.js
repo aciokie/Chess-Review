@@ -4581,13 +4581,28 @@ function renderGraph() {
   // The "color" style flips the y-axis (White advantage pushes the boundary DOWN); the hover marker
   // re-uses whichever mapping the active style draws with, so the dot rides the visible curve.
   const toYc = (cp) => { const c = Math.max(-500, Math.min(500, cp)); return mid + (c / 500) * (mid - 8); };
-  const pts = [];
-  for (let p = 0; p <= S.total; p++) { if (!S.evals[p]) break; pts.push({ ply: p, cp: scoreToCp(S.evals[p]) }); }
-  let line = "", fill = "";
-  if (pts.length) {
-    line = "M" + pts.map((s) => `${toX(s.ply).toFixed(1)},${toY(s.cp).toFixed(1)}`).join(" L");
-    fill = line + ` L${toX(pts[pts.length - 1].ply)},${mid} L0,${mid} Z`;
+  // Workers finish out of order. Draw every evaluation that has come back, leaving gaps where a
+  // position is still pending, so one slow search cannot hide the results behind it.
+  const pts = [], runs = [];
+  for (let p = 0; p <= S.total; p++) {
+    if (!S.evals[p]) continue;
+    const point = { ply: p, cp: scoreToCp(S.evals[p]) };
+    if (pts.at(-1)?.ply !== p - 1) runs.push([]);
+    runs.at(-1).push(point);
+    pts.push(point);
   }
+  const pathFor = (run, y, closeY) => {
+    let points = run.map((p) => ({ x: toX(p.ply), y: y(p.cp) }));
+    if (points.length === 1) {
+      // Give an isolated result a visible sliver until its neighbours arrive.
+      const { x, y: py } = points[0], half = Math.min(1, W / maxPly / 2);
+      points = [{ x: Math.max(0, x - half), y: py }, { x: Math.min(W, x + half), y: py }];
+    }
+    const path = "M" + points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" L");
+    return closeY == null ? path : path + ` L${points.at(-1).x.toFixed(1)},${closeY} L${points[0].x.toFixed(1)},${closeY} Z`;
+  };
+  const line = runs.map((run) => pathFor(run, toY)).join(" ");
+  const fill = runs.map((run) => pathFor(run, toY, mid)).join(" ");
   const dots = pts.filter((s) => ["blunder", "mistake", "miss", "brilliant", "great"].includes(S.classif[s.ply]));
   const markerX = toX(Math.min(S.idx, maxPly));
   const midLine = `<line x1="0" y1="${mid}" x2="${W}" y2="${mid}" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 3"/>`;
@@ -4602,19 +4617,18 @@ function renderGraph() {
     // eval curve, so a single glance tells you who's ahead — when White is winning the white field
     // swells downward and dominates the chart, and vice-versa. (Uses its own y-mapping where a White
     // advantage pushes the boundary DOWN, matching the familiar eval-graph look.)
-    const cpts = pts.map((s) => ({ x: toX(s.ply), y: toYc(s.cp) }));
-    const boundary = cpts.length ? "M" + cpts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" L") : "";
-    // Black field = area below the boundary curve; the white background shows through above it.
-    const blackArea = cpts.length
-      ? boundary + ` L${cpts[cpts.length - 1].x.toFixed(1)},${H} L0,${H} Z`
-      : "";
+    // Each field is drawn per contiguous run, so a position whose evaluation is still pending stays
+    // empty instead of being painted over by its neighbours.
+    const boundary = runs.map((run) => pathFor(run, toYc)).join(" ");
+    const whiteArea = runs.map((run) => pathFor(run, toYc, 0)).join(" ");
+    const blackArea = runs.map((run) => pathFor(run, toYc, H)).join(" ");
     // Classification dots ride on the boundary (re-projected with this style's y-mapping).
     const dotsC = dots.map((s) =>
       `<circle cx="${toX(s.ply)}" cy="${toYc(s.cp)}" r="3.2" fill="${QUALITY[S.classif[s.ply]].color}" stroke="var(--panel)" stroke-width="1.4"/>`).join("");
     // The 0.00 "ground" line sits dead-centre, drawn over both fields in a light grey so it reads
     // against the white above and the black below.
     const groundLine = `<line x1="0" y1="${mid}" x2="${W}" y2="${mid}" stroke="#c7c5bc" stroke-width="1.4"/>`;
-    inner = `<rect x="0" y="0" width="${W}" height="${H}" fill="#f4f2ea"/>`
+    inner = (whiteArea ? `<path d="${whiteArea}" fill="#f4f2ea"/>` : "")
       + (blackArea ? `<path d="${blackArea}" fill="#262626"/>` : "")
       + groundLine
       + (boundary ? `<path d="${boundary}" fill="none" stroke="#9a9a9a" stroke-width="1.2" stroke-linejoin="round"/>` : "")
@@ -4641,7 +4655,9 @@ function renderGraph() {
   const plyFromEvent = (e) => {
     const r = e.currentTarget.getBoundingClientRect();
     if (!r.width || !pts.length) return null;
-    return Math.max(0, Math.min(pts.length - 1, Math.round(((e.clientX - r.left) / r.width) * maxPly)));
+    // Only positions that actually have an evaluation answer; a pending gap reads as no reading.
+    const ply = Math.max(0, Math.min(pts.at(-1).ply, Math.round(((e.clientX - r.left) / r.width) * maxPly)));
+    return S.evals[ply] ? ply : null;
   };
   // Click anywhere on the graph → jump straight to that move (instant, no stepping through).
   const jumpFromEvent = (e) => {
@@ -4658,8 +4674,8 @@ function renderGraph() {
   };
   const hoverMove = (e) => {
     const ply = plyFromEvent(e);
-    if (ply == null) return;
-    const x = toX(ply), y = hoverY(pts[ply].cp);
+    if (ply == null) { hideHover(); return; }
+    const x = toX(ply), y = hoverY(scoreToCp(S.evals[ply]));
     const g = e.currentTarget.querySelector(".eval-hover");
     if (g) {
       g.querySelector(".eval-hover-line").setAttribute("x1", x);
