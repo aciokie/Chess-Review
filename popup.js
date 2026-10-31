@@ -126,6 +126,22 @@ $("exploreMode").addEventListener("click", async () => {
   }
 });
 
+$("liveMode").addEventListener("click", async () => {
+  const btn = $("liveMode");
+  btn.disabled = true;
+  setStatus("Opening live board …");
+  try {
+    await browserAPI.tabs.create({
+      url: browserAPI.runtime.getURL("analysis.html#live"),
+    });
+    window.close();
+  } catch (err) {
+    setStatus(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 $("progressMode").addEventListener("click", async () => {
   const btn = $("progressMode");
   btn.disabled = true;

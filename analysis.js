@@ -846,6 +846,12 @@ async function loadJob() {
     const session = JSON.parse(window.sessionStorage.getItem(key));
     if (session && typeof session.pgn === "string") return session;
   } catch { /* Unavailable or corrupt session storage: use the launch handoff. */ }
+  // Live board: a normal game whose move list grows as it is played. Unlike Explore it is not a
+  // variation board - every played move is appended to the mainline, so the standard review panels
+  // (eval graph, accuracy, Elo and the per-phase estimates) work exactly as they do for a fetched
+  // game. A reload of the tab resumes the game stored above; a fresh tab starts a new one.
+  if (jobId === "live") return freshLivePayload();
+
   const data = await browserAPI.storage.local.get(key);
   const payload = data[key];
   if (!payload) throw new Error("Analysis data not found (open via the popup).");
@@ -861,6 +867,53 @@ function rememberReviewJob() {
     window.sessionStorage.setItem(`job:${jobId}`, JSON.stringify({ pgn: S.pgn, meta: S.meta }));
     return true;
   } catch { return false; }
+}
+
+/* ---------------- Live board helpers ----------------
+   A live game is an ordinary PGN that starts empty and grows one move at a time. Building the PGN
+   text (rather than patching S.positions directly) keeps one source of truth: applyGame() can
+   rebuild the exact same game from it, which is how a finished live game becomes a normal review
+   and a saved library entry. */
+function liveDateStamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())}`;
+}
+function livePgnText(cfg, positions, result) {
+  const c = cfg || {};
+  const esc = (v) => String(v == null ? "" : v).replace(/"/g, "'");
+  const headers = [
+    ["Event", c.event || "Live analysis"],
+    ["Site", "Chess Review"],
+    ["Date", c.date || liveDateStamp()],
+    ["Round", "-"],
+    ["White", c.white || "White"],
+    ["Black", c.black || "Black"],
+    ["Result", result || "*"],
+  ].map(([k, v]) => `[${k} "${esc(v)}"]`).join("\n");
+  // SAN move text in number pairs: "1. e4 e5 2. Nf3". Ply i is 1-based; White moves on odd plies.
+  const out = [];
+  const list = positions || [];
+  for (let i = 1; i < list.length; i++) {
+    const p = list[i];
+    if (i % 2 === 1) out.push(`${(i + 1) / 2}.`);
+    if (p && p.san) out.push(p.san);
+  }
+  const moves = out.join(" ");
+  return `${headers}\n\n${moves ? moves + " " : ""}${result || "*"}\n`;
+}
+function freshLivePayload() {
+  const cfg = { event: "Live analysis", white: "White", black: "Black", date: liveDateStamp() };
+  return { pgn: livePgnText(cfg, [], "*"), meta: { live: true, liveCfg: cfg }, source: "live" };
+}
+// True only while the board is a game in progress. A finished live game keeps meta.live (so it can
+// still be recognised in the library) but sets liveOver, which routes it through the normal review.
+function isLiveBoard() { return S.meta?.live === true && S.meta?.liveOver !== true; }
+function liveCfg() { return S.live || S.meta?.liveCfg || {}; }
+function liveDrawKind(chess) {
+  if (chess.isCheckmate()) return "checkmate";
+  if (chess.isDraw()) return "draw";
+  return undefined;
 }
 function parseHeaders(pgn) {
   const h = {}; const re = /\[(\w+)\s+"([^"]*)"\]/g; let m;
@@ -2980,6 +3033,13 @@ function applyUserMove(from, to, animate = true, promotion = null) {
   try { c = new Chess(fen); mv = c.move({ from, to, promotion: promotion || "q" }); } catch { mv = null; }
   if (!mv) { S.selectedSq = null; renderSelection(); return; }
   const node = { fen: c.fen(), san: mv.san, from: mv.from, to: mv.to, color: mv.color, promotion: mv.promotion || "", captured: mv.captured || "", eval: null, best: null };
+  // Live board: a move from the end of the line is a move in the game, not a variation. Moving from
+  // an earlier ply still starts a variation, which is what makes reviewing the live game possible
+  // without ending it.
+  if (isLiveBoard() && !S.analysisMode && S.idx === S.total) {
+    livePlayMove(mv, animate, from, to);
+    return;
+  }
   if (!S.analysisMode) {
     // On the mainline (and only if the position is analyzed): if the move matches the next
     // mainline move, just stay on the mainline.
@@ -3226,6 +3286,115 @@ function variationTerminal(v, idx) {
   if (chess.isCheckmate()) return { mate: chess.turn() === "w" ? -1 : 1 };
   return chess.isDraw() ? { cp: 0 } : null;
 }
+
+/* ---------------- Live board ----------------
+   The board is an ordinary game whose PGN grows one move at a time, so nothing here re-implements
+   scoring: the classifier, accuracy, Elo estimate and per-phase split all come from computeDerived()
+   on S.positions/S.evals/S.bests, exactly as they do for a fetched game. Each played move only
+   needs the tail positions searched (the classifier looks back four plies), and when the game ends
+   the finished PGN is handed back to applyGame(), which analyses it in full and saves it to the
+   library through the normal path. */
+
+// Search whatever evidence the line still lacks, then refresh the review panels. During play that
+// is only the positions at the tail, because every earlier one was filled when it was reached; after
+// a reload it is the whole game, so the live accuracy and Elo always cover every move played.
+async function requestLiveAnalysis() {
+  if (!isLiveBoard()) return;
+  const token = ++S.liveToken;
+  const gen = S.liveGen || 0;
+  const valid = () => token === S.liveToken && gen === (S.liveGen || 0) && isLiveBoard();
+  const missing = [];
+  for (let i = 0; i <= S.total; i++) {
+    if (!S.evals[i] || !S.bests[i]) missing.push(i);
+  }
+  if (!missing.length) { computeDerived(); renderLive(); return; }
+  try {
+    const eng = await ensureLiveEngine();
+    if (!valid()) return;
+    let lastPaint = 0;
+    for (const i of missing) {
+      const node = S.positions[i];
+      const terminal = terminalScore(node.fen, i);
+      const res = terminal
+        ? { score: terminal, bestmove: null, pv: "", lines: [] }
+        : await eng.analyse(node.fen, S.settings.engineDepth, Math.max(1, S.settings.engineLines),
+          searchHistory(S.positions, i));
+      if (!valid()) return;
+      S.bests[i] = res;
+      S.evals[i] = terminal || whiteRel(res.score, node.fen);
+      // Throttled repaint while catching up (same idea as the batch's flushProgress): the numbers
+      // climb move by move instead of appearing only when the whole backlog is done.
+      if (Date.now() - lastPaint > 120) { lastPaint = Date.now(); computeDerived(); renderLive(); }
+    }
+    computeDerived();
+    renderLive();
+  } catch (e) {
+    if (!valid()) return;
+    // Same retry affordance explore uses (renderReview renders the "Retry analysis" button).
+    S.liveError = "Stockfish stopped before this position was ready.";
+    if (S.liveEngine?.dead) { S.liveEngine.terminate(); S.liveEngine = null; }
+    renderLive();
+  }
+}
+
+function renderLive() {
+  if (!UI.meta) return;                 // UI not built yet (very first load)
+  UI.meta.replaceChildren(...metaChips());
+  renderEvalBar(); renderPlayers(); renderControls(); renderReview();
+  renderStats(); renderGraph(); renderMoves(); renderEngineCurrent();
+}
+
+// Append a played move to the game's mainline. The move is replayed into a board built from the
+// whole game rather than the one FEN the input handler started from, so the ending is judged with
+// the true history: threefold repetition and the fifty-move rule need it, exactly as they do for a
+// fetched game.
+function livePlayMove(mv, animate, from, to) {
+  const board = new Chess(S.positions[0].fen);
+  for (const p of S.positions.slice(1)) board.move({ from: p.from, to: p.to, promotion: p.promotion || undefined });
+  const played = board.move({ from, to, promotion: mv.promotion || undefined }) || mv;
+  S.positions.push({
+    fen: board.fen(), san: played.san, from: played.from, to: played.to, color: played.color,
+    promotion: played.promotion || "", captured: played.captured || "", draw: liveDrawKind(board),
+  });
+  S.total = S.positions.length - 1;
+  S.idx = S.total;
+  S.evals.push(null);
+  S.bests.push(null);
+  S.liveGen = (S.liveGen || 0) + 1;
+  S.pgn = livePgnText(liveCfg(), S.positions, "*");
+  S.headers = parseHeaders(S.pgn);
+  S.selectedSq = null;
+  playSanSound(mv.san);
+  paintBoard();
+  if (animate && S.settings.moveAnim) animateMove(from, to);
+  renderLive();
+  rememberReviewJob();                  // a tab reload resumes this game from the session copy
+  // The board decides the end of the game, not the engine: mate and every drawn ending are facts.
+  if (board.isCheckmate()) finishLive(board.turn() === "w" ? "0-1" : "1-0", "checkmate");
+  else if (board.isDraw()) finishLive("1/2-1/2", "draw");
+  else requestLiveAnalysis();
+}
+
+function resignLive(side) {
+  if (!isLiveBoard() || S.total === 0) return;
+  finishLive(side === "w" ? "0-1" : "1-0", "resign");
+}
+
+// Close the live game: stamp the Result into the PGN and hand the finished game to the normal
+// review path, which rebuilds it from that PGN, analyses every position and saves it to the library.
+function finishLive(result, reason) {
+  if (!isLiveBoard()) return;
+  // Cancel the move-by-move search and drop its worker before the full review starts, so the
+  // final analysis is not competing with a live engine for CPU.
+  S.liveToken++;
+  try { S.liveEngine?.terminate(); } catch {}
+  S.liveEngine = null; S.liveEnginePromise = null;
+  const cfg = { ...liveCfg(), result };
+  S.live = cfg;
+  S.pgn = livePgnText(cfg, S.positions, result);
+  const meta = { ...(S.meta || {}), live: true, liveOver: true, liveCfg: cfg, result, liveEnd: reason || "" };
+  return applyGame({ pgn: S.pgn, meta, source: "live" });
+}
 // Exit analysis mode. With mainIdx: jump to that mainline position; otherwise stay put.
 // (Analysis mode is indicated/closed via the Exit button in the controls bar.)
 function exitAnalysis(mainIdx) {
@@ -3383,14 +3552,30 @@ function playerStrip(side) {
         onmouseenter: p.countryName ? (e) => showLabelTip(e.currentTarget, p.countryName) : null,
         onmouseleave: p.countryName ? hideQTip : null })
     : el("span", { class: "avatar", style: { background: side === "w" ? "#3f7d3a" : "#5a5a5a" } }, (p.name[0] || "?").toUpperCase());
-  return el("div", { class: "player-strip" + (toMove ? " active" : "") },
+  // Live board: show the running Elo estimate next to each name and a Resign button per side, so
+  // either player can end the game from their own strip at the top or bottom of the board.
+  const live = isLiveBoard();
+  const est = live ? ratingEstimate(side) : null;
+  const kids = [
     avatar,
     el("div", { class: "who" },
-      el("span", { class: "name" }, p.name, p.rating ? el("span", { class: "elo" }, ` (${p.rating})`) : null),
+      el("span", { class: "name" }, p.name,
+        p.rating ? el("span", { class: "elo" }, ` (${p.rating})`) : null,
+        live ? el("span", { class: "live-elo", title: "Estimated Elo from the moves played so far" },
+          est == null ? "..." : String(est)) : null),
       captured,
     ),
     clock ? el("span", { class: "clock tnum" }, clock) : null,
-  );
+  ];
+  if (live) {
+    kids.push(el("button", {
+      class: "live-resign", type: "button",
+      title: `Resign as ${p.name}`,
+      disabled: S.total === 0,
+      onclick: () => resignLive(side),
+    }, "Resign"));
+  }
+  return el("div", { class: "player-strip" + (toMove ? " active" : "") }, ...kids);
 }
 function renderPlayers() {
   const isExplore = S.meta?.explore === true;
@@ -4823,6 +5008,15 @@ function metaChips() {
   const isExplore = S.meta?.explore === true;
   if (isExplore) {
     return [el("span", { class: "meta-chip" }, el("b", {}, "Explore"))];
+  }
+  if (S.meta?.live === true) {
+    const res = (S.meta.result || S.players?.[S.meSide]?.result || "").trim();
+    const label = !S.meta.liveOver ? "Live"
+      : res === "1-0" ? "White wins"
+      : res === "0-1" ? "Black wins"
+      : res.includes("1/2") ? "Draw"
+      : "Finished";
+    return [el("span", { class: "meta-chip" }, el("b", {}, label))];
   }
   const res = S.players[S.meSide].result;
   let outcome = "Result unknown";
@@ -7086,6 +7280,23 @@ async function applyGame(payload) {
   const side = flip === true ? "b" : flip === false ? "w" : meSide;
   S.meSide = side; S.playerKnown = playerKnown; S.flipped = side === "b"; S.idx = 0;
 
+  if (isLiveBoard()) {
+    // Live board: the game is played move by move onto the mainline, so the ordinary review panels
+    // are live already. There is no batch analysis here: only the tail is searched as moves arrive,
+    // and finishLive() hands the completed PGN back through this same function for a full review.
+    S.live = { ...(S.meta.liveCfg || {}) };
+    S.liveError = null;
+    S.liveGen = 0;
+    S.analyzing = false;
+    S.analysisMode = false;
+    S.variation = null;
+    document.title = "Live board - Chess Review";
+    computeDerived();
+    renderAll();
+    requestAnimationFrame(alignPlayers);
+    requestLiveAnalysis();   // warm the start position so the graph and eval bar have a value
+    return;
+  }
   if (isExplore) {
     // Explore mode: standalone analysis board with free movement
     S.analyzing = false;

@@ -301,6 +301,27 @@ button { font-family: inherit; cursor: pointer; }
   padding: 6px 12px; border-radius: 9px; font-size: 15px;
 }
 .player-strip.active .clock { border-color: color-mix(in oklab, var(--accent) 60%, var(--line)); color: var(--ink); }
+/* Live board: the running Elo estimate sits next to each name and both strips carry a Resign button,
+   so either player can end the game from the top or the bottom of the board. */
+.player-strip .live-elo {
+  font-family: var(--font-mono); font-weight: 600; font-size: 12px;
+  color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  border-radius: 6px; padding: 1px 6px;
+}
+.player-strip .live-resign {
+  margin-left: auto; flex: none;
+  font: inherit; font-size: 12px; font-weight: 700;
+  padding: 6px 12px; border-radius: 8px; cursor: pointer;
+  color: var(--ink-2); background: transparent;
+  border: 1px solid var(--line);
+  transition: color .15s ease, border-color .15s ease, background-color .15s ease;
+}
+.player-strip .live-resign:hover:not(:disabled) {
+  color: var(--loss); border-color: color-mix(in oklab, var(--loss) 55%, var(--line));
+  background: color-mix(in oklab, var(--loss) 12%, transparent);
+}
+.player-strip .live-resign:disabled { opacity: .45; cursor: default; }
 
 .board-wrap { display: flex; gap: 12px; align-items: stretch; position: relative; }
 
