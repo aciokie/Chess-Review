@@ -25,7 +25,7 @@ immediately when disabled. Existing scores and coach comments are unchanged.
 - **One-click review** of any Chess.com or Lichess game — or paste a game URL / raw PGN.
 - **Accuracy estimates** for both players, calculated from local Stockfish analysis using the extension's scoring rules. Scores can differ from other review tools.
 - **Accuracy by game phase**: each player's accuracy is also split into Opening (first 10 moves), Middlegame and Endgame (six or fewer knights, bishops, rooks and queens left), shown under the Elo estimate.
-- **Move classifications** from Masterstroke to Blunder, with an evaluation graph and best-move arrows.
+- **Move classifications** from Brilliant to Blunder, with an evaluation graph and best-move arrows.
 - **Forced-move badge**: a position with only one legal move is marked **Forced** rather than
   Best, Great or Brilliant, and it is left out of the accuracy breakdown — a forced move is not
   a decision, so it never changes your accuracy or rating.

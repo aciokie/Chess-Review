@@ -20,9 +20,10 @@ Only Cburnett and Merida pieces enter the browser/source ZIPs. Kaneo, Kaneo Midn
 1Kbyte Gambit, and the Kadagaden SVG boards were removed from the current checkout.
 Old archives/history are preserved. Saved removed-piece choices migrate to Cburnett;
 removed SVG-board preferences migrate to similar retained flat-color boards.
-Move-category display names now use Masterstroke, Superb, Theory, Best, Near best,
-Decent, Minor Misstep, Major Misstep, Missed chance, and Blunder. Settings, coach
-category references, and badge accessibility labels use the same terminology.
+Move-category display names are Brilliant, Great, Best, Forced, Excellent, Good,
+Book, Inaccuracy, Mistake, Miss, and Blunder. The Settings sliders, tooltips, and
+badge accessibility labels use the same names as the move list. (The coach
+characters' dialogue in data/coaches still uses some older wording.)
 Stored classification keys, scoring thresholds, calibration coefficients, and
 the existing attributed classifier implementation are unchanged by this rename.
 The current move-category SVGs use maintainer-created replacement symbols;
