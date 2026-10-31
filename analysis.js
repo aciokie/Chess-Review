@@ -818,8 +818,12 @@ function activeEval() {
 }
 // Best-move data for the current view. In analysis mode: the current position's
 // live analysis. On the mainline: the position BEFORE the played move (the alternative).
+// A live board being played follows the analysis-mode rule: the position in view.
 function activeBest() {
   if (S.analysisMode && S.variation) return activePos().best || null;
+  // Live board: the position in view IS the position being played, so the arrow and engine panel
+  // describe it. (A finished review looks one ply back: there the arrow shows what was missed.)
+  if (isLiveBoard()) return S.bests[S.idx] || null;
   return S.idx > 0 ? S.bests[S.idx - 1] : null;
 }
 
@@ -2402,6 +2406,16 @@ function matedSquare(fen) {
   }
   return mateMarkSquare;
 }
+// The classification the board shows for the position in view: the category of the move that led
+// to it (mainline), the variation position's own category, or nothing while practicing. Shared by
+// paintBoard() and the in-place annotation refresh below so the two can never disagree.
+function boardCategory() {
+  const solvePly = S.practice ? S.practice.spots[S.practice.i] - 1 : -1;
+  if (S.practice && S.idx !== solvePly + 1) return null;
+  if (S.analysisMode && S.variation && S.variation.idx > 0) return activePos().classif || null;
+  if (!S.analysisMode) return S.classif[S.idx] || null;
+  return null;
+}
 function paintBoard() {
   hideBoardBadgeTip();
   const pos = activePos();
@@ -2420,19 +2434,9 @@ function paintBoard() {
   // during the slow replay). This keeps the board from hinting anything while you think.
   const solvePly = S.practice ? S.practice.spots[S.practice.i] - 1 : -1;
   const clean = !!S.practice && S.idx === solvePly;
-  const showCat = !S.practice || S.idx === solvePly + 1;
   const hl = clean ? new Set() : new Set([pos.from, pos.to].filter(Boolean));
   // Get classification for the current position (mainline or variation)
-  let cls = null;
-  if (showCat) {
-    if (S.analysisMode && S.variation && S.variation.idx > 0) {
-      // In analysis mode with variation: use the variation position's classification
-      cls = pos.classif || null;
-    } else if (!S.analysisMode) {
-      // Mainline: use the mainline classification
-      cls = S.classif[S.idx] || null;
-    }
-  }
+  const cls = boardCategory();
   // The from/to squares are tinted with the classification color at 0.5 alpha;
   // without a classification we fall back to the neutral yellow highlight.
   const tint = cls && QUALITY[cls]
@@ -2459,6 +2463,30 @@ function paintBoard() {
   renderUserMarks();
   renderSelection();
   renderPracticeHint();
+}
+// Repaint only the square annotations (category tint, board badge, best-move arrow) WITHOUT
+// rebuilding the pieces. The live board needs this: its search for a position finishes after the
+// move is already on the board, and a full paintBoard() would restart every piece node (and any
+// drag in progress) just to show what the arriving evaluation changed.
+function refreshBoardAnnotations() {
+  const pos = activePos();
+  const cls = boardCategory();
+  const tint = cls && QUALITY[cls]
+    ? `color-mix(in srgb, ${QUALITY[cls].color} 50%, transparent)`
+    : null;
+  for (const [name, sq] of Object.entries(sqByName)) {
+    const isHl = name === pos.from || name === pos.to;
+    const wantBadge = name === pos.to && !!(cls && QUALITY[cls]);
+    sq.classList.toggle("has-badge", wantBadge);
+    if (isHl) {
+      if (tint) sq.style.setProperty("--hl-color", tint);
+      else sq.style.removeProperty("--hl-color");
+    }
+    const badge = sq.querySelector(".sq-badge");
+    if (wantBadge) { if (!badge) sq.append(makeBoardBadge(cls)); }
+    else if (badge) badge.remove();
+  }
+  renderBestArrow();
 }
 
 /* ---------------- Best-move arrow ----------------
@@ -2515,9 +2543,11 @@ function renderBestArrow() {
   // During mistake practice the arrow would give the answer away → hide it.
   if (S.practice) { if (svg) svg.remove(); return; }
   // If the user played the best move themselves (Best/Great/Brilliant), the arrow is redundant;
-  // on a Book move it's meaningless (it's opening theory, not a single "best" move) — so the
-  // arrow isn't shown on the mainline for any of those classifications.
-  const cls = (!S.analysisMode && S.idx > 0) ? S.classif[S.idx] : null;
+  // on a Book move it's meaningless (it's opening theory, not a single "best" move) - so the
+  // arrow isn't shown on the mainline for any of those classifications. The live board is an
+  // analysis board being played, so it keeps the arrow for the position in view instead of
+  // blanking it whenever the move played happened to be Book or the engine's own choice.
+  const cls = (!S.analysisMode && !isLiveBoard() && S.idx > 0) ? S.classif[S.idx] : null;
   // Forced belongs here too: with one legal move the arrow can only point at the move already played.
   if (cls === "best" || cls === "forced" || cls === "great" || cls === "brilliant" || cls === "book") { if (svg) svg.remove(); return; }
 
@@ -3340,6 +3370,10 @@ async function requestLiveAnalysis() {
 function renderLive() {
   if (!UI.meta) return;                 // UI not built yet (very first load)
   UI.meta.replaceChildren(...metaChips());
+  // The search for the position just played finishes after the move is on the board, so repaint the
+  // square annotations too: that is what makes the board badge and the best-move arrow appear the
+  // moment the engine answers, instead of waiting for the next board repaint.
+  refreshBoardAnnotations();
   renderEvalBar(); renderPlayers(); renderControls(); renderReview();
   renderStats(); renderGraph(); renderMoves(); renderEngineCurrent();
 }

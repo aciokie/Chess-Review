@@ -115,6 +115,27 @@ test('the live board carries the eval graph, live ratings, phases and a Resign p
   assert.ok(document.querySelectorAll('.acc-val').length >= 2);
 });
 
+test('the board badge and the best-move arrow appear as soon as the live search answers', async t => {
+  const startFen = 'rnbqkbnr/pppppppp';
+  const a = liveBoard(t, { engine: fakeEngine(async (fen) => ({
+    score: { cp: 30 },
+    bestmove: fen.startsWith(startFen) ? 'e2e4' : 'e7e5',
+    lines: [],
+  })) });
+  const S = a.state;
+  a.call('applyUserMove', 'e2', 'e4', false);
+  await settle();
+  assert.equal(S.classif[1], 'best', 'White played the engine move');
+  const { document } = a.dom.window;
+  // e4 is the destination square of ply 1 on an unflipped board.
+  const e4 = document.querySelectorAll('.sq')[(8 - 4) * 8 + 4];
+  assert.ok(e4.classList.contains('has-badge'), 'the destination square carries the category badge');
+  assert.equal(e4.querySelectorAll('.sq-badge').length, 1);
+  // A review board suppresses the arrow when the move played was the engine's own choice; the live
+  // board is an analysis board being played and keeps showing the position's best move.
+  assert.ok(document.querySelector('.board svg.best-arrow'), 'the arrow is drawn on the live board');
+});
+
 test('a normal review of a finished game has no live controls', t => {
   const a = app(t);
   const S = a.state;

@@ -31,13 +31,12 @@ immediately when disabled. Existing scores and coach comments are unchanged.
   a decision, so it never changes your accuracy or rating.
 - **Estimated rating** — a rough guide to the level each player performed at in the game.
 - **Opening detection** from an offline book, named even for PGNs without headers.
-- **Explore board** from the popup, without loading a game: try legal moves, browse
-  your move list, and see evaluations, opening names, and move ratings.
 - **Live board** from the popup: play or score a game on the analysis board while it is
   happening. Every move is added to the game, so the evaluation graph, accuracy, estimated
   rating and the three phase estimates update as you go; a move from an earlier position opens
-  a normal variation. Each side has a **Resign** button — the other side wins, and the finished
-  game is saved to your Library and fully analysed like any other review.
+  a normal variation, so you can still explore lines. Each side has a **Resign** button — the
+  other side wins, and the finished game is saved to your Library and fully analysed like any
+  other review.
 - **Rated alternatives** while reviewing a game, using the same classification rules
   as the played moves. Exploring does not change the original game or its accuracy.
 - **Progress page** (open it from the popup): accuracy and estimated-rating trends across
