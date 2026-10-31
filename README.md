@@ -35,8 +35,10 @@ immediately when disabled. Existing scores and coach comments are unchanged.
   happening. Every move is added to the game, so the evaluation graph, accuracy, estimated
   rating and the three phase estimates update as you go; a move from an earlier position opens
   a normal variation, so you can still explore lines. Each side has a **Resign** button — the
-  other side wins, and the finished game is saved to your Library and fully analysed like any
-  other review.
+  other side wins and the board simply stays where it is. When the game is over (resign,
+  checkmate, stalemate) an **Analyse this game** button appears under the evaluation graph: press
+  it when you want the full review, and the game is analysed and saved to your Library like any
+  other. Until then nothing is analysed or saved behind your back.
 - **Rated alternatives** while reviewing a game, using the same classification rules
   as the played moves. Exploring does not change the original game or its accuracy.
 - **Progress page** (open it from the popup): accuracy and estimated-rating trends across

@@ -1975,6 +1975,9 @@ function buildUI() {
   const evalbarMount = el("div", { id: "evalbarMount", class: "evalbar-mount" });
   const reviewMount = el("div", { id: "reviewMount" });
   const graphMount = el("div", { id: "graphMount" });
+  // Sits under the eval graph and only appears when a live game has ended but has not been sent
+  // through the full review yet (see liveFinishPending).
+  const graphFoot = el("div", { id: "graphFoot", class: "graph-foot", hidden: true });
   const statsMount = el("div", { id: "statsMount" });
   const engineMount = el("div", { id: "engineMount" });
   const conceptsMount = el("div", { id: "conceptsMount" });
@@ -1988,7 +1991,7 @@ function buildUI() {
     el("div", { class: "side" },
       makeMod("review", reviewMount),
       el("div", { class: "side-cols" },
-        el("div", { class: "side-a" }, makeMod("moves", movesPanel), makeMod("graph", graphMount), makeMod("controls", controls)),
+        el("div", { class: "side-a" }, makeMod("moves", movesPanel), makeMod("graph", graphMount, graphFoot), makeMod("controls", controls)),
         el("div", { class: "side-b" }, makeMod("accuracy", statsMount), makeMod("engine", engineMount)),
       ),
       makeMod("coach", coachMount),
@@ -2039,7 +2042,7 @@ function buildUI() {
     meta: document.getElementById("meta"), settings, canvas, boardWrap,
     playerTop, playerBot, controls, coach: coachMount, evalbar: evalbarMount,
     review: reviewMount, movesBody, movesCount, movesFoot,
-    graph: graphMount, stats: statsMount, engine: engineMount, concepts: conceptsMount,
+    graph: graphMount, graphFoot, stats: statsMount, engine: engineMount, concepts: conceptsMount,
     libRail, libControls, libList, libCount,
   };
 
@@ -2052,7 +2055,7 @@ function buildUI() {
     alignment.observe(UI.engine.closest(".mod"));
     alignment.observe(UI.review.closest(".mod"));
   }
-  window.addEventListener("resize", () => { fitEnginePanel(); growCanvas(); alignPlayers(); positionSettings(); });
+  window.addEventListener("resize", () => { fitEnginePanel(); fitGraphFoot(); growCanvas(); alignPlayers(); positionSettings(); });
 }
 
 /* ---------------- Loading indicator ----------------
@@ -2127,6 +2130,7 @@ function applyLayout() {
     mod.style.width = b ? b.w + "px" : ""; mod.style.height = b ? b.h + "px" : "";
   }
   fitEnginePanel();
+  fitGraphFoot();                       // a layout rebuild resets the module height; the footer row stays
   requestAnimationFrame(positionSettings);
 }
 // Freeze the automatic layout into free-canvas boxes, so Reorganize starts from exactly what is on
@@ -3414,20 +3418,48 @@ function resignLive(side) {
   finishLive(side === "w" ? "0-1" : "1-0", "resign");
 }
 
-// Close the live game: stamp the Result into the PGN and hand the finished game to the normal
-// review path, which rebuilds it from that PGN, analyses every position and saves it to the library.
+// End the live game: stamp the Result into the PGN and stop the move-by-move search, but do NOT
+// start the full review. The game stays on this board with the live analysis it already has, and the
+// player picks what happens next from the button under the graph (see liveFinishPending below).
 function finishLive(result, reason) {
   if (!isLiveBoard()) return;
-  // Cancel the move-by-move search and drop its worker before the full review starts, so the
-  // final analysis is not competing with a live engine for CPU.
   S.liveToken++;
   try { S.liveEngine?.terminate(); } catch {}
   S.liveEngine = null; S.liveEnginePromise = null;
   const cfg = { ...liveCfg(), result };
   S.live = cfg;
   S.pgn = livePgnText(cfg, S.positions, result);
-  const meta = { ...(S.meta || {}), live: true, liveOver: true, liveCfg: cfg, result, liveEnd: reason || "" };
-  return applyGame({ pgn: S.pgn, meta, source: "live" });
+  S.headers = parseHeaders(S.pgn);
+  if (S.players) { S.players.w.result = result; S.players.b.result = result; }
+  S.meta = { ...(S.meta || {}), live: true, liveOver: true, liveCfg: cfg, result, liveEnd: reason || "" };
+  S.idx = S.total;
+  // The final position is read off the board (a mate or a drawn ending needs no engine), so the game
+  // the player is left sitting on is scored through its last move.
+  const last = S.positions[S.total];
+  if (last && (!S.evals[S.total] || !S.bests[S.total])) {
+    const terminal = terminalScore(last.fen, S.total);
+    if (terminal) {
+      S.bests[S.total] = { score: terminal, bestmove: null, pv: "", lines: [] };
+      S.evals[S.total] = terminal;
+    }
+  }
+  computeDerived();
+  // A reload lands on the same finished-but-unreviewed board, not straight into a batch job.
+  rememberReviewJob();
+  renderLive();
+}
+// A finished live game that has not been sent through the full review yet. Only this state shows
+// the end-of-game button, so the player is never redirected into an analysis they did not ask for.
+function liveFinishPending() {
+  return S.meta?.live === true && S.meta?.liveOver === true && S.meta?.liveReviewed !== true && !S.analyzing;
+}
+// The player's choice: run the ordinary review on the finished game - rebuild it from the stamped
+// PGN, analyse every position and save it to the library - exactly as a fetched game would be.
+function reviewFinishedLiveGame() {
+  if (!liveFinishPending()) return;
+  S.meta = { ...S.meta, liveReviewed: true };
+  renderGraph();                     // the button is replaced by the running analysis
+  return applyGame({ pgn: S.pgn, meta: S.meta, source: "live" });
 }
 // Exit analysis mode. With mainIdx: jump to that mainline position; otherwise stay put.
 // (Analysis mode is indicated/closed via the Exit button in the controls bar.)
@@ -4490,7 +4522,45 @@ function renderStats() {
 }
 
 /* ---------------- Eval graph ---------------- */
+// The end-of-game action under the graph. It exists only for a finished live game: during play there
+// is nothing to decide, and once the player has asked for the review the button is gone for good.
+function renderGraphFoot() {
+  const mount = UI.graphFoot;
+  if (!mount) return;
+  const pending = liveFinishPending();
+  mount.hidden = !pending;
+  if (!pending) { mount.replaceChildren(); fitGraphFoot(); return; }
+  const ended = S.meta.liveEnd === "resign" ? "Resigned"
+    : S.meta.liveEnd === "checkmate" ? "Checkmate" : "Game drawn";
+  mount.replaceChildren(
+    el("span", { class: "gf-text" }, `${ended} — analyse this game formally and save it, or stay on this board.`),
+    el("button", { class: "gf-btn", type: "button", onclick: reviewFinishedLiveGame }, "Analyse this game"),
+  );
+  fitGraphFoot();
+}
+// The footer is a real row under the graph, so the graph module has to grow by that row: otherwise
+// the 120px evaluation curve keeps its height, overflows the module and ends up covering the button
+// it is supposed to sit above. Height is recomputed from what is measured (never accumulated), so a
+// layout rebuild that resets the module cannot drift, and hiding the footer gives the space back.
+function fitGraphFoot() {
+  const mod = UI.graph && UI.graph.closest(".mod");
+  const foot = UI.graphFoot;
+  if (!mod || !foot) return;
+  const custom = isCustomLayout();
+  const desktop = UI.canvas.classList.contains("desktop-layout");
+  if (!custom && !desktop) { mod.style.minHeight = ""; return; }
+  const svg = UI.graph.querySelector(".evalgraph svg");
+  const graphH = svg ? Math.ceil(svg.getBoundingClientRect().height) : 0;
+  if (!graphH) return;
+  const chrome = 38;                                   // module padding/head that the graph sits inside
+  const extra = foot.hidden ? 0 : Math.ceil((foot.offsetHeight + 22) / GRID) * GRID;
+  const base = custom ? Math.max(DEFAULT_LAYOUT.graph.h, graphH + chrome) : DEFAULT_LAYOUT.graph.h;
+  const h = Math.max(base, Math.ceil((graphH + chrome + extra) / GRID) * GRID);
+  if (custom && S.layout.graph && S.layout.graph.h !== h) { S.layout.graph.h = h; growCanvas(); }
+  mod.style.height = h + "px";
+}
 function renderGraph() {
+  renderGraphFoot();
   const isExplore = S.meta?.explore === true;
   if (isExplore) {
     const mod = UI.graph.closest(".mod");
@@ -4500,7 +4570,9 @@ function renderGraph() {
   }
   const show = S.settings.evalView === "both" || S.settings.evalView === "graph";
   const mod = UI.graph.closest(".mod");
-  if (mod) mod.hidden = !show;   // hidden, not just emptied, so the layout closes the gap
+  // hidden, not just emptied, so the layout closes the gap - except while the end-of-game choice is
+  // waiting there, which must stay reachable however the graph itself is configured.
+  if (mod) mod.hidden = !(show || liveFinishPending());
   if (!show) { UI.graph.replaceChildren(); return; }
   const W = 384, H = 120, mid = H / 2;
   const maxPly = Math.max(1, S.total);

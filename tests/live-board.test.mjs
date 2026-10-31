@@ -151,19 +151,23 @@ test('a normal review of a finished game has no live controls', t => {
   const { document } = a.dom.window;
   assert.equal(document.querySelectorAll('.player-strip .live-resign').length, 0);
   assert.equal(document.querySelectorAll('.player-strip .live-elo').length, 0);
+  assert.equal(document.getElementById('graphFoot').hidden, true, 'no end-of-game choice for a review');
 });
 
-test('resigning hands the finished game to the normal review and saves it to the library', async t => {
+test('a finished live game waits on the board and only the player starts the formal review', async t => {
   const a = liveBoard(t);
   const S = a.state;
+  const { document } = a.dom.window;
   a.call('applyUserMove', 'e2', 'e4', false); await settle();
   a.call('applyUserMove', 'e7', 'e5', false); await settle();
   const plies = S.total;
   // jsdom cannot build the sidebar dropdowns; the library write itself is what matters here.
   a.replace('renderLibrary', () => {});
-  // Stub only the batch search: the hand-off is what is under test here, and the finished game then
-  // goes through the ordinary save guard (completed analysis, no errors).
+  // Stub only the batch search: the hand-off is what is under test, and the finished game then goes
+  // through the ordinary save guard (completed analysis, no errors).
+  let reviews = 0;
   a.replace('startAnalysis', () => {
+    reviews++;
     const s = a.state;
     s.evals = s.positions.map(() => ({ cp: 0 }));
     s.bests = s.positions.map(() => ({ bestmove: 'a1a1', score: { cp: 0 }, lines: [] }));
@@ -171,15 +175,32 @@ test('resigning hands the finished game to the normal review and saves it to the
     a.call('computeDerived');
     a.call('saveToLibrary');
   });
+
   a.call('resignLive', 'b');
+  // Nothing is forced on the player: the stamped game just stays here.
   assert.equal(S.meta.liveOver, true);
   assert.equal(S.meta.liveEnd, 'resign');
   assert.equal(S.meta.result, '1-0', 'Black resigned, so White wins');
   assert.equal(S.headers.Result, '1-0');
   assert.equal(a.call('isLiveBoard'), false, 'the game is over');
   assert.equal(S.total, plies, 'the finished game keeps its moves');
-  assert.equal(S.analyzing, true, 'the finished game is analyzed like any review');
+  assert.equal(S.analyzing, false, 'no analysis was started');
+  assert.equal(reviews, 0, 'the formal review did not start on its own');
+  assert.equal((a.store.library || []).length, 0, 'nothing was saved before the player decided');
+  assert.equal(document.querySelectorAll('.player-strip .live-resign').length, 0, 'resign is gone once the game is over');
+  assert.match(document.getElementById('meta').textContent, /White wins/);
+  // The choice sits under the graph.
+  const foot = document.getElementById('graphFoot');
+  assert.equal(foot.hidden, false);
+  const btn = foot.querySelector('.gf-btn');
+  assert.ok(btn, 'a button under the eval graph');
+  assert.match(foot.textContent, /Resigned/);
+
+  btn.click();
+  assert.equal(S.meta.liveReviewed, true);
+  assert.equal(foot.hidden, true, 'the button is gone once the review is under way');
   await settle();
+  assert.equal(reviews, 1, 'the button runs the ordinary review');
 
   const library = a.store.library || [];
   assert.equal(library.length, 1);
@@ -190,17 +211,16 @@ test('resigning hands the finished game to the normal review and saves it to the
   assert.match(rec.pgn, /1\. e4 e5 1-0/);
   assert.equal(rec.meta.live, true);
   assert.equal(rec.meta.liveOver, true);
+  assert.equal(rec.meta.liveReviewed, true);
   assert.ok(a.store[analysisCacheKey(rec.id)], 'the analysis blob is stored with the game');
-  // The finished game reads as a review, with the result in the header chips.
-  const chips = a.dom.window.document.getElementById('meta').textContent;
-  assert.match(chips, /White wins/);
-  assert.equal(a.dom.window.document.querySelectorAll('.player-strip .live-resign').length, 0);
+  assert.match(document.getElementById('meta').textContent, /White wins/);
 });
 
-test('checkmate ends the live game without waiting for a resign', async t => {
+test('checkmate ends the live game and leaves the review to the player', async t => {
   const a = liveBoard(t);
   const S = a.state;
-  a.replace('startAnalysis', () => {});       // the finished review itself is covered above
+  let reviews = 0;
+  a.replace('startAnalysis', () => { reviews++; });
   const moves = [['f2', 'f3'], ['e7', 'e5'], ['g2', 'g4'], ['d8', 'h4']];
   for (const [from, to] of moves) { a.call('applyUserMove', from, to, false); await settle(); }
   assert.equal(S.total, 4);
@@ -210,6 +230,28 @@ test('checkmate ends the live game without waiting for a resign', async t => {
   assert.equal(S.headers.Result, '0-1');
   assert.match(S.pgn, /Qh4# 0-1/);
   assert.equal(a.call('isLiveBoard'), false);
+  assert.equal(reviews, 0, 'checkmate does not drag the player into a batch analysis');
+  assert.equal(S.analyzing, false);
+  assert.ok(a.dom.window.document.querySelector('#graphFoot .gf-btn'), 'the player can still ask for it');
+  // The mating position is scored off the board, so the graph covers the last move too.
+  assert.equal(S.evals[S.total].mate, -1, 'White is mated, from the board and no engine');
+  assert.ok(S.bests[S.total]);
+});
+
+test('the end-of-game button exists for a finished live game only', async t => {
+  const a = liveBoard(t);
+  const { document } = a.dom.window;
+  const foot = document.getElementById('graphFoot');
+  assert.equal(foot.hidden, true, 'nothing to decide while the game is in progress');
+  a.call('applyUserMove', 'e2', 'e4', false); await settle();
+  assert.equal(foot.hidden, true);
+  a.call('resignLive', 'w');
+  assert.equal(foot.hidden, false, 'shown the moment the game is finished');
+  assert.equal(document.querySelectorAll('.player-strip .live-resign').length, 0);
+  // A finished live game that was already reviewed never offers it again.
+  a.state.meta.liveReviewed = true;
+  a.call('renderGraph');
+  assert.equal(foot.hidden, true);
 });
 
 test('a live tab reload resumes the game in progress, a new tab starts a fresh one', async t => {
