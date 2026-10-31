@@ -46,7 +46,15 @@ for (const [file, html, rootSelector, buttonSelector] of [
   assert.equal(button.disabled, true);
   assert.match(button.textContent, /Opening review/);
 
-  query(rootSelector).outerHTML = html;
+  // The site replaces the whole row (this is what makes the observer schedule a scan again).
+  const stale = query(rootSelector);
+  const fresh = w.document.createElement('div');
+  fresh.className = stale.className;
+  const link = w.document.createElement('a');
+  link.setAttribute('href', file === 'content.js' ? '/review' : '/analysis');
+  link.textContent = 'Row';
+  fresh.append(link);
+  stale.replaceWith(fresh);
   await flush();
   assert.equal(w.document.querySelectorAll(buttonSelector).length, 1, 'a replaced row is found again');
 
