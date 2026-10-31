@@ -1,4 +1,6 @@
 (function(){
+ // Preserve every animation frame, but avoid invalidating SVG for identical values.
+ function attr(el,name,value){if(el.getAttribute(name)!==value)el.setAttribute(name,value); }
  function gid(id){return document.getElementById(id);}
  var E={
   neutral:{bLY:0,bRY:0,bLR:-2,bRR:2,sqL:.12,sqR:.12,mc:336,mt:334,mb:341,mw:22},
@@ -31,7 +33,7 @@
  }
 
  // ---- gestures ----
- function gest(el,dur,fn){if(!el)return;el._t=(el._t||0)+1;var id=el._t,t0=performance.now();(function s(){if(el._t!==id)return;var p=Math.min(1,(performance.now()-t0)/dur);el.setAttribute('transform',fn(p));if(p<1)requestAnimationFrame(s);else el.removeAttribute('transform');})();}
+ function gest(el,dur,fn){if(!el)return;el._t=(el._t||0)+1;var id=el._t,t0=performance.now();(function s(){if(el._t!==id)return;var p=Math.min(1,(performance.now()-t0)/dur);attr(el,'transform',fn(p));if(p<1)requestAnimationFrame(s);else el.removeAttribute('transform');})();}
  function nod(){gest(headrig,840,function(p){return 'translate(0 '+(Math.sin(p*Math.PI*4)*(1-p)*7).toFixed(2)+')';});}
  function shake(){gest(headrig,840,function(p){return 'rotate('+(Math.sin(p*Math.PI*4)*(1-p)*5).toFixed(2)+' 340 370)';});}
  function shrug(){gest(torso,780,function(p){return 'translate(0 '+(-Math.sin(p*Math.PI)*9).toFixed(2)+')';});gest(headrig,780,function(p){return 'translate(0 '+(Math.sin(p*Math.PI)*3.5).toFixed(2)+')';});}
@@ -41,17 +43,17 @@
   for(i=0;i<k.length;i++){cur[k[i]]=lerp(cur[k[i]],tgt[k[i]],.16);}
   if(roll)roll(performance.now());
   gx=lerp(gx,tgx,roll?0.5:0.18);gy=lerp(gy,tgy,roll?0.5:0.18);
-  if(eyeL)eyeL.setAttribute('transform','translate('+gx.toFixed(2)+' '+gy.toFixed(2)+')');
-  if(eyeR)eyeR.setAttribute('transform','translate('+gx.toFixed(2)+' '+gy.toFixed(2)+')');
+  if(eyeL)attr(eyeL,'transform','translate('+gx.toFixed(2)+' '+gy.toFixed(2)+')');
+  if(eyeR)attr(eyeR,'transform','translate('+gx.toFixed(2)+' '+gy.toFixed(2)+')');
   var sL=Math.max(cur.sqL,blink),sR=Math.max(cur.sqR,blink);
-  lidL.setAttribute('transform','translate(306 262) scale(1 '+sL.toFixed(3)+') translate(-306 -262)');
-  lidR.setAttribute('transform','translate(374 262) scale(1 '+sR.toFixed(3)+') translate(-374 -262)');
-  bL.setAttribute('transform','translate(0 '+cur.bLY.toFixed(2)+') rotate('+cur.bLR.toFixed(2)+' 306 244)');
-  bR.setAttribute('transform','translate(0 '+cur.bRY.toFixed(2)+') rotate('+cur.bRR.toFixed(2)+' 374 244)');
+  attr(lidL,'transform','translate(306 262) scale(1 '+sL.toFixed(3)+') translate(-306 -262)');
+  attr(lidR,'transform','translate(374 262) scale(1 '+sR.toFixed(3)+') translate(-374 -262)');
+  attr(bL,'transform','translate(0 '+cur.bLY.toFixed(2)+') rotate('+cur.bLR.toFixed(2)+' 306 244)');
+  attr(bR,'transform','translate(0 '+cur.bRY.toFixed(2)+') rotate('+cur.bRR.toFixed(2)+' 374 244)');
   var mt=cur.mt,mb=cur.mb,mw=cur.mw;
   if(talking){var tt=performance.now()*0.001;var o=(Math.sin(tt*15)*0.5+0.5)*(0.55+0.45*Math.sin(tt*5.7));mt=cur.mt-o*5;mb=cur.mb+o*9;mw=cur.mw+o*1.5;}
   var x0=(340-mw),x1=(340+mw);
-  mouth.setAttribute('d','M'+x0.toFixed(1)+' '+cur.mc.toFixed(1)+' Q340 '+mt.toFixed(1)+' '+x1.toFixed(1)+' '+cur.mc.toFixed(1)+' Q340 '+mb.toFixed(1)+' '+x0.toFixed(1)+' '+cur.mc.toFixed(1)+' Z');
+  attr(mouth,'d','M'+x0.toFixed(1)+' '+cur.mc.toFixed(1)+' Q340 '+mt.toFixed(1)+' '+x1.toFixed(1)+' '+cur.mc.toFixed(1)+' Q340 '+mb.toFixed(1)+' '+x0.toFixed(1)+' '+cur.mc.toFixed(1)+' Z');
   requestAnimationFrame(apply);
  }
  apply();

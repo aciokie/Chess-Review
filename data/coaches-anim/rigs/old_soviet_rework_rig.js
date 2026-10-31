@@ -1,4 +1,6 @@
 (function(){
+ // Preserve every animation frame, but avoid invalidating SVG for identical values.
+ function attr(el,name,value){if(el.getAttribute(name)!==value)el.setAttribute(name,value); }
  var E={
   neutral:{bLY:0,bRY:0,bLR:0,bRR:0,sqL:.22,sqR:.22,mc:582,mt:581,mb:583,mw:30},
   happy:{bLY:-3,bRY:-3,bLR:-2,bRR:2,sqL:.10,sqR:.10,mc:576,mt:579,mb:593,mw:34},
@@ -19,7 +21,7 @@
  function look(dir){var v=LOOK[dir]||LOOK.center;tgx=v[0]*GX;tgy=v[1]*GY;roll=null;}
  function eyeRoll(){var t0=performance.now(),dur=1100;roll=function(now){var p=(now-t0)/dur;if(p>=1){roll=null;tgx=0;tgy=0;return;}var a=-Math.PI/2+p*Math.PI*2;tgx=Math.cos(a)*GX;tgy=Math.sin(a)*GY;};}
  function talk(v){talking=(v===undefined)?!talking:!!v;var b=document.getElementById('c-talk');if(b)b.classList.toggle('on',talking);}
- function gest(el,dur,fn){if(!el)return;el._t=(el._t||0)+1;var id=el._t,t0=performance.now();(function s(){if(el._t!==id)return;var p=Math.min(1,(performance.now()-t0)/dur);el.setAttribute('transform',fn(p));if(p<1)requestAnimationFrame(s);else el.removeAttribute('transform');})();}
+ function gest(el,dur,fn){if(!el)return;el._t=(el._t||0)+1;var id=el._t,t0=performance.now();(function s(){if(el._t!==id)return;var p=Math.min(1,(performance.now()-t0)/dur);attr(el,'transform',fn(p));if(p<1)requestAnimationFrame(s);else el.removeAttribute('transform');})();}
  function nod(){gest(headrig,820,function(p){return 'translate(0 '+(Math.sin(p*Math.PI*4)*(1-p)*9).toFixed(2)+')';});}
  function shake(){gest(headrig,820,function(p){return 'rotate('+(Math.sin(p*Math.PI*4)*(1-p)*6).toFixed(2)+' 340 600)';});}
  function shrug(){gest(torso,760,function(p){return 'translate(0 '+(-Math.sin(p*Math.PI)*11).toFixed(2)+')';});gest(headrig,760,function(p){return 'translate(0 '+(Math.sin(p*Math.PI)*4).toFixed(2)+')';});}
@@ -50,7 +52,7 @@
    // smoothly on its own via the lerp in apply().
    var e=p<0.12?p/0.12:p>0.88?(1-p)/0.12:1; e=e*e*(3-2*e);
    tgx=d*GX*e;tgy=GY*0.22*e;                   // eyes track the turn, drift a touch down as he purses
-   if(headrig)headrig.setAttribute('transform','rotate('+(d*3.4*e).toFixed(2)+' 340 600)');
+   if(headrig)attr(headrig,'transform','rotate('+(d*3.4*e).toFixed(2)+' 340 600)');
    requestAnimationFrame(s);
   })();
  }
@@ -64,18 +66,18 @@
   for(i=0;i<k.length;i++){cur[k[i]]=lerp(cur[k[i]],eff[k[i]],.16);}
   if(roll)roll(performance.now());
   gx=lerp(gx,tgx,roll?0.5:0.18);gy=lerp(gy,tgy,roll?0.5:0.18);
-  if(eyeL)eyeL.setAttribute('transform','translate('+gx.toFixed(2)+' '+gy.toFixed(2)+')');
-  if(eyeR)eyeR.setAttribute('transform','translate('+gx.toFixed(2)+' '+gy.toFixed(2)+')');
+  if(eyeL)attr(eyeL,'transform','translate('+gx.toFixed(2)+' '+gy.toFixed(2)+')');
+  if(eyeR)attr(eyeR,'transform','translate('+gx.toFixed(2)+' '+gy.toFixed(2)+')');
   var sL=Math.max(cur.sqL,blink), sR=Math.max(cur.sqR,blink);
-  lidL.setAttribute('transform','translate(300 412) scale(1 '+sL.toFixed(3)+') translate(-300 -412)');
-  lidR.setAttribute('transform','translate(380 412) scale(1 '+sR.toFixed(3)+') translate(-380 -412)');
-  bL.setAttribute('transform','translate(0 '+cur.bLY.toFixed(2)+') rotate('+cur.bLR.toFixed(2)+' 298 398)');
-  bR.setAttribute('transform','translate(0 '+cur.bRY.toFixed(2)+') rotate('+cur.bRR.toFixed(2)+' 382 398)');
+  attr(lidL,'transform','translate(300 412) scale(1 '+sL.toFixed(3)+') translate(-300 -412)');
+  attr(lidR,'transform','translate(380 412) scale(1 '+sR.toFixed(3)+') translate(-380 -412)');
+  attr(bL,'transform','translate(0 '+cur.bLY.toFixed(2)+') rotate('+cur.bLR.toFixed(2)+' 298 398)');
+  attr(bR,'transform','translate(0 '+cur.bRY.toFixed(2)+') rotate('+cur.bRR.toFixed(2)+' 382 398)');
   var mt=cur.mt,mb=cur.mb,mw=cur.mw;
   if(whistling){var wt=performance.now()*0.001,o=Math.sin(wt*7)*1.6;mt-=o;mb+=o;}  // gentle blow pulse on the morphed "O"
   else if(talking){var tt=performance.now()*0.001;var o2=(Math.sin(tt*15)*0.5+0.5)*(0.55+0.45*Math.sin(tt*5.7));mt=cur.mt-o2*5;mb=cur.mb+o2*10;mw=cur.mw+o2*2;}
   var x0=(340-mw),x1=(340+mw);
-  mouth.setAttribute('d','M'+x0.toFixed(1)+' '+cur.mc.toFixed(1)+' Q340 '+mt.toFixed(1)+' '+x1.toFixed(1)+' '+cur.mc.toFixed(1)+' Q340 '+mb.toFixed(1)+' '+x0.toFixed(1)+' '+cur.mc.toFixed(1)+' Z');
+  attr(mouth,'d','M'+x0.toFixed(1)+' '+cur.mc.toFixed(1)+' Q340 '+mt.toFixed(1)+' '+x1.toFixed(1)+' '+cur.mc.toFixed(1)+' Q340 '+mb.toFixed(1)+' '+x0.toFixed(1)+' '+cur.mc.toFixed(1)+' Z');
   requestAnimationFrame(apply);
  }
  apply();
