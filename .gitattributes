@@ -2,3 +2,6 @@
 engine/stockfish*.js -text
 engine/*.wasm binary
 native/engine/*.exe binary
+# The public scoring models are hashed over their LF bytes (tools/calibration/public/manifest.json).
+# Without this, core.autocrlf checks them out as CRLF on Windows and reproduce-public.mjs fails.
+tools/calibration/public/*.json text eol=lf

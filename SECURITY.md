@@ -30,10 +30,10 @@ Android debugging and does not affect the extension's browser behaviour.
 Use GitHub's **[Report a vulnerability](https://github.com/aciokie/Chess-Review/security/advisories/new)**
 form to send a private report to this fork's maintainer.
 
-If you cannot use GitHub's reporting form, email
-**[Thomas@Julsgaard.dev](mailto:Thomas@Julsgaard.dev)** with the subject
-**Chess Review security report**. Please do not open a public issue or pull
-request containing vulnerability details.
+If you cannot use GitHub's reporting form, open a public issue titled
+**Security contact request** with no vulnerability details in it, and the
+maintainer will arrange a private channel. Please do not open a public issue or
+pull request containing vulnerability details.
 
 Include, where available:
 

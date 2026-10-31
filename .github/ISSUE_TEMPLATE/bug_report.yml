@@ -5,7 +5,7 @@ body:
     attributes:
       value: |
         Please search existing issues before reporting a bug.
-        For suspected security vulnerabilities, follow our [security policy](https://github.com/T-Julsgaard/Chess-Review/blob/main/SECURITY.md) instead of posting details here.
+        For suspected security vulnerabilities, follow our [security policy](https://github.com/aciokie/Chess-Review/blob/main/SECURITY.md) instead of posting details here.
         Issues are public. Share only game data, screenshots, and logs you are comfortable making public, and remove personal information and credentials.
   - type: textarea
     id: behavior
