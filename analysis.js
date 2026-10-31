@@ -3643,13 +3643,31 @@ function playerStrip(side) {
   }
   return el("div", { class: "player-strip" + (toMove ? " active" : "") }, ...kids);
 }
+// Everything the two strips display. Rebuilding them is pure DOM work that does not depend on the
+// engine, and it happens on every analysis flush - so identical strips are left alone (the same idea
+// as upstream's "retain player names/flags and unchanged captured-piece images", 852839b4).
+function playersSignature() {
+  const w = S.players?.w || {}, b = S.players?.b || {};
+  const { capturedBy, diff } = capturedInfo();
+  const side = (p) => [p.name, p.rating, p.country, p.countryName, p.result];
+  // The captured tray is listed per piece, not just counted: two even trades leave the material diff
+  // unchanged but must still show up in both trays.
+  return JSON.stringify([S.flipped, activePos().fen.split(" ")[1], side(w), side(b),
+    capturedBy("w"), capturedBy("b"), diff,
+    clockFor("w"), clockFor("b"), isLiveBoard(), S.total === 0,
+    ratingEstimate("w"), ratingEstimate("b")]);
+}
 function renderPlayers() {
   const isExplore = S.meta?.explore === true;
   if (isExplore) {
     UI.playerTop.replaceChildren();
     UI.playerBot.replaceChildren();
+    S._playersSig = null;
     return;
   }
+  const sig = playersSignature();
+  if (S._playersSig === sig && UI.playerTop.firstChild && UI.playerBot.firstChild) { alignPlayers(); return; }
+  S._playersSig = sig;
   UI.playerTop.replaceChildren(playerStrip(S.flipped ? "w" : "b"));
   UI.playerBot.replaceChildren(playerStrip(S.flipped ? "b" : "w"));
   alignPlayers();
@@ -4606,7 +4624,7 @@ function renderGraph() {
   const dots = pts.filter((s) => ["blunder", "mistake", "miss", "brilliant", "great"].includes(S.classif[s.ply]));
   const markerX = toX(Math.min(S.idx, maxPly));
   const midLine = `<line x1="0" y1="${mid}" x2="${W}" y2="${mid}" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 3"/>`;
-  const marker = `<line x1="${markerX}" y1="0" x2="${markerX}" y2="${H}" stroke="var(--accent)" stroke-width="1.5" opacity="0.7"/>`;
+  const marker = `<line class="eg-pos" x1="${markerX}" y1="0" x2="${markerX}" y2="${H}" stroke="var(--accent)" stroke-width="1.5" opacity="0.7"/>`;
   const style = S.settings.graphStyle || "area";
   // Classification dots are drawn on every style except the bare "minimal" one.
   const dotsSvg = style === "minimal" ? "" : dots.map((s) =>
@@ -4691,11 +4709,23 @@ function renderGraph() {
     t.style.top = (r.top + (y / H) * r.height - 10) + "px";
     t.classList.add("show");
   };
-  UI.graph.replaceChildren(el("div", { class: "panel eval-side" },
+  // The graph is re-rendered on every analysis flush and on every navigation, but almost all of those
+  // draws are identical: only the position marker moves. Rebuilding the SVG (and the panel around it)
+  // invalidated layout for nothing, so an unchanged plot is kept and just the marker is moved.
+  const graphKey = JSON.stringify([style, W, H, S.total, pts, S.classif]);
+  const refs = UI.graphRefs;
+  if (refs && refs.key === graphKey && refs.svg.isConnected && refs.marker) {
+    const mx = toX(Math.min(S.idx, maxPly));
+    refs.marker.setAttribute("x1", mx); refs.marker.setAttribute("x2", mx);
+    return;
+  }
+  const panel = el("div", { class: "panel eval-side" },
     el("div", { class: "panel-head" }, el("h3", {}, "Evaluation")),
     el("div", { class: "panel-body", style: { paddingTop: "8px", paddingBottom: "8px" } },
       el("div", { class: "evalgraph clickable-graph", title: "Click to jump to a move", html: svg, onclick: jumpFromEvent, onmousemove: hoverMove, onmouseleave: hideHover })),
-  ));
+  );
+  UI.graphRefs = { key: graphKey, svg: panel.querySelector(".evalgraph svg"), marker: panel.querySelector(".eg-pos") };
+  UI.graph.replaceChildren(panel);
 }
 
 /* ---------------- Move list ---------------- */
@@ -4988,6 +5018,7 @@ function renderCoachPanel() {
 
 // While solving a practice position, the engine lines would give the answer away → hide them.
 function renderEnginePractice() {
+  UI.engineRenderKey = null;                 // whatever the normal panel rendered is no longer shown
   UI.engine.replaceChildren(el("div", { class: "panel" },
     el("div", { class: "panel-head" }, el("h3", {}, "Engine"), el("span", { class: "count" }, "Practice")),
     el("div", { class: "panel-body engine-body" },
@@ -5070,6 +5101,13 @@ function renderEngine(lines, padFromCache = false) {
   // SAN stays correct) to fill slots that the new position hasn't searched yet — and to hold the
   // panel steady while the engine re-computes (lines === null, e.g. "Play best moves from here").
   const cached = S._lastEngineLines?.fen === curFen ? S._lastEngineLines : null;
+  // The panel is rebuilt on every navigation and every analysis flush, but its content only depends
+  // on the lines for the shown position and a few labels - so an unchanged panel is left mounted
+  // (upstream 852839b4 keeps unchanged engine panels for the same reason).
+  const renderKey = JSON.stringify([curFen, lines, padFromCache, want, S.settings.engineDepth,
+    activeEngineName(), S.bestWalking, S.liveError || null]);
+  if (UI.engineRenderKey === renderKey && UI.engine.firstChild?.isConnected) return;
+  UI.engineRenderKey = renderKey;
   let body;
   if (S.analysisMode && S.liveError) {
     body = el("div", { class: "engine-empty" }, S.liveError);
@@ -7009,11 +7047,18 @@ function renderLibrary() {
   if (!UI.libList) return;
   const recs = libRecords();
   if (UI.libCount) UI.libCount.textContent = String(S.library.length);
+  // The sidebar is re-rendered after every save and every settings change, mostly with the same list.
+  // Compare the records the cards would be built from (by identity and the fields a card shows) and
+  // stop when nothing has changed, instead of rebuilding every card and its dropdowns.
+  const types = Array.from(new Set(S.library.map((r) => r.type).filter(Boolean)));
+  const libSig = JSON.stringify([S.libSort, S.libResult, S.libType, types, S.library.length,
+    recs.map((r) => [r.id, r.savedAt, r.fav, r.solved, r.hasBrilliant, r.myAcc, r.opAcc, r.result, r.myName, r.opName])]);
+  if (UI.libSig === libSig && UI.libList.firstChild) return;
+  UI.libSig = libSig;
 
   const setSort = (v) => { S.libSort = v; renderLibrary(); };
   const setRes  = (v) => { S.libResult = v; renderLibrary(); };
   const setType = (v) => { S.libType = v; renderLibrary(); };
-  const types = Array.from(new Set(S.library.map((r) => r.type).filter(Boolean)));
   UI.libControls.replaceChildren(
     libDropdown("Sort", S.libSort, [["history", "Most recent"], ["accuracy", "Highest accuracy"], ["rating", "Highest rating"], ["unsolved", "Unsolved"], ["favorite", "Favorites"], ["brilliant", "Brilliants"]], setSort),
     libDropdown("Result", S.libResult, [["all", "All results"], ["win", "Wins"], ["loss", "Losses"], ["draw", "Draws"]], setRes),
