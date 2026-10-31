@@ -56,7 +56,8 @@ test('credits include Stockfish 19, upstream source and contributors',t=>{
   const a=board(t);a.call('openCredits');const overlay=a.dom.window.document.querySelector('.credits-overlay');
   assert.match(overlay.textContent,/Stockfish 19/);assert.match(overlay.textContent,/aciokie/);assert.match(overlay.textContent,/neuroflowinfinix/);
   assert.ok(overlay.querySelector('a[href="https://github.com/nmrugg/stockfish.js/tree/v19.0.0"]'));
-  assert.ok(overlay.querySelector('a[href="https://github.com/T-Julsgaard/Chess-Review"]'));
+  assert.ok(overlay.querySelector('a[href="https://github.com/aciokie/Chess-Review"]'), 'source link points at this fork');
+  assert.ok(overlay.querySelector('a[href="https://github.com/T-Julsgaard/Chess-Review"]'), 'the original project stays credited');
   assert.ok(overlay.querySelector('a[href="https://github.com/neuroflowinfinix"]'));
 });
 

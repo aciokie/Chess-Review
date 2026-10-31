@@ -5500,13 +5500,15 @@ function nativeStatusRow(status) {
   kids.push(el("button", { class: "set-reset inline", onclick: recheckNativeStatus }, "Recheck"));
   kids.push(el("button", {
     class: "set-reset inline",
-    onclick: () => { try { runNativeDiagnostics(); } catch {} },
+    // runNativeDiagnostics is async and reports its own failures in the Diagnostics lines; the .catch
+    // only covers a rejection from its cleanup, which a plain try/catch around the call would miss.
+    onclick: () => { runNativeDiagnostics().catch((e) => console.error("Native diagnostics failed", e)); },
   }, S.nativeDiag && S.nativeDiag.running ? "Testing…" : "Diagnostics"));
   if (!status.available && S.nativeInstallOpen) {
     kids.push(el("div", { class: "set-note" },
       "A browser is not allowed to start installers by itself, so this one step happens outside the page:",
       el("div", { style: { margin: "8px 0 0 12px" } },
-        el("button", { class: "set-reset inline", onclick: () => { try { browserAPI.tabs.create({ url: NATIVE_ENGINE_DOWNLOAD_URL }); } catch {} } },
+        el("button", { class: "set-reset inline", onclick: openNativeDownload },
           "⤓ Download installer (.zip)")),
       el("div", { style: { margin: "8px 0 0 12px" } },
         "1. Unzip it and double-click ", el("b", {}, "Install Native Engine.bat"),
@@ -5549,6 +5551,23 @@ function stopWatchNativeInstall() {
 }
 // One-shot self-test the user can paste into a bug report: helper version, engine identity, the
 // pinned-hash verdict and a real search with timings. Runs on a throwaway engine, changes nothing.
+// Opens the installer download page. It must not fail silently: if the browser refuses to open a tab
+// (tabs.create can reject asynchronously, which a plain try/catch would miss) fall back to window.open,
+// and if that is blocked too, show the link in the Diagnostics area so the user can copy it.
+function openNativeDownload() {
+  const showLink = () => {
+    S.nativeDiag = { running: false, lines: [`Couldn't open the download page. Copy this link into a new tab: ${NATIVE_ENGINE_DOWNLOAD_URL}`] };
+    if (UI.settings && !UI.settings.hidden && S.settingsTab === "engine") { try { renderSettings(); } catch {} }
+  };
+  const fallback = () => {
+    try {
+      const w = window.open(NATIVE_ENGINE_DOWNLOAD_URL, "_blank");
+      if (!w) showLink(); else { try { w.opener = null; } catch {} }
+    } catch { showLink(); }
+  };
+  try { Promise.resolve(browserAPI.tabs.create({ url: NATIVE_ENGINE_DOWNLOAD_URL })).catch(fallback); } catch { fallback(); }
+}
+
 async function runNativeDiagnostics() {
   if (S.nativeDiag && S.nativeDiag.running) return;
   const lines = [];
@@ -5869,7 +5888,10 @@ const CONTRIBUTORS = [
   { name: "Arthur Guedes", username: "arthurhguedes", role: "Contributor" },
   { name: "T-Julsgaard", username: "T-Julsgaard", role: "Maintainer" },
 ];
-const REPO_URL = "https://github.com/T-Julsgaard/Chess-Review";
+// This fork's repo (source, licence, attributions) and the original project it was forked from.
+// The credits keep both visible: the fork is not presented as the original work.
+const REPO_URL = "https://github.com/aciokie/Chess-Review";
+const UPSTREAM_REPO_URL = "https://github.com/T-Julsgaard/Chess-Review";
 function openCredits() {
   document.querySelector(".credits-overlay")?.remove();
   const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); };
@@ -5922,6 +5944,8 @@ function openCredits() {
         el("a", { href: REPO_URL + "/blob/main/LICENSE", target: "_blank", rel: "noopener noreferrer" }, "Full license (GPLv3)"),
         " · ",
         el("a", { href: REPO_URL + "/blob/main/ATTRIBUTIONS.md", target: "_blank", rel: "noopener noreferrer" }, "All attributions"),
+        " · ",
+        el("a", { href: UPSTREAM_REPO_URL, target: "_blank", rel: "noopener noreferrer" }, "Original project (T-Julsgaard)"),
       ),
     ),
   );
