@@ -344,9 +344,11 @@ function injectSidebarReviewButton(emphasisContent) {
 
 (function watchForReviewSpots() {
   let modalTimer = null, sidebarTimer = null;
+  let modalRoot = null, sidebarRoot = null, scheduled = false;
   const tryInject = () => {
     // (1) Modal.
     const modal = firstEl(document, CC.modalContainer);
+    modalRoot = modal;
     if (modal) {
       injectModalReviewButton(modal);
     } else if (firstEl(document, CC.modalContext) && !modalTimer) {
@@ -361,6 +363,7 @@ function injectSidebarReviewButton(emphasisContent) {
     // (2) Sidebar. The review section only renders post-game, so if it's present but our button still
     // isn't there a few seconds later, an inner selector (review-buttons / CTA) likely changed.
     const emphasis = firstEl(document, CC.sidebarEmphasis);
+    sidebarRoot = emphasis;
     if (emphasis) {
       injectSidebarReviewButton(emphasis);
       if (!emphasis.querySelector(".chess-analyzer-free-review") && !sidebarTimer) {
@@ -374,9 +377,30 @@ function injectSidebarReviewButton(emphasisContent) {
       }
     }
   };
-  const observer = new MutationObserver(tryInject);
+  // The page mutates constantly (clocks, tallies, animated coach speech). Only work that can affect
+  // our injection point is worth a scan, and several such changes in one frame are one scan.
+  const relevantSelector = [...CC.modalContainer, ...CC.modalContext, ...CC.sidebarEmphasis].join(",");
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    const run = () => { scheduled = false; tryInject(); };
+    // Hidden pages may suspend animation frames; retain post-game recovery there.
+    if (document.hidden || typeof requestAnimationFrame !== "function") setTimeout(run, 32);
+    else requestAnimationFrame(run);
+  };
+  const observer = new MutationObserver(records => {
+    // A replaced injection point has to be found again even though nothing matched by selector yet.
+    if (modalRoot && !modalRoot.isConnected || sidebarRoot && !sidebarRoot.isConnected) { schedule(); return; }
+    for (const record of records) {
+      if (record.target.closest?.(".chess-analyzer-free-review")) continue;
+      if (modalRoot?.contains(record.target) || sidebarRoot?.contains(record.target)
+        || [...record.addedNodes].some(node => node.nodeType === 1
+          && (node.matches(relevantSelector) || node.querySelector(relevantSelector)))) { schedule(); return; }
+    }
+  });
   observer.observe(document.body, { childList: true, subtree: true });
   window.addEventListener("resize", tryInject);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) tryInject(); });
   tryInject();
 })();
 
