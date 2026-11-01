@@ -4,6 +4,24 @@
   "source": "https://database.lichess.org/standard/list.txt",
   "license": "CC0-1.0",
   "licenseDocumentation": "https://database.lichess.org/",
-  "check": null,
-  "sample": null
+  "check": {
+    "checkedAt": "2026-11-01T11:11:11.848Z",
+    "newestMonth": "2026-09",
+    "result": "updated",
+    "reason": "no sample yet; newest 2026-09"
+  },
+  "sample": {
+    "month": "2026-09",
+    "url": "https://database.lichess.org/standard/lichess_db_standard_rated_2026-09.pgn.zst",
+    "archiveSha256": "1de8eb64fed443f4be310c779e8d60a13bcfc6e3b104bcb39a018eb056edec89",
+    "archiveChecksumSource": "https://database.lichess.org/standard/sha256sums.txt",
+    "games": 2000,
+    "windows": 20,
+    "seed": "validation-v1",
+    "dir": "calibration-runs/validation/dataset",
+    "gamesSha256": "9e2147c84bea60096f39c0f36595a57fa0773bc63132ea3248d7ab78a242b28e",
+    "manifestSha256": "8db6b66fd9464a6832d93f8192f0a6a9e9c9eee8663e6c9c34d0857f18d487bb",
+    "builtAt": "2026-11-01T11:11:11.848Z",
+    "verification": "TLS + sampled bounded frames with per-frame SHA-256 (recent-dataset.mjs); full archive checksum recorded but not byte-verified"
+  }
 }
