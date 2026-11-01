@@ -8,7 +8,7 @@ import {
   sliceRange, filterGames, colourSplit, typeSplit, decisionProfile, accuracyHistogram,
   scoreTrend, momentum, stability, gradeSeries, sortRows, ERROR_KEYS,
   playedAt, orderTime, myBrilliantCount, dayKey, dailyActivity, metricEvidence,
-  opponentReport, opponentKey, focusAreas, gameRows,
+  opponentReport, opponentKey, focusAreas, gameRows, ratingScale,
 } from "../lib/progress.js";
 
 // Minimal library-record factory; only the fields progress.js reads.
@@ -38,15 +38,31 @@ test("progressPoints normalizes fields and tolerates null accuracy/rating", () =
   assert.equal(p.at, new Date(2026, 0, 2).getTime(), "a point is dated by the day it was played");
 });
 
-test("progressPoints reports the review's rating estimate, falling back to the game's Elo", () => {
+test("progressPoints keeps the rating line on ONE scale", () => {
   const [old, fresh] = progressPoints([
     rec({ id: "old", savedAt: 1, date: "2026.01.01", myRating: 1400 }),
     rec({ id: "new", savedAt: 2, date: "2026.01.02", myRating: 1500, myEstimate: 1750 }),
-  ]);
-  assert.equal(old.rating, 1400, "no estimate stored: the PGN's rating is all there is");
-  assert.equal(old.ratingEstimated, false);
-  assert.equal(fresh.rating, 1750, "the review's own estimate wins over the platform rating");
-  assert.equal(fresh.ratingEstimated, true);
+  ], { scale: "estimate" });
+  assert.equal(old.rating, null, "no estimate: left out, never replaced by a different measurement");
+  assert.equal(fresh.rating, 1750, "the review's own estimate");
+  assert.equal(fresh.ratingScale, "estimate");
+});
+
+test("ratingScale picks the scale that covers the window, and never mixes the two", () => {
+  assert.equal(ratingScale([]), null);
+  const eloOnly = [rec({ id: "a", myRating: 1400 }), rec({ id: "b", myRating: 1500 })];
+  assert.equal(ratingScale(eloOnly), "elo");
+  const allNew = [rec({ id: "a", myRating: 1400, myEstimate: 1700 }), rec({ id: "b", myRating: 1500, myEstimate: 1750 })];
+  assert.equal(ratingScale(allNew), "estimate", "a tie goes to the review's own number");
+  const mixed = [rec({ id: "a", myRating: 1400 }), rec({ id: "b", myRating: 1500 }), rec({ id: "c", myEstimate: 1900 })];
+  assert.equal(ratingScale(mixed), "elo", "two recorded Elos beat one estimate");
+  assert.deepEqual(progressPoints(mixed).map((p) => p.rating), [1400, 1500, null],
+    "an old Elo and a new estimate are never averaged together");
+  const s = summarizeProgress(mixed);
+  assert.equal(s.ratingScale, "elo");
+  assert.equal(s.ratedGames, 2);
+  assert.equal(s.missingRating, 1, "the game with no value on this scale is counted, not zeroed");
+  assert.equal(s.rating, 1450);
 });
 
 /* ---------------- ordering: games played, not games analyzed ---------------- */
@@ -645,7 +661,7 @@ test("focusAreas names the weakest phase and links the game behind it", () => {
   assert.match(phase.title, /endgame is the weak link/);
   assert.equal(phase.target.kind, "game");
   assert.equal(phase.target.id, "1", "the game with the worst endgame is the one to open");
-  assert.equal(phase.target.ply, 41);
+  assert.equal(phase.target.ply, undefined, "no ply: that game's worst move may not be in the weak phase");
 });
 
 test("focusAreas flags the costliest error type and the weaker colour", () => {
@@ -660,8 +676,10 @@ test("focusAreas flags the costliest error type and the weaker colour", () => {
   ];
   const areas = focusAreas(records);
   const decision = areas.find((a) => a.key === "decision");
-  assert.equal(decision.title, "inaccuracies cost you most");
-  assert.equal(decision.target.id, "b1", "the game with the most of them");
+  // 19 inaccuracies x1 = 19 against 16 mistakes x2 = 32: the costlier type wins, not the frequent one.
+  assert.equal(decision.title, "mistakes cost you most");
+  assert.equal(decision.target.id, "b3", "the game with the most of that type");
+  assert.equal(decision.target.ply, null, "no ply when that game's worst move is something else");
   const colour = areas.find((a) => a.key === "colour");
   assert.equal(colour.target.kind, "colour");
   assert.equal(colour.target.value, "b");
@@ -704,4 +722,72 @@ test("gameRows exposes the table's numbers and the worst move", () => {
   assert.equal(row.category, "blunder");
   assert.equal(row.errorRate, (3 / 33) * 100);
   assert.equal(row.at, new Date(2026, 1, 3).getTime());
+});
+
+/* ---------------- the bug-report regressions ---------------- */
+
+test("the Unrated format chip matches games whose type is blank", () => {
+  const records = [rec({ id: "1", type: "" }), rec({ id: "2", type: "Blitz" }), rec({ id: "3" })];
+  assert.deepEqual(filterGames(records, { type: "Unrated" }).map((r) => r.id), ["1", "3"]);
+  assert.equal(typeSplit(records).find((t) => t.key === "Unrated").games, 2);
+});
+
+test("playedAt rejects a day the month does not have", () => {
+  assert.equal(playedAt({ date: "2026.02.31" }), null, "it would otherwise roll into March");
+  assert.equal(playedAt({ date: "2026.04.31" }), null);
+  assert.equal(playedAt({ date: "2024.02.29" }), new Date(2024, 1, 29).getTime(), "a leap day is real");
+});
+
+test("sortRows keeps rows with no value last in both directions", () => {
+  const rows = [{ key: "A", score: 10 }, { key: "B", score: null }, { key: "C", score: 30 }];
+  assert.deepEqual(sortRows(rows, "score", "asc").map((r) => r.key), ["A", "C", "B"]);
+  assert.deepEqual(sortRows(rows, "score", "desc").map((r) => r.key), ["C", "A", "B"]);
+});
+
+test("streaks are counted over every tracked game, not the filtered window", () => {
+  const all = [
+    rec({ id: "w1", savedAt: 1, result: "win" }),
+    rec({ id: "l1", savedAt: 2, result: "loss" }),
+    rec({ id: "w2", savedAt: 3, result: "win" }),
+    rec({ id: "w3", savedAt: 4, result: "win" }),
+  ];
+  const winsOnly = filterGames(all, { result: "win" });
+  const naive = Object.fromEntries(personalBests(winsOnly).map((b) => [b.key, b]));
+  assert.equal(naive.winStreak.value, 3, "the filter alone makes 3 unrelated wins look consecutive");
+  const honest = Object.fromEntries(personalBests(winsOnly, { streakSource: all }).map((b) => [b.key, b]));
+  assert.equal(honest.winStreak.value, 2, "the real run is the two at the end");
+});
+
+test("the current streak survives a day off, but not two", () => {
+  const now = new Date(2026, 4, 10, 12).getTime();   // May 10
+  const day = (d) => `2026.05.${String(d).padStart(2, "0")}`;
+  const endedYesterday = dailyActivity([6, 7, 8, 9].map((d) => rec({ id: `d${d}`, date: day(d) })), { now });
+  assert.equal(endedYesterday.streak, 4, "a run through yesterday is still current");
+  const includesToday = dailyActivity([7, 8, 9, 10].map((d) => rec({ id: `d${d}`, date: day(d) })), { now });
+  assert.equal(includesToday.streak, 4);
+  const stale = dailyActivity([5, 6, 7, 8].map((d) => rec({ id: `d${d}`, date: day(d) })), { now });
+  assert.equal(stale.streak, 0, "a run that stopped two days ago is history");
+});
+
+test("underperformingOpenings never advises on games with no opening recorded", () => {
+  const report = openingReport(Array.from({ length: 6 }, (_, i) => rec({ id: `u${i}`, result: "loss" })));
+  assert.equal(report.length, 1);
+  assert.equal(report[0].key, "unknown");
+  assert.deepEqual(underperformingOpenings(report), []);
+});
+
+test("focusAreas does not call the unknown-opening bucket an opening", () => {
+  const areas = focusAreas(Array.from({ length: 6 }, (_, i) => rec({ id: `u${i}`, result: "loss", opName: "Rival" })));
+  assert.equal(areas.some((a) => a.key === "opening"), false);
+  assert.equal(areas.some((a) => a.key === "nemesis"), true, "the rival finding is still real");
+});
+
+test("focusAreas ranks error types by what they cost, not how often they happen", () => {
+  const withWorst = (cat) => focusAreas([rec({
+    id: "1", myCounts: { best: 100, inacc: 5, blunder: 3 }, myWorst: { ply: 11, cat },
+  })]).find((a) => a.key === "decision");
+  const top = withWorst("blunder");
+  assert.equal(top.title, "blunders cost you most", "3 blunders outweigh 5 inaccuracies");
+  assert.equal(top.target.ply, 11, "that game's decisive move IS a blunder");
+  assert.equal(withWorst("inacc").target.ply, null, "no ply when the decisive move is a different type");
 });

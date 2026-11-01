@@ -6876,10 +6876,15 @@ function canRestoreAnalysis(saved) {
 const LIBRARY_LOCK = "chess-review-library";
 const LIBRARY_MAX = 1000;                // keep the newest N games (raised from 300; unlimitedStorage is granted)
 let _libraryWriteQueue = Promise.resolve(); // fallback for environments without navigator.locks
+// Storage is user-editable, and a half-written backup can leave a null or a bare value in the list.
+// One bad entry used to throw inside the library render and take the whole review with it - including
+// the sidebar you would repair it from - so every read is filtered here first.
+const cleanLibrary = (value) => (Array.isArray(value) ? value : [])
+  .filter((rec) => rec && typeof rec === "object" && typeof rec.id === "string" && rec.id);
 function updateLibrary(update, analysisWrites = {}) {
   const commit = async () => {
     const stored = await browserAPI.storage.local.get("library");
-    const current = Array.isArray(stored.library) ? stored.library : S.library;
+    const current = cleanLibrary(stored.library ?? S.library);
     const next = update(current);
     // Cap the list; drop the analysis blobs of any games that fall off the end.
     const dropped = next.slice(LIBRARY_MAX);
@@ -6933,10 +6938,21 @@ function saveToLibrary() {
       }
       return null;
     };
+    // A PGN with no player headers reviews as "White"/"Black" (pasted movetext, a bare FEN, the Live
+    // board). When this review knows which account it is seated for - the launch's myName, else the
+    // stored handle - name that seat after the account, so the record still belongs to that account on
+    // the Progress page instead of reading as a stranger's game. The opponent keeps the placeholder.
+    const account = String(S.meta?.myName || S.username || "").trim();
+    const savedName = (side) => {
+      const name = S.players[side].name;
+      const placeholder = side === "w" ? "white" : "black";
+      if (name && String(name).trim().toLowerCase() !== placeholder) return name;
+      return side === S.meSide && account ? account : name;
+    };
     const rec = {
       id, savedAt: Date.now(), pgn: S.pgn, meta: S.meta || {},
       meSide: S.meSide,
-      myName: S.players[S.meSide].name, opName: S.players[opSide].name,
+      myName: savedName(S.meSide), opName: savedName(opSide),
       myAcc: S.acc[S.meSide], opAcc: S.acc[opSide],
       myRating: parseInt(S.players[S.meSide].rating, 10) || null,
       opRating: parseInt(S.players[opSide].rating, 10) || null,
@@ -7022,7 +7038,7 @@ async function rescanLibraryForBrilliants(onProgress) {
   S._rescanning = true;
   try {
     const stored = await browserAPI.storage.local.get("library");
-    const library = Array.isArray(stored.library) ? stored.library : [];
+    const library = cleanLibrary(stored.library);
     // A record missing the per-side tallies was scanned by an older build, so re-process it too.
     const pending = library.filter((rec) => typeof rec.hasBrilliant !== "boolean"
       || typeof rec.brilliantCount !== "number" || typeof rec.myBrilliant !== "boolean");
@@ -7718,7 +7734,7 @@ async function resetLegacyZoom() {
     // job and settings are in, while the book is still downloading.
     const dataReady = Promise.all([loadBook(), loadCalibration()]);
     const [payload, store] = await Promise.all([loadJob(), browserAPI.storage.local.get(["settings", "username", "layout", "layoutMode", "layoutVersion", "library", PLAYER_HISTORY_KEY])]);
-    S.library = Array.isArray(store.library) ? store.library : [];
+    S.library = cleanLibrary(store.library);
     S.settings = { ...DEFAULT_SETTINGS, ...(store.settings || {}) };
     delete S.settings.learningTransition;
     const visualAssetsMigrated = migrateVisualAssetSettings(S.settings);

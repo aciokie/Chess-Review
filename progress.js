@@ -67,8 +67,13 @@ const reducedMotion = () => {
 };
 // Count a headline number up to its value. The text is set to the final value first, so a user with
 // reduced motion (or a failed rAF) always sees the truth rather than a stuck zero.
+// The count-up is a first-paint effect only: every filter change re-renders the cards, and replaying the
+// animation would flash all nine numbers back through 0 on each click.
+let _animatedOnce = false;
 function countUp(node, { value, format = String, ms = 700 }) {
-  if (!Number.isFinite(value) || reducedMotion()) return;
+  // The node already holds the true value; the animation only decorates it. A hidden tab pauses rAF,
+  // which used to strand every card at 0, so a hidden page skips straight to the number.
+  if (_animatedOnce || !Number.isFinite(value) || reducedMotion() || document.hidden) return;
   const t0 = performance.now();
   const step = (now) => {
     const p = Math.min(1, (now - t0) / ms);
@@ -78,6 +83,9 @@ function countUp(node, { value, format = String, ms = 700 }) {
   };
   node.textContent = format(0);
   requestAnimationFrame(step);
+  // Whatever happens to the frames (a tab hidden mid-animation stops them for good), the card must end
+  // on the real number - never on a half-counted or zeroed one.
+  setTimeout(() => { node.textContent = format(value); }, ms + 80);
 }
 
 /* ---------------- tooltip ---------------- */
@@ -420,9 +428,23 @@ function qualityPanel(profile) {
   return el("div", {}, dist, list);
 }
 
+// A panel whose own <h3> repeats the frame's title is noise - the section already says it, so the page
+// showed "Accuracy distribution" twice. Drop the repeated heading and keep its sub-line.
+function dropRepeatedHeading(node, title) {
+  const wanted = String(title || "").trim().toLowerCase();
+  if (!wanted || !node.querySelectorAll) return;
+  // querySelectorAll only looks at descendants, and most sections pass the panel itself.
+  const panels = [...(node.classList?.contains("panel") ? [node] : []), ...node.querySelectorAll(".panel")];
+  for (const panel of panels) {
+    const heading = [...panel.children].find((kid) => kid.tagName === "H3");
+    if (heading && heading.textContent.trim().toLowerCase() === wanted) heading.remove();
+  }
+}
+
 // One framed report section: eyebrow, title, hairline rule, then the panels inside it.
 function sectionFrame({ id, eyebrow, title, node }) {
   const kids = (Array.isArray(node) ? node : [node]).filter(Boolean);
+  for (const kid of kids) dropRepeatedHeading(kid, title);
   return el("section", { class: "sec", id },
     el("div", { class: "sec-head" }, el("span", { class: "eyebrow" }, eyebrow), el("h2", {}, title), el("span", { class: "rule" })),
     ...kids);
@@ -445,7 +467,9 @@ function renderJump(sections) {
         const link = rail.querySelector(`a[data-for="${entry.target.id}"]`);
         for (const other of rail.querySelectorAll("a")) other.classList.toggle("on", other === link);
       }
-    }, { rootMargin: "-140px 0px -55% 0px" });
+      // The band starts below the sticky chrome, not 140px down: with the measured offset the rail
+      // highlights the section you are actually reading.
+    }, { rootMargin: `-${Math.round(stickyH || 140)}px 0px -55% 0px` });
     for (const s of sections) { const node = document.getElementById(s.id); if (node) jumpObserver.observe(node); }
   } catch { /* no IntersectionObserver: the links still work */ }
 }
@@ -634,13 +658,18 @@ function renderProgress(records, tracked) {
   const range = s.first && s.last ? `${fmtDate(s.first)} – ${fmtDate(s.last)}` : "";
   const gradeFormat = (v) => (v == null ? "—" : v.toFixed(1));
   const errorRate = profile?.errorRate ?? null;
-  // The rating card has two sources: the review's own estimate (new records) and the Elo from the game
-  // record. Say which one the number is made of instead of always calling it an estimate.
-  const ratingSub = s.ratedGames && s.estimatedGames === s.ratedGames ? "estimated by the review"
-    : s.estimatedGames ? "estimate where recorded" : "from the game record";
-  const ratingInfo = s.estimatedGames
-    ? "The rating the review estimates you played at, averaged over this window."
-    : "The Elo recorded in these games; a review saved from now on also stores its own estimate.";
+  // The rating card reports ONE scale for the whole window (never an average of two different numbers),
+  // so it says which scale this is and how many games the window could not supply on it.
+  const ratingSub = (s.ratingScale === "estimate" ? "estimated by the review"
+    : s.ratingScale === "elo" ? "recorded Elo" : "no ratings yet")
+    + (s.missingRating ? ` · ${s.missingRating} not on this scale` : "");
+  const ratingInfo = s.ratingScale === "elo"
+    ? "The Elo recorded in these games. Older games have no rating estimate from the review, and the two scales are never averaged together, so this window stays on one of them."
+    : "The rating the review estimates you played at, averaged over this window. Games saved before the estimate existed are left out rather than mixed in.";
+  // A delta is only meaningful against a full comparison window: with 6-9 games the "previous" side is
+  // 1-4 games and a chip would overstate the change, so it is withheld.
+  const comparable = m.previousGames === m.window;
+  const delta = (value, opts) => (comparable ? deltaChip(value, opts) : null);
 
   // `metric` makes a card a button: it opens the panel listing the games (and rule) behind the number.
   const cards = cardGrid(
@@ -648,13 +677,13 @@ function renderProgress(records, tracked) {
       { info: "Games in the window that this page is tracking.", metric: "games" }),
     statCard("Score", fmtPct(s.score), `${s.wins}W · ${s.draws}D · ${s.losses}L`,
       s.score != null && s.score >= 55 ? "good" : "", { value: s.score, format: (n) => `${Math.round(n)}%` },
-      { delta: deltaChip(m.delta.score, { unit: "%" }), spark: score.map((p) => (p.value == null ? null : p.value * 100)), info: "Tournament score: a win is 1, a draw ½, a loss 0.", metric: "score" }),
+      { delta: delta(m.delta.score, { unit: " pp" }), spark: score.map((p) => (p.value == null ? null : p.value * 100)), info: "Tournament score: a win is 1, a draw ½, a loss 0.", metric: "score" }),
     statCard("Win rate", fmtPct(s.winRate), "draws excluded", "", { value: s.winRate, format: (n) => `${Math.round(n)}%` }, { metric: "winRate" }),
     statCard("Avg accuracy", fmtAcc(s.accuracy), "per game", s.accuracy != null && s.accuracy >= 80 ? "good" : "",
       { value: s.accuracy, format: (n) => n.toFixed(1) },
-      { delta: deltaChip(m.delta.accuracy), spark: points.map((p) => p.accuracy), info: "Average of each game's accuracy in this window.", metric: "accuracy" }),
+      { delta: delta(m.delta.accuracy, { unit: " pp" }), spark: points.map((p) => p.accuracy), info: "Average of each game's accuracy in this window.", metric: "accuracy" }),
     statCard("Avg rating", fmtRating(s.rating), ratingSub, "", { value: s.rating, format: (n) => String(Math.round(n)) },
-      { delta: deltaChip(m.delta.rating), spark: points.map((p) => p.rating), info: ratingInfo, metric: "rating" }),
+      { delta: delta(m.delta.rating), spark: points.map((p) => p.rating), info: ratingInfo, metric: "rating" }),
     // Lower is better for both of these, so "good" means low.
     statCard("Error rate", errorRate == null ? "—" : `${errorRate}%`, "inaccuracy or worse",
       errorRate == null ? "" : errorRate <= 15 ? "good" : errorRate >= 30 ? "bad" : "",
@@ -676,9 +705,13 @@ function renderProgress(records, tracked) {
   add("sec-overview", "Overview", "How you are playing", [cards, inspectorPanel(records)]);
   add("sec-focus", "Coaching", "What to work on", focusPanel(records));
   // The tracker always lists every filtered game (not just the current day), so picking another day
-  // is always possible - it is the report window that narrows, not the calendar.
+  // is always possible - it is the report window that narrows, not the calendar. It must apply every
+  // filter EXCEPT the day and the range: a cell's count has to match what clicking it will show.
   add("sec-daily", "Rhythm", "Daily tracker",
-    dailyPanel(filterGames(tracked || records, { colour: filterColour, type: filterType, result: filterResult })));
+    dailyPanel(filterGames(tracked || records, {
+      colour: filterColour, type: filterType, result: filterResult,
+      opponent: filterOpponent, opening: filterOpening,
+    })));
   add("sec-form", "Momentum", "Recent form", momentumPanel(records));
   add("sec-results", "Results", "How your games end", donutPanel(records));
   add("sec-trends", "Trends", "Accuracy, rating and score", [
@@ -710,7 +743,8 @@ function renderProgress(records, tracked) {
   add("sec-dist", "Moves", "Accuracy distribution", histogramPanel(records));
   add("sec-phases", "Moves", "Accuracy by phase", phasePanel(records));
   add("sec-games", "Archive", "Every game", gamesPanel(records));
-  add("sec-records", "Records", "Personal bests", bestsPanel(records));
+  add("sec-records", "Records", "Personal bests", bestsPanel(records, tracked));
+  _animatedOnce = true;
   return sections;
 }
 // Local mean for the grade card (lib/progress.js keeps its own private one).
@@ -737,9 +771,9 @@ function phasePanel(records) {
 }
 
 /* ---------------- personal bests ---------------- */
-function bestsPanel(records) {
+function bestsPanel(records, streakSource = null) {
   const byId = recordById();
-  const rows = personalBests(records).map((b) => el("tr",
+  const rows = personalBests(records, { streakSource }).map((b) => el("tr",
     // Only rows that point at a real game are clickable (and get the hover/pointer styling).
     { class: b.id ? "" : "none", onclick: b.id ? () => openGame(b.id) : null, title: b.id ? "Open this game" : "" },
     el("td", {}, b.label),
@@ -748,7 +782,8 @@ function bestsPanel(records) {
   ));
   return el("div", { class: "panel" },
     el("h3", {}, "Personal bests"),
-    el("p", { class: "sub" }, "Your standout games and runs. Click a row to reopen the game."),
+    el("p", { class: "sub" }, "Your standout games and runs in this window. Click a row to reopen the game. "
+      + "Streaks count every tracked game, so a filter above cannot make unrelated wins look consecutive."),
     el("table", { class: "bests" },
       el("thead", {}, el("tr", {}, el("th", {}, "Best"), el("th", {}, "Value"), el("th", {}, "Game"))),
       el("tbody", {}, ...rows)));
@@ -929,6 +964,11 @@ function renderOpenings(records) {
 /* ---------------- shared navigation + opening a game ---------------- */
 let activeTab = "progress";
 let library = [];
+// Storage is user-editable (and a half-written backup can leave a null in it), so nothing downstream may
+// assume every entry is a record: one null used to throw in recordById and blank every tab, including
+// the Data tab you would repair it from.
+const cleanLibrary = (value) => (Array.isArray(value) ? value : [])
+  .filter((r) => r && typeof r === "object" && typeof r.id === "string" && r.id);
 // The single account this page tracks - the handle from the popup's manual panel (storage "username",
 // the same value that seats a review). A library can also hold games reviewed for someone else, or be
 // used by another person, so counting all of it would move these numbers for reasons that are not
@@ -1023,23 +1063,46 @@ function noGamesInWindow() {
     el("br"), "Reset them above, or widen the range.");
 }
 
+/**
+ * The sticky header and toolbar sit over the page, so an anchor jump has to clear both. Their height is
+ * not fixed (the tabs wrap on narrow screens, the chip rows wrap with the filters), and a hard-coded
+ * `scroll-margin-top` left every jump hiding the heading it aimed at. Measure instead of guessing.
+ */
+let stickyH = 0;   // header + toolbar, for the jump rail's "am I reading this?" band
+function syncStickyOffset() {
+  const header = document.querySelector("header.top");
+  if (!header) return;
+  const style = document.documentElement.style;
+  const topH = header.offsetHeight;
+  if (topH > 0) style.setProperty("--top-h", `${topH}px`);
+  const toolbar = document.querySelector(".toolbar");
+  const total = topH + (toolbar ? toolbar.offsetHeight : 0);
+  if (total > 0) { stickyH = total; style.setProperty("--sticky-h", `${total}px`); }
+}
+// Every view swap goes through here so the measured offset always describes what is on screen.
+function paint(...nodes) {
+  view.replaceChildren(...nodes);
+  syncStickyOffset();
+}
+window.addEventListener("resize", syncStickyOffset);
+
 function render() {
   for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-pressed", String(b.dataset.tab === activeTab));
   // The Data tab must work on an empty library too - that is where you import one.
-  if (activeTab === "data") { view.replaceChildren(renderData()); renderJump([]); return; }
-  if (!library.length) { view.replaceChildren(emptyState()); renderJump([]); return; }
+  if (activeTab === "data") { paint(renderData()); renderJump([]); return; }
+  if (!library.length) { paint(emptyState()); renderJump([]); return; }
   const tracked = username ? ownGames(library, username) : library;
   const toolbar = el("div", { class: "toolbar" },
     trackingStrip(tracked.length, library.length),
     tracked.length ? controlsRow(windowed(tracked).length, tracked) : null);
-  if (!tracked.length) { view.replaceChildren(toolbar, noGamesForPlayer()); renderJump([]); return; }
+  if (!tracked.length) { paint(toolbar, noGamesForPlayer()); renderJump([]); return; }
   const records = windowed(tracked);
   const frames = records.length
     ? (activeTab === "openings"
       ? [sectionFrame({ id: "sec-openings", eyebrow: "Openings", title: "Your repertoire", node: renderOpenings(records) })]
       : renderProgress(records, tracked))
     : [];
-  view.replaceChildren(toolbar, ...(frames.length ? frames : [noGamesInWindow()]));
+  paint(toolbar, ...(frames.length ? frames : [noGamesInWindow()]));
   renderJump(frames.map((f) => ({ id: f.id, title: f.querySelector("h2")?.textContent || "" })));
 }
 
@@ -1151,7 +1214,7 @@ function renderData() {
 view.replaceChildren(skeleton());          // the read below is fast, but never show an empty page
 try {
   const stored = await browserAPI.storage.local.get(["library", "username"]);
-  library = Array.isArray(stored.library) ? stored.library : [];
+  library = cleanLibrary(stored.library);
   username = typeof stored.username === "string" ? stored.username.trim() : "";
 } catch { library = []; username = ""; }
 
@@ -1162,7 +1225,7 @@ try {
     if (area && area !== "local") return;
     if (!changes || (!("username" in changes) && !("library" in changes))) return;
     if (changes.username) username = typeof changes.username.newValue === "string" ? changes.username.newValue.trim() : "";
-    if (changes.library) library = Array.isArray(changes.library.newValue) ? changes.library.newValue : [];
+    if (changes.library) library = cleanLibrary(changes.library.newValue);
     render();
   });
 } catch { /* no onChanged in this runtime: the page picks both up on its next open */ }

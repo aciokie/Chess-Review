@@ -152,3 +152,42 @@ test('8: the saved record carries each side worst decision for deep links', asyn
   assert.deepEqual(rec.myWorst, { ply: 1, cat: 'blunder' });
   assert.deepEqual(rec.opWorst, { ply: 2, cat: 'mistake' });
 });
+
+test('12: a header-less PGN is saved under the tracked handle, not the "White" placeholder', async t => {
+  // A pasted movetext or bare FEN reviews as White/Black. If the record kept those placeholders the
+  // Progress page could not match it to the account and would silently drop the game.
+  const a = app(t);
+  a.state.username = 'Tester';
+  loadGame(a, '1. e4 e5');
+  a.call('computeDerived');
+  await a.call('saveToLibrary');
+  const [rec] = a.store.library;
+  assert.equal(rec.myName, 'Tester');
+  assert.equal(rec.opName, 'Black', 'the opponent keeps its placeholder');
+});
+
+test('13: real header names are never replaced by the handle', async t => {
+  const a = app(t);
+  a.state.username = 'Tester';
+  loadGame(a, '[White "Ann"]\n[Black "Bob"]\n\n1. e4 e5');
+  // applyGame is what derives these from the PGN headers; loadGame leaves the placeholder players.
+  a.state.players = { w: { name: 'Ann' }, b: { name: 'Bob' } };
+  a.call('computeDerived');
+  await a.call('saveToLibrary');
+  const [rec] = a.store.library;
+  assert.equal(rec.myName, 'Ann');
+  assert.equal(rec.opName, 'Bob');
+});
+
+test('14: a junk entry in stored library does not break a save', async t => {
+  // storage is user-editable; a null used to throw in every list operation, including the save that
+  // would otherwise repair it.
+  const a = app(t);
+  loadGame(a, '1. e4 e5');
+  a.call('computeDerived');
+  a.store.library = [null, 42, 'junk', { id: 'keep', pgn: '1. e4' }];
+  await a.call('saveToLibrary');
+  assert.ok(a.store.library.every((rec) => rec && typeof rec === 'object' && typeof rec.id === 'string'));
+  assert.ok(a.store.library.some((rec) => rec.id === 'keep'), 'the real record survives');
+  assert.equal(a.store.library.length, 2, 'the junk is dropped, the new game is added');
+});

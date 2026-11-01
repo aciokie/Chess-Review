@@ -110,7 +110,7 @@
       .wrap { max-width: 1120px; margin: 0 auto; padding: 22px 24px 80px; display: grid; gap: 18px;
         grid-template-columns: minmax(0, 1fr) 168px; align-items: start; }
       .wrap > .main { min-width: 0; }
-      .jump { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 2px;
+      .jump { position: sticky; top: calc(var(--top-h, 57px) + 27px); display: flex; flex-direction: column; gap: 2px;
         border-left: 1px solid var(--line-soft); padding: 4px 0 4px 14px; }
       .jump[hidden] { display: none; }   /* author display rules would otherwise beat [hidden] */
       .jump-label { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-4);
@@ -125,8 +125,10 @@
       .jump a.on::before { background: var(--accent); transform: scale(1.4); }
 
       /* ---------- 5. toolbar (the filter bar) ---------- */
+      /* --top-h measures the header (it wraps on narrow screens, so 57px was a guess that overlapped);
+         --sticky-h is header + toolbar, which anchor jumps must clear. progress.js sets both. */
       .toolbar {
-        position: sticky; top: 57px; z-index: 30; display: grid; gap: 10px;
+        position: sticky; top: var(--top-h, 57px); z-index: 30; display: grid; gap: 10px;
         margin: -6px -8px 0; padding: 12px 8px 12px;
         background: color-mix(in oklab, var(--bg) 88%, transparent);
         backdrop-filter: blur(12px) saturate(140%);
@@ -156,8 +158,9 @@
       .chip.reset { color: var(--ink-3); border-style: dashed; }
 
       /* ---------- 6. section frames ---------- */
-      .sec { display: grid; gap: 12px; scroll-margin-top: 130px; }
-      .sec-head { display: flex; align-items: baseline; gap: 10px; }
+      .sec { display: grid; gap: 12px; scroll-margin-top: calc(var(--sticky-h, 152px) + 14px); }
+      .sec-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+      .sec-head h2 { min-width: 0; }
       .eyebrow { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-4); font-weight: 700; }
       .sec-head h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.3px; }
       .sec-head .rule { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line), transparent); }
@@ -206,6 +209,9 @@
         background: linear-gradient(180deg, var(--panel-2), var(--panel));
         border: 1px solid var(--line-soft); border-radius: var(--radius); padding: 17px 18px 18px;
         animation: rise .5s var(--ease) both;
+        /* A wide table scrolls inside its own panel instead of pushing the whole page sideways on a
+           narrow window (the tooltip is fixed-position, so nothing here needs overflow visible). */
+        overflow-x: auto;
       }
       .panel > h3 { display: flex; align-items: center; gap: 8px; }
       .panel > h3::before { content: ""; width: 3px; height: 13px; border-radius: 999px;
