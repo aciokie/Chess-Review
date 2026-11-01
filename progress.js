@@ -130,7 +130,10 @@ function controlsRow(viewCount) {
     typeOptions.length > 1 ? chipRow("Format", typeOptions, filterType, (v) => { filterType = v; }) : null,
     el("div", { class: "chip-row" },
       el("span", { class: "chip-label" }, `${viewCount} ${viewCount === 1 ? "game" : "games"}`),
-      filtering ? chip("Reset filters", false, () => { rangeLast = 0; filterColour = ""; filterType = ""; filterResult = ""; render(); }) : null));
+      filtering ? el("button", {
+        class: "chip reset", type: "button",
+        onclick: () => { rangeLast = 0; filterColour = ""; filterType = ""; filterResult = ""; render(); },
+      }, "Reset filters") : null));
 }
 
 /* ---------------- chart ---------------- */
@@ -193,10 +196,50 @@ function lineChart(values, { domain = null, label, points = null, format = (v) =
 }
 
 /* ---------------- progress tab ---------------- */
-function statCard(k, text, hint, cls = "", count = null) {
+let _sparkId = 0;
+// The bottom half of a KPI card: shape without axes - a sparkline says "which way is this going".
+function sparkline(values, { stroke = "var(--accent)" } = {}) {
+  const series = (values || []).filter((v) => v != null);
+  if (series.length < 2) return null;
+  const W = 120, H = 30, pad = 3;
+  const lo = Math.min(...series), hi = Math.max(...series);
+  const x = (i) => (i / (series.length - 1)) * W;
+  const y = (v) => pad + (H - 2 * pad) * (1 - ((v - lo) / ((hi - lo) || 1)));
+  const line = "M" + series.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" L");
+  const id = `spark${++_sparkId}`;
+  const box = svg("svg", { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", "aria-hidden": "true" });
+  box.append(svg("defs", {}, svg("linearGradient", { id, x1: 0, y1: 0, x2: 0, y2: 1 },
+    svg("stop", { offset: "0%", "stop-color": stroke, "stop-opacity": ".30" }),
+    svg("stop", { offset: "100%", "stop-color": stroke, "stop-opacity": "0" }))));
+  box.append(svg("path", { d: `${line} L${W},${H} L0,${H} Z`, fill: `url(#${id})` }));
+  box.append(svg("path", { class: "spark-line", d: line, fill: "none", stroke, "stroke-width": "1.6",
+    "stroke-linejoin": "round", "stroke-linecap": "round", "vector-effect": "non-scaling-stroke", pathLength: 1 }));
+  return box;
+}
+
+// A signed change with the colouring that suits the metric (lower can be the good direction).
+function deltaChip(delta, { unit = "", goodWhen = "up", digits = 1 } = {}) {
+  if (delta == null || !Number.isFinite(delta)) return null;
+  const step = 10 ** digits;
+  const rounded = Math.round(delta * step) / step;
+  const flat = Math.abs(rounded) < 1 / step;
+  const good = goodWhen === "down" ? rounded < 0 : rounded > 0;
+  const cls = flat ? "" : good ? "up" : "down";
+  const arrow = flat ? "→" : rounded > 0 ? "▲" : "▼";
+  return el("span", { class: `delta-chip ${cls}`.trim() }, `${arrow} ${rounded > 0 ? "+" : ""}${rounded}${unit}`);
+}
+
+// label · hero number · delta chip · sparkline (the four parts a KPI card needs).
+function statCard(k, text, hint, cls = "", count = null, { spark = null, delta = null, info = "" } = {}) {
   const v = el("div", { class: "v" }, text);
   if (count && Number.isFinite(count.value)) countUp(v, count);
-  return el("div", { class: `card ${cls}` }, el("div", { class: "k" }, k), v, hint ? el("div", { class: "h" }, hint) : null);
+  const chart = spark ? sparkline(spark) : null;
+  return el("div", { class: `card ${cls}`.trim() },
+    el("div", { class: "k" }, el("span", {}, k),
+      info ? el("span", { class: "hint-dot", title: info, onmouseenter: (e) => showTip([el("b", {}, k), el("span", {}, info)], e.clientX, e.clientY), onmouseleave: hideTip }, "i") : null),
+    el("div", { class: "row" }, v, delta),
+    hint ? el("div", { class: "h" }, hint) : null,
+    chart ? el("div", { class: "spark" }, chart) : null);
 }
 // Cards rise in one after another; the delay comes from --i so the order is explicit in the DOM.
 const cardGrid = (...cards) => el("div", { class: "cards" },
@@ -247,6 +290,97 @@ function momentumPanel(records) {
     rowFor("Score", m.score.recent, m.score.previous, m.delta.score, fmtPct),
     rowFor("Rating", m.rating.recent, m.rating.previous, m.delta.rating, fmtRating),
     enough ? el("div", { class: "mom-legend" }, el("span", {}, "◼ previous"), el("span", {}, "◼ recent")) : null);
+}
+
+// Results as a donut: composition at a glance, counts and shares spelled out beside it.
+function donutPanel(records) {
+  const s = summarizeProgress(records);
+  const total = s.wins + s.draws + s.losses;
+  if (!total) return null;
+  const R = 62, C = 2 * Math.PI * R;
+  const parts = [["Wins", s.wins, "var(--accent)"], ["Draws", s.draws, "var(--draw)"], ["Losses", s.losses, "var(--loss)"]];
+  const box = svg("svg", { viewBox: "0 0 148 148", width: 148, height: 148, role: "img", "aria-label": "Results split" });
+  box.append(svg("circle", { class: "track", cx: 74, cy: 74, r: R }));
+  let offset = 0, slice = 0;
+  for (const [label, n, colour] of parts) {
+    if (!n) continue;
+    const len = (n / total) * C;
+    box.append(svg("circle", {
+      class: "seg", cx: 74, cy: 74, r: R, stroke: colour,
+      "stroke-dasharray": `${len.toFixed(2)} ${(C - len).toFixed(2)}`,
+      "stroke-dashoffset": (-offset).toFixed(2),
+      style: { "--from": (-offset - len).toFixed(2), "--i": String(slice++) },
+    }));
+    offset += len;
+  }
+  const legend = el("div", { class: "legend" }, ...parts.map(([label, n, colour]) => el("div", {
+    class: "legend-row" },
+    el("span", { class: "swatch", style: { background: colour } }),
+    el("span", { class: "lbl" }, label),
+    el("span", { class: "n" }, String(n)),
+    el("span", { class: "pct" }, `${total ? Math.round((n / total) * 100) : 0}%`))));
+  return el("div", { class: "donut-wrap" },
+    el("div", { class: "donut" }, box,
+      el("div", { class: "centre" }, el("b", {}, String(total)), el("span", {}, "games"))),
+    legend);
+}
+
+// Move quality as shares (chess.com Insights style): the proportion first, the raw count second.
+function qualityPanel(profile) {
+  if (!profile || !profile.moves) return el("p", { class: "sub" }, "New analyses record this automatically; games saved before it are skipped.");
+  const rows = profile.rows.filter((r) => r.me > 0);
+  if (!rows.length) return el("p", { class: "sub" }, "No classified moves in this window.");
+  const maxShare = Math.max(...rows.map((r) => r.share || 0), 1);
+  const dist = el("div", { class: "dist" }, ...rows.map((r, i) => el("span", {
+    class: "dist-seg",
+    style: { width: `${r.share}%`, background: `var(--dq-${r.key})`, animationDelay: `${i * 40}ms` },
+    onmousemove: (e) => showTip([el("b", {}, r.label), el("span", {}, `${r.share}% of your moves · ${r.me} total`)], e.clientX, e.clientY),
+    onmouseleave: hideTip,
+  })));
+  const list = el("div", { class: "quality" }, ...rows.map((r, i) => el("div", {
+    class: "q-row", style: { "--i": String(i), "--c": `var(--dq-${r.key})` } },
+    el("span", { class: "q-name" }, r.label),
+    el("div", { class: "q-bar" }, el("i", { style: { width: `${Math.round(((r.share || 0) / maxShare) * 100)}%` } })),
+    el("span", { class: "q-pct" }, `${r.share}%`),
+    el("span", { class: "q-n" }, String(r.me)))));
+  return el("div", {}, dist, list);
+}
+
+// One framed report section: eyebrow, title, hairline rule, then the panels inside it.
+function sectionFrame({ id, eyebrow, title, node }) {
+  const kids = (Array.isArray(node) ? node : [node]).filter(Boolean);
+  return el("section", { class: "sec", id },
+    el("div", { class: "sec-head" }, el("span", { class: "eyebrow" }, eyebrow), el("h2", {}, title), el("span", { class: "rule" })),
+    ...kids);
+}
+
+// The right-hand rail: jump links, with the section you are reading highlighted as you scroll.
+let jumpObserver = null;
+function renderJump(sections) {
+  const rail = document.getElementById("jump");
+  if (!rail) return;
+  if (!sections.length) { rail.hidden = true; rail.replaceChildren(); return; }   // Data tab has no sections
+  rail.hidden = false;
+  rail.replaceChildren(el("div", { class: "jump-label" }, "On this page"),
+    ...sections.map((s) => el("a", { href: `#${s.id}`, "data-for": s.id }, s.title)));
+  if (jumpObserver) { jumpObserver.disconnect(); jumpObserver = null; }
+  try {
+    jumpObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const link = rail.querySelector(`a[data-for="${entry.target.id}"]`);
+        for (const other of rail.querySelectorAll("a")) other.classList.toggle("on", other === link);
+      }
+    }, { rootMargin: "-140px 0px -55% 0px" });
+    for (const s of sections) { const node = document.getElementById(s.id); if (node) jumpObserver.observe(node); }
+  } catch { /* no IntersectionObserver: the links still work */ }
+}
+
+// Shown while the library is being read, so the page never flashes empty.
+function skeleton() {
+  return el("div", { class: "skeleton" },
+    el("div", { class: "cards" }, ...Array.from({ length: 6 }, () => el("div", { class: "sk-card" }))),
+    el("div", { class: "sk-row" }), el("div", { class: "sk-row" }));
 }
 
 // How many games land in each accuracy band.
@@ -303,57 +437,81 @@ function decisionPanel(records) {
     ...rows);
 }
 
+// The Progress tab, assembled as framed sections (the jump rail is built from them).
 function renderProgress(records) {
   const points = progressPoints(records);
   const s = summarizeProgress(records);
-  const range = s.first && s.last ? `${fmtDate(s.first)} – ${fmtDate(s.last)}` : "";
   const profile = decisionProfile(records);
   const sd = stability(records);
   const grades = gradeSeries(records);
-  const gradeAvg = grades.map((g) => g.value).filter((v) => v != null);
+  const gradeValues = grades.map((g) => g.value).filter((v) => v != null);
   const score = scoreTrend(records, 10);
+  const m = momentum(records, 5);
+  const range = s.first && s.last ? `${fmtDate(s.first)} – ${fmtDate(s.last)}` : "";
   const gradeFormat = (v) => (v == null ? "—" : v.toFixed(1));
+  const errorRate = profile?.errorRate ?? null;
 
   const cards = cardGrid(
-    statCard("Games", String(s.games), range, "", { value: s.games, format: (n) => String(Math.round(n)) }),
+    statCard("Games", String(s.games), range, "", { value: s.games, format: (n) => String(Math.round(n)) },
+      { info: "Games in the window that this page is tracking." }),
     statCard("Score", fmtPct(s.score), `${s.wins}W · ${s.draws}D · ${s.losses}L`,
-      s.score != null && s.score >= 55 ? "good" : "", { value: s.score, format: (n) => `${Math.round(n)}%` }),
+      s.score != null && s.score >= 55 ? "good" : "", { value: s.score, format: (n) => `${Math.round(n)}%` },
+      { delta: deltaChip(m.delta.score, { unit: "%" }), spark: score.map((p) => (p.value == null ? null : p.value * 100)), info: "Tournament score: a win is 1, a draw ½, a loss 0." }),
     statCard("Win rate", fmtPct(s.winRate), "draws excluded", "", { value: s.winRate, format: (n) => `${Math.round(n)}%` }),
-    statCard("Avg accuracy", fmtAcc(s.accuracy), s.accuracy != null && s.accuracy >= 80 ? "strong start" : "per game",
-      s.accuracy != null && s.accuracy >= 80 ? "good" : "", { value: s.accuracy, format: (n) => n.toFixed(1) }),
-    statCard("Avg rating", fmtRating(s.rating), "your estimated rating", "", { value: s.rating, format: (n) => String(Math.round(n)) }),
+    statCard("Avg accuracy", fmtAcc(s.accuracy), "per game", s.accuracy != null && s.accuracy >= 80 ? "good" : "",
+      { value: s.accuracy, format: (n) => n.toFixed(1) },
+      { delta: deltaChip(m.delta.accuracy), spark: points.map((p) => p.accuracy), info: "Average of each game's accuracy in this window." }),
+    statCard("Avg rating", fmtRating(s.rating), "your estimated rating", "", { value: s.rating, format: (n) => String(Math.round(n)) },
+      { delta: deltaChip(m.delta.rating), spark: points.map((p) => p.rating), info: "The rating the review estimates you played at." }),
     // Lower is better for both of these, so "good" means low.
-    statCard("Error rate", profile?.errorRate == null ? "—" : `${profile.errorRate}%`, "inaccuracy or worse",
-      profile?.errorRate == null ? "" : profile.errorRate <= 15 ? "good" : profile.errorRate >= 30 ? "bad" : "",
-      profile?.errorRate == null ? null : { value: profile.errorRate, format: (n) => `${n.toFixed(1)}%` }),
-    statCard("Consistency", sd.sd == null ? "—" : `±${sd.sd.toFixed(1)}`, "spread of accuracy", sd.sd != null && sd.sd <= 10 ? "good" : ""),
-    statCard("Avg grade", gradeAvg.length ? gradeFormat(meanOf(gradeAvg)) : "—", "0-10 per move", "", gradeAvg.length ? { value: meanOf(gradeAvg), format: gradeFormat } : null),
+    statCard("Error rate", errorRate == null ? "—" : `${errorRate}%`, "inaccuracy or worse",
+      errorRate == null ? "" : errorRate <= 15 ? "good" : errorRate >= 30 ? "bad" : "",
+      errorRate == null ? null : { value: errorRate, format: (n) => `${n.toFixed(1)}%` },
+      { info: "Share of your classified moves that were an inaccuracy, mistake, miss or blunder." }),
+    statCard("Consistency", sd.sd == null ? "—" : `±${sd.sd.toFixed(1)}`, "spread of accuracy",
+      sd.sd != null && sd.sd <= 10 ? "good" : "", null,
+      { info: "One standard deviation of your per-game accuracy. Lower is steadier." }),
+    statCard("Avg grade", gradeValues.length ? gradeFormat(meanOf(gradeValues)) : "—", "0-10 per move", "",
+      gradeValues.length ? { value: meanOf(gradeValues), format: gradeFormat } : null, { spark: grades.map((g) => g.value) }),
     statCard("Brilliants", String(s.brilliants), "across all games", "", { value: s.brilliants, format: (n) => String(Math.round(n)) }),
   );
-  return el("div", {},
-    cards,
-    momentumPanel(records),
-    el("div", { class: "panel" }, el("h3", {}, "Accuracy over time"), el("p", { class: "sub" }, "Each game's accuracy, with a 5-game moving average. Hover a point; click it to open the game."),
+
+  const trend = (title, sub, chart) => el("div", { class: "panel" }, el("h3", {}, title), el("p", { class: "sub" }, sub), chart);
+  const sections = [];
+  const add = (id, eyebrow, title, node) => { if (node) sections.push(sectionFrame({ id, eyebrow, title, node })); };
+
+  add("sec-overview", "Overview", "How you are playing", cards);
+  add("sec-form", "Momentum", "Recent form", momentumPanel(records));
+  add("sec-results", "Results", "How your games end", donutPanel(records));
+  add("sec-trends", "Trends", "Accuracy, rating and score", [
+    trend("Accuracy over time", "Each game's accuracy with a 5-game moving average. Hover a point; click it to open the game.",
       lineChart(accuracySeries(points), { domain: [0, 100], label: "Accuracy trend", points, format: (v) => v.toFixed(1), hint: "%" })),
-    el("div", { class: "panel" }, el("h3", {}, "Rating estimate over time"), el("p", { class: "sub" }, "Your estimated rating per game."),
+    trend("Rating estimate over time", "Your estimated rating per game.",
       lineChart(ratingSeries(points), { label: "Rating trend", points, format: (v) => String(Math.round(v)) })),
     score.some((p) => p.value != null)
-      ? el("div", { class: "panel" }, el("h3", {}, "Tournament score over time"), el("p", { class: "sub" }, "Win 1, draw ½, loss 0 - rolling over 10 games."),
+      ? trend("Tournament score over time", "Win 1, draw ½, loss 0 — rolling over 10 games.",
         lineChart(score.map((p) => (p.value == null ? null : p.value * 100)), { domain: [0, 100], label: "Score trend", points, format: (v) => `${Math.round(v)}%` }))
       : null,
-    gradeAvg.length >= 2
-      ? el("div", { class: "panel" }, el("h3", {}, "Move grade over time"), el("p", { class: "sub" }, "Your average move grade (0-10) in each game."),
+    gradeValues.length >= 2
+      ? trend("Move grade over time", "Your average move grade (0-10) in each game.",
         lineChart(grades.map((g) => g.value), { domain: [0, 10], label: "Grade trend", points, format: gradeFormat }))
       : null,
-    histogramPanel(records),
-    splitPanel("By colour", "The same numbers split by the side you played - most players have a clear weaker colour.", colourSplit(records)),
+  ]);
+  add("sec-moves", "Moves", "Move quality", el("div", { class: "panel" },
+    el("h3", {}, "Move quality"),
+    el("p", { class: "sub" }, "How your moves were classified in this window, and what you did with the board."),
+    qualityPanel(profile)));
+  add("sec-decisions", "Moves", "You and your opponents", decisionPanel(records));
+  add("sec-context", "Context", "By colour and time control", [
+    splitPanel("By colour", "The same numbers split by the side you played — most players have a clear weaker colour.", colourSplit(records)),
     typeSplit(records).length > 1
       ? splitPanel("By time control", "Where your results and accuracy actually come from.", typeSplit(records))
       : null,
-    decisionPanel(records),
-    phasePanel(records),
-    bestsPanel(records),
-  );
+  ]);
+  add("sec-dist", "Moves", "Accuracy distribution", histogramPanel(records));
+  add("sec-phases", "Moves", "Accuracy by phase", phasePanel(records));
+  add("sec-records", "Records", "Personal bests", bestsPanel(records));
+  return sections;
 }
 // Local mean for the grade card (lib/progress.js keeps its own private one).
 function meanOf(values) {
@@ -482,12 +640,14 @@ function emptyState() {
 // "every game in this library".
 function trackingStrip(showing, total) {
   if (!username) {
-    return el("p", { class: "note" }, `No username set - showing all ${total} games in the library. `
-      + "Set your username in the extension popup (Manual setup - Username) and this page will count only your games.");
+    return el("p", { class: "tracking warn" },
+      el("span", {}, `No username set — showing all ${total} games in the library.`),
+      el("span", {}, "Set your username in the extension popup (Manual setup → Username) and this page will count only your games."));
   }
   const skipped = total - showing;
-  return el("p", { class: "sub" }, `Tracking ${username} - ${showing} of ${total} games`
-    + (skipped > 0 ? `, ${skipped} from other players left out.` : "."));
+  return el("p", { class: "tracking" },
+    el("span", {}, `Tracking `, el("b", {}, username)),
+    el("span", {}, `${showing} of ${total} games${skipped > 0 ? ` · ${skipped} from other players left out` : ""}`));
 }
 
 function noGamesForPlayer() {
@@ -503,16 +663,21 @@ function noGamesInWindow() {
 function render() {
   for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-pressed", String(b.dataset.tab === activeTab));
   // The Data tab must work on an empty library too - that is where you import one.
-  if (activeTab === "data") { view.replaceChildren(renderData()); return; }
-  if (!library.length) { view.replaceChildren(emptyState()); return; }
+  if (activeTab === "data") { view.replaceChildren(renderData()); renderJump([]); return; }
+  if (!library.length) { view.replaceChildren(emptyState()); renderJump([]); return; }
   const tracked = username ? ownGames(library, username) : library;
-  const strip = trackingStrip(tracked.length, library.length);
-  if (!tracked.length) { view.replaceChildren(strip, noGamesForPlayer()); return; }
+  const toolbar = el("div", { class: "toolbar" },
+    trackingStrip(tracked.length, library.length),
+    tracked.length ? controlsRow(windowed(tracked).length) : null);
+  if (!tracked.length) { view.replaceChildren(toolbar, noGamesForPlayer()); renderJump([]); return; }
   const records = windowed(tracked);
-  view.replaceChildren(
-    strip,
-    controlsRow(records.length),
-    records.length ? (activeTab === "openings" ? renderOpenings(records) : renderProgress(records)) : noGamesInWindow());
+  const frames = records.length
+    ? (activeTab === "openings"
+      ? [sectionFrame({ id: "sec-openings", eyebrow: "Openings", title: "Your repertoire", node: renderOpenings(records) })]
+      : renderProgress(records))
+    : [];
+  view.replaceChildren(toolbar, ...(frames.length ? frames : [noGamesInWindow()]));
+  renderJump(frames.map((f) => ({ id: f.id, title: f.querySelector("h2")?.textContent || "" })));
 }
 
 for (const b of document.querySelectorAll(".tab")) {
@@ -620,6 +785,7 @@ function renderData() {
   );
 }
 
+view.replaceChildren(skeleton());          // the read below is fast, but never show an empty page
 try {
   const stored = await browserAPI.storage.local.get(["library", "username"]);
   library = Array.isArray(stored.library) ? stored.library : [];
