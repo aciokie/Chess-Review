@@ -34,6 +34,25 @@ test('switching library games updates the tab session only after a valid game op
   assert.equal((await a.call('loadJob')).pgn, payload.pgn);
 });
 
+// Progress deep-links to the move that decided a game. The review seats itself on that ply, clamps a
+// stale one, and consumes it immediately so it can never be saved with the game.
+const DEEP_PGN = '1. e4 e5 2. Nf3 Nc6 3. Bb5';
+const PLIES = 5;
+
+test('a deep link lands on the requested ply and is consumed once', async (t) => {
+  const a = app(t, { url: URL }); loadGame(a, DEEP_PGN);
+  a.call('computeDerived'); a.call('buildUI');
+  a.replace('startAnalysis', () => {});
+  await a.call('applyGame', { pgn: DEEP_PGN, meta: { gameId: 'deep', startPly: 3 }, analysis: null });
+  assert.equal(a.state.idx, 3, 'the board opens on the linked move, not the start');
+  assert.equal(a.state.meta.startPly, undefined, 'consumed: it must not be saved with the game');
+  const job = await a.call('loadJob');
+  assert.equal(job.meta.startPly, undefined, 'nor replayed from the tab session');
+  assert.equal(a.call('clampPly', 99, PLIES), PLIES, 'a stale ply is clamped to the end of the game');
+  assert.equal(a.call('clampPly', -2, PLIES), 0);
+  assert.equal(a.call('clampPly', 'nope', PLIES), 0);
+});
+
 test('corrupt or unavailable tab storage falls back to the launch handoff', async (t) => {
   const a = app(t, { url: URL }); const payload = { pgn: '1. e4' };
   a.store['job:test-game'] = payload;

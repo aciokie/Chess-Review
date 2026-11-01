@@ -9,6 +9,7 @@ import {
   movingAverage, linePath, phaseReport, personalBests, ownGames,
   sliceRange, filterGames, colourSplit, typeSplit, decisionProfile, accuracyHistogram,
   scoreTrend, momentum, stability, gradeSeries, sortRows,
+  dailyActivity, metricEvidence, opponentReport, focusAreas, gameRows, opponentKey, PHASE_LABELS,
 } from "./lib/progress.js";
 import {
   createBackup, parseBackup, mergeLibraries, replaceLibrary, backupSummary,
@@ -105,6 +106,13 @@ window.addEventListener("scroll", () => { if (Date.now() - tipShownAt > 250) hid
 const RANGES = [["All", 0], ["Last 100", 100], ["Last 50", 50], ["Last 20", 20], ["Last 10", 10]];
 const RESULTS = [["Any result", ""], ["Wins", "win"], ["Draws", "draw"], ["Losses", "loss"]];
 let rangeLast = 0, filterColour = "", filterType = "", filterResult = "", openSort = { key: "games", dir: "desc" };
+// A single day picked from the daily tracker (scopes every report), and the KPI card whose evidence
+// panel is open. Both live outside the render so a click can rebuild the page without losing them.
+let daySel = "", inspectKey = "";
+// A rival or an opening picked from its own panel scopes the page the same way a day does; the master
+// game table has its own sort, and can be expanded past its first page.
+let filterOpponent = "", filterOpening = "", filterOpeningName = "", showAllGames = false;
+let gameSort = { key: "at", dir: "desc" };
 
 function chip(label, on, onclick) {
   return el("button", { class: `chip${on ? " on" : ""}`, type: "button", "aria-pressed": String(on), onclick }, label);
@@ -117,22 +125,52 @@ function chipRow(label, options, value, set) {
 
 /** The tracked games narrowed to the chosen range and filters - the window every panel reports on. */
 function windowed(records) {
-  return filterGames(sliceRange(records, rangeLast), { colour: filterColour, type: filterType, result: filterResult });
+  return filterGames(sliceRange(records, rangeLast),
+    { colour: filterColour, type: filterType, result: filterResult, day: daySel,
+      opponent: filterOpponent, opening: filterOpening });
 }
-function controlsRow(viewCount) {
-  const types = typeSplit(library).map((t) => [t.label, t.key]);
+function controlsRow(viewCount, tracked) {
+  // Only the time classes the tracked account actually plays: another player's games must not put a
+  // chip on the toolbar (it would filter this window down to nothing).
+  const types = typeSplit(tracked).map((t) => [t.label, t.key]);
   const typeOptions = [["Any time control", ""], ...types];
-  const filtering = !!(rangeLast || filterColour || filterType || filterResult);
+  const filtering = !!(rangeLast || filterColour || filterType || filterResult || daySel
+    || filterOpponent || filterOpening);
   return el("div", { class: "controls" },
     chipRow("Games", RANGES, rangeLast, (v) => { rangeLast = v; }),
     chipRow("Colour", [["Both", ""], ["White", "w"], ["Black", "b"]], filterColour, (v) => { filterColour = v; }),
     chipRow("Result", RESULTS, filterResult, (v) => { filterResult = v; }),
     typeOptions.length > 1 ? chipRow("Format", typeOptions, filterType, (v) => { filterType = v; }) : null,
+    // A day picked in the tracker scopes the whole page; show it as a filter so it can be cleared here
+    // instead of only by clicking the tiny cell again.
+    daySel ? el("div", { class: "chip-row" },
+      el("span", { class: "chip-label" }, "Day"),
+      el("button", {
+        class: "chip on", type: "button", title: "Clear this day",
+        onclick: () => { daySel = ""; render(); },
+      }, dayLabel(daySel))) : null,
+    // A rival or opening picked from its panel is also a filter: show it here so it can be cleared
+    // without hunting for the same row again.
+    filterOpponent ? el("div", { class: "chip-row" },
+      el("span", { class: "chip-label" }, "Opponent"),
+      el("button", {
+        class: "chip on", type: "button", title: "Clear this opponent",
+        onclick: () => { filterOpponent = ""; render(); },
+      }, opponentLabel(filterOpponent))) : null,
+    filterOpening ? el("div", { class: "chip-row" },
+      el("span", { class: "chip-label" }, "Opening"),
+      el("button", {
+        class: "chip on", type: "button", title: "Clear this opening",
+        onclick: () => { filterOpening = ""; filterOpeningName = ""; render(); },
+      }, filterOpeningName || "selected")) : null,
     el("div", { class: "chip-row" },
       el("span", { class: "chip-label" }, `${viewCount} ${viewCount === 1 ? "game" : "games"}`),
       filtering ? el("button", {
         class: "chip reset", type: "button",
-        onclick: () => { rangeLast = 0; filterColour = ""; filterType = ""; filterResult = ""; render(); },
+        onclick: () => {
+          rangeLast = 0; filterColour = ""; filterType = ""; filterResult = ""; daySel = "";
+          filterOpponent = ""; filterOpening = ""; filterOpeningName = ""; render();
+        },
       }, "Reset filters") : null));
 }
 
@@ -229,25 +267,61 @@ function deltaChip(delta, { unit = "", goodWhen = "up", digits = 1 } = {}) {
   return el("span", { class: `delta-chip ${cls}`.trim() }, `${arrow} ${rounded > 0 ? "+" : ""}${rounded}${unit}`);
 }
 
-// label · hero number · delta chip · sparkline (the four parts a KPI card needs).
-function statCard(k, text, hint, cls = "", count = null, { spark = null, delta = null, info = "" } = {}) {
+// Open or close the evidence panel behind a KPI card.
+function toggleInspect(key) {
+  inspectKey = inspectKey === key ? "" : key;
+  render();
+}
+
+// label · hero number · delta chip · sparkline (the four parts a KPI card needs). A card that names a
+// metric is also a button: it opens the panel showing the games and the rule behind its number.
+function statCard(k, text, hint, cls = "", count = null, { spark = null, delta = null, info = "", metric = "" } = {}) {
   const v = el("div", { class: "v" }, text);
   if (count && Number.isFinite(count.value)) countUp(v, count);
   const chart = spark ? sparkline(spark) : null;
-  return el("div", { class: `card ${cls}`.trim() },
+  const card = el("div", { class: `card ${cls}`.trim() },
     el("div", { class: "k" }, el("span", {}, k),
-      info ? el("span", { class: "hint-dot", title: info, onmouseenter: (e) => showTip([el("b", {}, k), el("span", {}, info)], e.clientX, e.clientY), onmouseleave: hideTip }, "i") : null),
+      info ? el("span", {
+        class: "hint-dot", title: info, onclick: (e) => e.stopPropagation(),
+        onmouseenter: (e) => showTip([el("b", {}, k), el("span", {}, info)], e.clientX, e.clientY), onmouseleave: hideTip,
+      }, "i") : null),
     el("div", { class: "row" }, v, delta),
     hint ? el("div", { class: "h" }, hint) : null,
     chart ? el("div", { class: "spark" }, chart) : null);
+  if (metric) {
+    const open = inspectKey === metric;
+    card.classList.add("clickable");
+    card.classList.toggle("open", open);
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-expanded", String(open));
+    card.tabIndex = 0;
+    card.title = `How ${k} was counted`;
+    card.addEventListener("click", () => toggleInspect(metric));
+    card.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleInspect(metric); }
+    });
+  }
+  return card;
 }
 // Cards rise in one after another; the delay comes from --i so the order is explicit in the DOM.
 const cardGrid = (...cards) => el("div", { class: "cards" },
   ...cards.map((card, i) => { card.style.setProperty("--i", String(i)); return card; }));
 
-// A split panel: one row per bucket (colour, time class) with an animated score bar.
-function splitPanel(title, sub, rows) {
-  const body = rows.map((row, i) => el("div", { class: "split", style: { "--i": String(i) } },
+// A split panel: one row per bucket (colour, time class, opponent) with an animated score bar. With
+// `onclick` every row becomes a scope action, so the row that looks wrong is one click from its games.
+function splitPanel(title, sub, rows, { onclick = null } = {}) {
+  const body = rows.map((row, i) => el("div", {
+    class: `split${onclick ? " clickable" : ""}`,
+    style: { "--i": String(i) },
+    onclick: onclick ? () => onclick(row) : null,
+    // An action row is reachable without a mouse, like the clickable KPI cards.
+    role: onclick ? "button" : null,
+    tabIndex: onclick ? 0 : null,
+    onkeydown: onclick ? (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onclick(row); }
+    } : null,
+    title: onclick ? "Show only these games" : null,
+  },
     el("div", { class: "split-head" },
       el("span", { class: "split-name" }, row.label),
       el("span", { class: "split-games" }, `${row.games} ${row.games === 1 ? "game" : "games"}`)),
@@ -437,8 +511,118 @@ function decisionPanel(records) {
     ...rows);
 }
 
+/* ---------------- drill-down: the evidence behind a card ---------------- */
+const dayLabel = (key) => {
+  const [y, m, d] = String(key || "").split("-").map(Number);
+  const at = new Date(y, m - 1, d);
+  return Number.isNaN(at.getTime()) ? String(key || "")
+    : at.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+};
+
+// The panel behind a KPI card: the rule that produces the number, the statistics beside it, and the
+// games that fed it. Every row reopens its review; a row with a saved worst decision also jumps to
+// that move.
+function inspectorPanel(records) {
+  const ev = metricEvidence(records, inspectKey);
+  if (!ev) return null;
+  const stats = [];
+  const chipText = (text) => el("span", { class: "stat-chip" }, text);
+  // A pooled rate (error rate) has no meaningful mean of per-game rates, so it shows only the pooled
+  // fraction that produces the card's number. "Games" has no per-game size either (its mean is 1).
+  if (ev.pooled) stats.push(chipText(`${ev.pooled.num} errors in ${ev.pooled.den} moves`));
+  else if (ev.mean != null && ev.key !== "games") stats.push(chipText(`mean ${ev.mean}`));
+  if (ev.spread) stats.push(chipText(`sd ±${ev.sd ?? "–"}`));
+  if (ev.total != null) stats.push(chipText(`total ${ev.total}`));
+  if (ev.min != null && ev.order !== "none" && ev.max !== ev.min) stats.push(chipText(`range ${ev.minText}–${ev.maxText}`));
+  stats.push(chipText(`${ev.games} ${ev.games === 1 ? "game" : "games"}`));
+  const order = ev.order === "asc" ? " (worst first)" : ev.order === "desc" ? " (highest first)" : " (newest first)";
+  const sub = ev.games > ev.shown
+    ? `${ev.rule} Showing the ${ev.shown} most relevant of ${ev.games}${order}.`
+    : ev.rule;
+  // For score / win rate / games the value column IS the result, so a Result column would duplicate it.
+  const showResult = ev.order !== "none";
+  const rows = ev.rows.map((row) => el("tr",
+    { class: row.id ? "" : "none", onclick: row.id ? () => openGame(row.id) : null, title: row.id ? "Open this game" : "" },
+    el("td", {}, row.label || "—"),
+    showResult ? el("td", {}, row.result ? el("span", { class: `pill ${row.result === "loss" ? "low" : ""}` }, row.result) : "—") : null,
+    el("td", { class: "big" }, row.text),
+    el("td", { class: "act" }, row.id ? el("button", {
+      class: "linkbtn", type: "button",
+      title: row.ply ? "Open the review at this game's worst move" : "Open this game",
+      onclick: (e) => { e.stopPropagation(); openGame(row.id, row.ply); },
+    }, row.ply ? `move ${Math.ceil(row.ply / 2)}` : "open") : null)));
+  return el("div", { class: "panel inspect" },
+    el("div", { class: "inspect-head" },
+      el("h3", {}, `${ev.label} — how this was counted`),
+      el("button", { class: "btn ghost sm", type: "button", onclick: () => { inspectKey = ""; render(); } }, "Close")),
+    el("p", { class: "sub" }, sub),
+    el("div", { class: "inspect-stats" }, ...stats),
+    ev.rows.length
+      ? el("table", { class: "contrib" },
+        el("thead", {}, el("tr", {},
+          el("th", {}, "Game"),
+          showResult ? el("th", {}, "Result") : null,
+          el("th", {}, ev.label),
+          el("th", {}, ""))),
+        el("tbody", {}, ...rows))
+      : el("p", { class: "sub" }, "No game in this window carries this data yet."));
+}
+
+/* ---------------- daily tracker ---------------- */
+// Twelve weeks of days, sized by how many games landed on each. A cell is a button: it scopes every
+// report on the page to that day, which is the fastest way from "that was a bad Tuesday" to the games.
+function dailyPanel(records) {
+  const daily = dailyActivity(records, { days: 84 });
+  if (!daily.games) {
+    return el("div", { class: "panel" },
+      el("h3", {}, "Daily tracker"),
+      el("p", { class: "sub" }, daily.undated
+        ? `${daily.undated} saved ${daily.undated === 1 ? "game carries" : "games carry"} no date in its PGN, so ${daily.undated === 1 ? "it" : "they"} cannot be placed on a day.`
+        : "No games in the last 84 days."));
+  }
+  const level = (n) => (!n ? 0
+    : n >= Math.max(4, Math.ceil(daily.max * 0.75)) ? 4
+      : n >= Math.max(3, Math.ceil(daily.max / 2)) ? 3 : n >= 2 ? 2 : 1);
+  // Pad the first column so every column is a real week (Monday first, matching the cell order).
+  const lead = (new Date(daily.first).getDay() + 6) % 7;
+  const cells = daily.cells.map((cell) => el("button", {
+    class: `day${cell.key === daySel ? " on" : ""}`,
+    type: "button",
+    "data-level": String(level(cell.games)),
+    "aria-label": `${dayLabel(cell.key)}: ${cell.games} games`,
+    "aria-pressed": String(cell.key === daySel),
+    onclick: () => { daySel = daySel === cell.key ? "" : cell.key; rangeLast = 0; inspectKey = ""; render(); },
+    onmousemove: (e) => showTip([
+      el("b", {}, dayLabel(cell.key)),
+      el("span", {}, cell.games
+        ? `${cell.games} ${cell.games === 1 ? "game" : "games"} · ${cell.wins}W ${cell.draws}D ${cell.losses}L`
+        : "No games"),
+      cell.accuracy != null ? el("span", {}, `${cell.accuracy} avg accuracy`) : null,
+      cell.games ? el("span", {}, "Click to scope every report to this day") : null,
+    ].filter(Boolean), e.clientX, e.clientY),
+    onmouseleave: hideTip,
+  }));
+  return el("div", { class: "panel" },
+    el("h3", {}, "Daily tracker"),
+    el("p", { class: "sub" },
+      `${daily.games} ${daily.games === 1 ? "game" : "games"} on ${daily.activeDays} ${daily.activeDays === 1 ? "day" : "days"} in the last ${daily.days}`
+      + ` · current streak ${daily.streak} ${daily.streak === 1 ? "day" : "days"}`
+      + ` · best run ${daily.best} ${daily.best === 1 ? "day" : "days"}`
+      + (daily.undated ? ` · ${daily.undated} undated` : "")),
+    el("div", { class: "days" },
+      ...Array.from({ length: lead }, () => el("span", { class: "day empty", "aria-hidden": "true" })),
+      ...cells),
+    el("div", { class: "day-foot" },
+      el("span", { class: "day-legend" }, "Less",
+        ...["0", "1", "2", "3", "4"].map((n) => el("span", { class: "day", "data-level": n, "aria-hidden": "true" })),
+        "More"),
+      el("span", {}, daySel
+        ? `Scoped to ${dayLabel(daySel)} — click the day again to clear.`
+        : "Click a day to scope every report to it.")));
+}
+
 // The Progress tab, assembled as framed sections (the jump rail is built from them).
-function renderProgress(records) {
+function renderProgress(records, tracked) {
   const points = progressPoints(records);
   const s = summarizeProgress(records);
   const profile = decisionProfile(records);
@@ -450,37 +634,51 @@ function renderProgress(records) {
   const range = s.first && s.last ? `${fmtDate(s.first)} – ${fmtDate(s.last)}` : "";
   const gradeFormat = (v) => (v == null ? "—" : v.toFixed(1));
   const errorRate = profile?.errorRate ?? null;
+  // The rating card has two sources: the review's own estimate (new records) and the Elo from the game
+  // record. Say which one the number is made of instead of always calling it an estimate.
+  const ratingSub = s.ratedGames && s.estimatedGames === s.ratedGames ? "estimated by the review"
+    : s.estimatedGames ? "estimate where recorded" : "from the game record";
+  const ratingInfo = s.estimatedGames
+    ? "The rating the review estimates you played at, averaged over this window."
+    : "The Elo recorded in these games; a review saved from now on also stores its own estimate.";
 
+  // `metric` makes a card a button: it opens the panel listing the games (and rule) behind the number.
   const cards = cardGrid(
     statCard("Games", String(s.games), range, "", { value: s.games, format: (n) => String(Math.round(n)) },
-      { info: "Games in the window that this page is tracking." }),
+      { info: "Games in the window that this page is tracking.", metric: "games" }),
     statCard("Score", fmtPct(s.score), `${s.wins}W · ${s.draws}D · ${s.losses}L`,
       s.score != null && s.score >= 55 ? "good" : "", { value: s.score, format: (n) => `${Math.round(n)}%` },
-      { delta: deltaChip(m.delta.score, { unit: "%" }), spark: score.map((p) => (p.value == null ? null : p.value * 100)), info: "Tournament score: a win is 1, a draw ½, a loss 0." }),
-    statCard("Win rate", fmtPct(s.winRate), "draws excluded", "", { value: s.winRate, format: (n) => `${Math.round(n)}%` }),
+      { delta: deltaChip(m.delta.score, { unit: "%" }), spark: score.map((p) => (p.value == null ? null : p.value * 100)), info: "Tournament score: a win is 1, a draw ½, a loss 0.", metric: "score" }),
+    statCard("Win rate", fmtPct(s.winRate), "draws excluded", "", { value: s.winRate, format: (n) => `${Math.round(n)}%` }, { metric: "winRate" }),
     statCard("Avg accuracy", fmtAcc(s.accuracy), "per game", s.accuracy != null && s.accuracy >= 80 ? "good" : "",
       { value: s.accuracy, format: (n) => n.toFixed(1) },
-      { delta: deltaChip(m.delta.accuracy), spark: points.map((p) => p.accuracy), info: "Average of each game's accuracy in this window." }),
-    statCard("Avg rating", fmtRating(s.rating), "your estimated rating", "", { value: s.rating, format: (n) => String(Math.round(n)) },
-      { delta: deltaChip(m.delta.rating), spark: points.map((p) => p.rating), info: "The rating the review estimates you played at." }),
+      { delta: deltaChip(m.delta.accuracy), spark: points.map((p) => p.accuracy), info: "Average of each game's accuracy in this window.", metric: "accuracy" }),
+    statCard("Avg rating", fmtRating(s.rating), ratingSub, "", { value: s.rating, format: (n) => String(Math.round(n)) },
+      { delta: deltaChip(m.delta.rating), spark: points.map((p) => p.rating), info: ratingInfo, metric: "rating" }),
     // Lower is better for both of these, so "good" means low.
     statCard("Error rate", errorRate == null ? "—" : `${errorRate}%`, "inaccuracy or worse",
       errorRate == null ? "" : errorRate <= 15 ? "good" : errorRate >= 30 ? "bad" : "",
       errorRate == null ? null : { value: errorRate, format: (n) => `${n.toFixed(1)}%` },
-      { info: "Share of your classified moves that were an inaccuracy, mistake, miss or blunder." }),
+      { info: "Share of your classified moves that were an inaccuracy, mistake, miss or blunder.", metric: "errorRate" }),
     statCard("Consistency", sd.sd == null ? "—" : `±${sd.sd.toFixed(1)}`, "spread of accuracy",
       sd.sd != null && sd.sd <= 10 ? "good" : "", null,
-      { info: "One standard deviation of your per-game accuracy. Lower is steadier." }),
+      { info: "One standard deviation of your per-game accuracy. Lower is steadier.", metric: "consistency" }),
     statCard("Avg grade", gradeValues.length ? gradeFormat(meanOf(gradeValues)) : "—", "0-10 per move", "",
-      gradeValues.length ? { value: meanOf(gradeValues), format: gradeFormat } : null, { spark: grades.map((g) => g.value) }),
-    statCard("Brilliants", String(s.brilliants), "across all games", "", { value: s.brilliants, format: (n) => String(Math.round(n)) }),
+      gradeValues.length ? { value: meanOf(gradeValues), format: gradeFormat } : null, { spark: grades.map((g) => g.value), metric: "grade" }),
+    // `brilliantCount` counts both sides, so this card uses the per-side tally: "yours" is literal.
+    statCard("Brilliants", String(s.brilliants), "yours, across all games", "", { value: s.brilliants, format: (n) => String(Math.round(n)) }, { metric: "brilliants" }),
   );
 
   const trend = (title, sub, chart) => el("div", { class: "panel" }, el("h3", {}, title), el("p", { class: "sub" }, sub), chart);
   const sections = [];
   const add = (id, eyebrow, title, node) => { if (node) sections.push(sectionFrame({ id, eyebrow, title, node })); };
 
-  add("sec-overview", "Overview", "How you are playing", cards);
+  add("sec-overview", "Overview", "How you are playing", [cards, inspectorPanel(records)]);
+  add("sec-focus", "Coaching", "What to work on", focusPanel(records));
+  // The tracker always lists every filtered game (not just the current day), so picking another day
+  // is always possible - it is the report window that narrows, not the calendar.
+  add("sec-daily", "Rhythm", "Daily tracker",
+    dailyPanel(filterGames(tracked || records, { colour: filterColour, type: filterType, result: filterResult })));
   add("sec-form", "Momentum", "Recent form", momentumPanel(records));
   add("sec-results", "Results", "How your games end", donutPanel(records));
   add("sec-trends", "Trends", "Accuracy, rating and score", [
@@ -508,8 +706,10 @@ function renderProgress(records) {
       ? splitPanel("By time control", "Where your results and accuracy actually come from.", typeSplit(records))
       : null,
   ]);
+  add("sec-rivals", "Opponents", "Head to head", rivalsPanel(records));
   add("sec-dist", "Moves", "Accuracy distribution", histogramPanel(records));
   add("sec-phases", "Moves", "Accuracy by phase", phasePanel(records));
+  add("sec-games", "Archive", "Every game", gamesPanel(records));
   add("sec-records", "Records", "Personal bests", bestsPanel(records));
   return sections;
 }
@@ -520,8 +720,6 @@ function meanOf(values) {
 }
 
 /* ---------------- accuracy by phase ---------------- */
-const PHASE_LABELS = { opening: "Opening", middlegame: "Middlegame", endgame: "Endgame" };
-
 function phasePanel(records) {
   const { covered, phases, worst } = phaseReport(records);
   const rows = phases.map((p) => el("div", { class: `phase ${p.key === worst ? "weak" : ""}` },
@@ -556,6 +754,114 @@ function bestsPanel(records) {
       el("tbody", {}, ...rows)));
 }
 
+/* ---------------- coaching: what to work on ---------------- */
+const targetLabel = (target) => {
+  if (target.kind === "game") return target.ply ? `move ${Math.ceil(target.ply / 2)}` : "open game";
+  if (target.kind === "colour") return `see ${target.label || "these"} games`;
+  if (target.kind === "opponent") return `see games vs ${target.label}`;
+  return "see these games";
+};
+
+// The window's few concrete leaks. Each one is a row with a destination: a review at the decisive move
+// when the finding is a single game, or the whole page narrowed to the colour / rival / opening it is
+// about. The ranking and thresholds live in focusAreas so they can be tested without a DOM.
+function focusPanel(records) {
+  const areas = focusAreas(records).slice(0, 4);
+  if (!areas.length) {
+    return el("div", { class: "panel" },
+      el("h3", {}, "What to work on"),
+      el("p", { class: "sub" }, "No clear leak in this window: no phase four accuracy points behind the others, "
+        + "no colour more than eight score points down, no opening scoring under 45%, and no rival you score "
+        + "under 40% against. Play a few more games and this list fills itself in."));
+  }
+  const rows = areas.map((area, i) => el("div", { class: "focus-row", style: { "--i": String(i) } },
+    el("span", { class: "focus-title" }, area.title),
+    el("span", { class: "focus-detail" }, area.detail),
+    area.target ? el("button", {
+      class: "linkbtn focus-go", type: "button",
+      title: area.target.kind === "game" ? "Open this game" : "Show only these games",
+      onclick: () => applyTarget(area.target),
+    }, targetLabel(area.target)) : null));
+  return el("div", { class: "panel" },
+    el("h3", {}, "What to work on"),
+    el("p", { class: "sub" }, "The sharpest edges in this window, ranked by how far below your own baseline they sit. "
+      + "Every line goes somewhere: the games behind it, or a review at the move that decided it."),
+    el("div", { class: "focus-list" }, ...rows));
+}
+
+/* ---------------- head to head ---------------- */
+function rivalsPanel(records) {
+  const { rows, unnamed } = opponentReport(records);
+  if (!rows.length) {
+    return el("div", { class: "panel" },
+      el("h3", {}, "Head to head"),
+      el("p", { class: "sub" }, "None of these games names an opponent, so there is nobody to group them by."));
+  }
+  const nemesis = rows.filter((r) => r.games >= 3 && r.score != null)
+    .reduce((worst, row) => (!worst || row.score < worst.score ? row : worst), null);
+  const panel = splitPanel("Head to head",
+    "Most played first. Click a row to scope every report to that opponent."
+    + (unnamed ? ` ${unnamed} ${unnamed === 1 ? "game has" : "games have"} no opponent name and ${unnamed === 1 ? "is" : "are"} left out.` : ""),
+    rows.slice(0, 8), { onclick: (row) => scopeTo({ opponent: row.key }) });
+  if (nemesis) {
+    panel.append(el("p", { class: "note" },
+      `Toughest regular: ${nemesis.name} - ${nemesis.wins}W ${nemesis.draws}D ${nemesis.losses}L in ${nemesis.games} games (${fmtPct(nemesis.score)} score).`));
+  }
+  return panel;
+}
+
+/* ---------------- every game ---------------- */
+const GAME_COLS = [
+  ["Date", "at"], ["Opponent", "opponent"], ["Colour", "colourLabel"], ["Result", "result"],
+  ["Acc", "accuracy"], ["Grade", "grade"], ["Errors", "errors"], ["Moves", "moves"],
+];
+
+// The window as a sortable table. A row reopens its review; the button in the last column lands on the
+// ply of that game's costliest decision, which is the fastest way from "that game was bad" to "this is
+// where it went".
+function gamesPanel(records) {
+  const all = sortRows(gameRows(records), gameSort.key, gameSort.dir);
+  const rows = showAllGames ? all : all.slice(0, 60);
+  const th = (label, key) => {
+    const active = gameSort.key === key;
+    return el("th", {
+      class: `sortable${active ? " active" : ""}`,
+      "aria-sort": active ? (gameSort.dir === "asc" ? "ascending" : "descending") : "none",
+      title: `Sort by ${label.toLowerCase()}`,
+      onclick: () => { gameSort = { key, dir: active && gameSort.dir === "desc" ? "asc" : "desc" }; render(); },
+    }, label, el("span", { class: "caret" }, active ? (gameSort.dir === "asc" ? "▲" : "▼") : ""));
+  };
+  const body = rows.map((row) => el("tr", { onclick: () => openGame(row.id), title: "Open this game" },
+    el("td", {}, row.date || "—"),
+    el("td", {}, row.opponent || "—"),
+    el("td", {}, row.colourLabel),
+    el("td", {}, row.result ? el("span", { class: `pill ${row.result === "loss" ? "low" : ""}` }, row.result) : "—"),
+    el("td", {}, fmtAcc(row.accuracy)),
+    el("td", {}, row.grade == null ? "—" : row.grade.toFixed(1)),
+    el("td", {}, row.errors == null ? "—" : String(row.errors)),
+    el("td", {}, row.moves == null ? "—" : String(row.moves)),
+    el("td", { class: "act" }, el("button", {
+      class: "linkbtn", type: "button",
+      title: row.ply ? "Open the review at this game's worst move" : "Open this game",
+      onclick: (e) => { e.stopPropagation(); openGame(row.id, row.ply); },
+    }, row.ply ? `move ${Math.ceil(row.ply / 2)}` : "open"))));
+  return el("div", { class: "panel" },
+    el("h3", {}, "Every game"),
+    el("p", { class: "sub" }, `All ${all.length} ${all.length === 1 ? "game" : "games"} in this window, one row each. `
+      + "Click a row to reopen the review, or the button to land on that game's costliest move."),
+    el("table", { class: "games" },
+      el("thead", {}, el("tr", {}, ...GAME_COLS.map(([label, key]) => th(label, key)), el("th", {}, ""))),
+      el("tbody", {}, ...body)),
+    all.length > 60
+      ? el("div", { class: "actions" },
+        el("button", {
+          class: "btn ghost sm", type: "button",
+          onclick: () => { showAllGames = !showAllGames; render(); },
+        }, showAllGames ? "Show the newest 60" : `Show all ${all.length} games`),
+        el("span", { class: "note" }, `showing ${rows.length} of ${all.length}`))
+      : null);
+}
+
 /* ---------------- openings tab ---------------- */
 function renderOpenings(records) {
   const report = openingReport(records);
@@ -576,32 +882,45 @@ function renderOpenings(records) {
   };
 
   const ordered = sortRows(report, openSort.key, openSort.dir);
-  const rows = ordered.map((g) => el("tr", { class: weakKeys.has(g.key) ? "warn-row" : "", onclick: () => g.lastId && openGame(g.lastId), title: "Open your most recent game in this opening" },
+  // A row scopes the whole report to that opening (the chip in the toolbar clears it); the button in
+  // the last column goes straight to your latest game in it.
+  const rows = ordered.map((g) => el("tr", { class: weakKeys.has(g.key) ? "warn-row" : "",
+    onclick: () => scopeTo({ opening: g.key, label: g.name }),
+    title: "Show only your games in this opening" },
     el("td", {}, el("span", { class: "op-name" }, g.name), g.eco ? el("span", { class: "op-eco" }, g.eco) : null),
     el("td", {}, String(g.games)),
     el("td", {}, g.score == null ? "—" : el("span", { class: `pill ${g.score <= 45 ? "low" : ""}` }, fmtPct(g.score))),
     el("td", {}, g.wins + "–" + g.draws + "–" + g.losses),
     el("td", {}, fmtAcc(g.accuracy)),
     el("td", {}, fmtRating(g.opponentRating)),
+    el("td", { class: "act" }, g.lastId ? el("button", {
+      class: "linkbtn", type: "button", title: "Open your most recent game in this opening",
+      onclick: (e) => { e.stopPropagation(); openGame(g.lastId); },
+    }, "review") : null),
   ));
 
   const table = el("table", { class: "openings" },
-    el("thead", {}, el("tr", {}, th("Opening", "name"), th("Games", "games"), th("Score", "score"), th("W–D–L", "wins"), th("Avg acc", "accuracy"), th("Opp rating", "opponentRating"))),
+    el("thead", {}, el("tr", {}, th("Opening", "name"), th("Games", "games"), th("Score", "score"), th("W–D–L", "wins"), th("Avg acc", "accuracy"), th("Opp rating", "opponentRating"), el("th", {}, ""))),
     el("tbody", {}, ...rows));
 
-  const weakRow = (g) => el("tr", { class: "warn-row", onclick: () => g.lastId && openGame(g.lastId) },
+  const weakRow = (g) => el("tr", { class: "warn-row",
+    onclick: () => scopeTo({ opening: g.key, label: g.name }), title: "Show only your games in this opening" },
     el("td", {}, el("span", { class: "op-name" }, g.name), g.eco ? el("span", { class: "op-eco" }, g.eco) : null),
     el("td", {}, String(g.games) + " games"),
-    el("td", {}, el("span", { class: "pill low" }, fmtPct(g.score))));
+    el("td", {}, el("span", { class: "pill low" }, fmtPct(g.score))),
+    el("td", { class: "act" }, g.lastId ? el("button", {
+      class: "linkbtn", type: "button", title: "Open your most recent game in this opening",
+      onclick: (e) => { e.stopPropagation(); openGame(g.lastId); },
+    }, "review") : null));
 
   const weakPanel = el("div", { class: "panel" },
     el("h3", {}, "Openings to look at"),
-    el("p", { class: "sub" }, "Played at least 5 times and scoring 45% or less. Click a row to review your latest game in it."),
+    el("p", { class: "sub" }, "Played at least 5 times and scoring 45% or less. Click a row to scope the report to it."),
     el("table", {}, el("tbody", {}, ...weak.map(weakRow))));
 
   const allPanel = el("div", { class: "panel" },
     el("h3", {}, "All openings"),
-    el("p", { class: "sub" }, `${report.length} openings from ${records.length} analyzed games. Click a row to review your latest game in it.`),
+    el("p", { class: "sub" }, `${report.length} openings from ${records.length} analyzed games. Click a row to scope the report to that opening.`),
     table);
 
   return el("div", {}, weak.length ? weakPanel : null, allPanel);
@@ -623,11 +942,53 @@ const view = document.getElementById("view");
 const recordById = () => new Map(library.map((r) => [r.id, r]));
 // Reopen a saved game in the analyzer, reproducing the exact perspective it was saved with (stored
 // flip hint first, else the saved side) - the same rule as openLibraryGame in analysis.js.
-function openGame(id) {
+function openGame(id, ply = null) {
   const rec = recordById().get(id);
   if (!rec || !rec.pgn) return;
   const flip = (rec.meta && rec.meta.flip != null) ? rec.meta.flip : (rec.meSide === "b");
-  openAnalysisTab({ pgn: rec.pgn, meta: { ...(rec.meta || {}), flip }, source: "library" });
+  const meta = { ...(rec.meta || {}), flip };
+  // A move-level link lands the review on that position instead of the starting one. The review
+  // treats it as one-shot, so it never gets written back into the saved game.
+  if (ply != null) meta.startPly = ply;
+  openAnalysisTab({ pgn: rec.pgn, meta, source: "library" });
+}
+
+// The name as the library last spelled it, for the toolbar chip of an active opponent filter.
+function opponentLabel(key) {
+  for (const rec of library) if (opponentKey(rec) === key) return String(rec.opName).trim();
+  return "selected";
+}
+
+/**
+ * Narrow the whole page to one slice of the window - a colour, a rival, an opening - then go back to
+ * the top so the cards show the new numbers instead of leaving the reader on a panel that no longer
+ * describes what is above it.
+ */
+function scopeTo(patch) {
+  if ("colour" in patch) filterColour = patch.colour || "";
+  if ("opponent" in patch) filterOpponent = patch.opponent || "";
+  if ("opening" in patch) {
+    filterOpening = patch.opening || "";
+    filterOpeningName = patch.opening ? patch.label || "" : "";
+  }
+  if ("day" in patch) daySel = patch.day || "";
+  inspectKey = "";
+  activeTab = "progress";
+  render();
+  const top = document.getElementById("sec-overview");
+  // jsdom (and old browsers) have no scrollIntoView: the scope still applied, the page just stays put.
+  if (top && typeof top.scrollIntoView === "function") {
+    top.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" });
+  }
+}
+
+// Where a finding or a row sends the reader: a review at a move, or the whole page scoped to a slice.
+function applyTarget(target) {
+  if (!target) return;
+  if (target.kind === "game") { openGame(target.id, target.ply ?? null); return; }
+  if (target.kind === "colour") { scopeTo({ colour: target.value }); return; }
+  if (target.kind === "opponent") { scopeTo({ opponent: target.value }); return; }
+  if (target.kind === "opening") { scopeTo({ opening: target.value, label: target.label }); return; }
 }
 
 function emptyState() {
@@ -647,7 +1008,9 @@ function trackingStrip(showing, total) {
   const skipped = total - showing;
   return el("p", { class: "tracking" },
     el("span", {}, `Tracking `, el("b", {}, username)),
-    el("span", {}, `${showing} of ${total} games${skipped > 0 ? ` · ${skipped} from other players left out` : ""}`));
+    // "left out" rather than "from other players": a game saved without player names (the Live board)
+    // cannot be proven to be someone else's, it just does not match the handle.
+    el("span", {}, `${showing} of ${total} games${skipped > 0 ? ` · ${skipped} not matched to this handle` : ""}`));
 }
 
 function noGamesForPlayer() {
@@ -668,13 +1031,13 @@ function render() {
   const tracked = username ? ownGames(library, username) : library;
   const toolbar = el("div", { class: "toolbar" },
     trackingStrip(tracked.length, library.length),
-    tracked.length ? controlsRow(windowed(tracked).length) : null);
+    tracked.length ? controlsRow(windowed(tracked).length, tracked) : null);
   if (!tracked.length) { view.replaceChildren(toolbar, noGamesForPlayer()); renderJump([]); return; }
   const records = windowed(tracked);
   const frames = records.length
     ? (activeTab === "openings"
       ? [sectionFrame({ id: "sec-openings", eyebrow: "Openings", title: "Your repertoire", node: renderOpenings(records) })]
-      : renderProgress(records))
+      : renderProgress(records, tracked))
     : [];
   view.replaceChildren(toolbar, ...(frames.length ? frames : [noGamesInWindow()]));
   renderJump(frames.map((f) => ({ id: f.id, title: f.querySelector("h2")?.textContent || "" })));

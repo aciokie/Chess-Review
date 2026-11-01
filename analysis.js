@@ -6923,6 +6923,16 @@ function saveToLibrary() {
       }
       return n ? Math.round((sum / n) * 10) / 10 : null;
     };
+    // The costliest decision of a side (most severe category first, earliest within one), so the
+    // Progress page can deep-link straight to the move that decided the game.
+    const worstFor = (side) => {
+      for (const cat of ["blunder", "miss", "mistake", "inacc"]) {
+        for (let i = 1; i <= S.total; i++) {
+          if (S.positions[i]?.color === side && S.classif?.[i] === cat) return { ply: i, cat };
+        }
+      }
+      return null;
+    };
     const rec = {
       id, savedAt: Date.now(), pgn: S.pgn, meta: S.meta || {},
       meSide: S.meSide,
@@ -6930,6 +6940,9 @@ function saveToLibrary() {
       myAcc: S.acc[S.meSide], opAcc: S.acc[opSide],
       myRating: parseInt(S.players[S.meSide].rating, 10) || null,
       opRating: parseInt(S.players[opSide].rating, 10) || null,
+      // The rating this review estimates for each side (the "≈ N elo" on the board), so Progress
+      // reports the review's number instead of only the PGN's platform rating.
+      myEstimate: ratingEstimate(S.meSide), opEstimate: ratingEstimate(opSide),
       result: myResult(), type: gameType(),
       eco: S.opening ? S.opening.eco : "", opening: S.opening ? S.opening.name : "",
       date: S.headers.UTCDate || S.headers.Date || "",
@@ -6947,6 +6960,9 @@ function saveToLibrary() {
       opCounts: S.counts?.[opSide] || null,
       myGrade: gradeFor(S.meSide),
       opGrade: gradeFor(opSide),
+      // The ply of each side's worst decision (null for a clean game), for "jump to the move" links.
+      myWorst: worstFor(S.meSide),
+      opWorst: worstFor(opSide),
     };
     const writes = { [analysisCacheKey(id)]: {
       pgn: S.pgn, settingsKey: analysisSettingsKey(), engineBuild: S.activeEngineBuild,
@@ -7460,6 +7476,14 @@ function renderAll() {
   renderEngineCurrent();
 }
 
+// A deep link (Progress → "open at the move") names the ply to land on. Clamp it: a stale link can
+// outlive the game its review is based on. One-shot - the ply is stripped from meta in applyGame,
+// because meta is saved with the game and every later reopen would otherwise jump again.
+function clampPly(value, total) {
+  const ply = Number(value);
+  if (!Number.isFinite(ply) || ply <= 0) return 0;
+  return Math.max(0, Math.min(Number(total) || 0, Math.floor(ply)));
+}
 /* ---------------- Load / switch a game ----------------
    Loads a game's data into the already-built UI and renders it. Used both for the first load
    and for switching to another library game in place — no page reload, so there's no black flash
@@ -7508,7 +7532,9 @@ async function applyGame(payload) {
   S.players = players;
   const flip = S.meta && S.meta.flip;
   const side = flip === true ? "b" : flip === false ? "w" : meSide;
-  S.meSide = side; S.playerKnown = playerKnown; S.flipped = side === "b"; S.idx = 0;
+  S.meSide = side; S.playerKnown = playerKnown; S.flipped = side === "b";
+  S.idx = clampPly(S.meta.startPly, S.total);
+  if (S.meta.startPly != null) { S.meta = { ...S.meta }; delete S.meta.startPly; }
 
   if (isLiveBoard()) {
     // Live board: the game is played move by move onto the mainline, so the ordinary review panels

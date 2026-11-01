@@ -136,4 +136,19 @@ test('7: the saved record carries the game length and per-phase accuracy', async
   // Per-phase accuracy is stored as an object of the three phases (or null when it couldn't be
   // computed); the Progress page reads exactly this shape.
   assert.ok(rec.myPhases === null || ["opening", "middlegame", "endgame"].every((k) => k in rec.myPhases));
+  // The rating the review estimates for each side (the board's "≈ N elo") is stored too, so Progress
+  // reports this review's number instead of only the PGN's platform rating.
+  assert.equal(rec.myEstimate, a.call('ratingEstimate', a.state.meSide));
+  assert.equal(rec.opEstimate, a.call('ratingEstimate', a.state.meSide === 'w' ? 'b' : 'w'));
+});
+
+test('8: the saved record carries each side worst decision for deep links', async t => {
+  const { tabs: [a], store } = sharedTabs(t);
+  a.state.meta = { gameId: 'worst' };
+  // meSide defaults to White here; ply 1 is White's move, ply 2 Black's.
+  a.state.classif = [null, 'blunder', 'mistake'];
+  await a.call('saveToLibrary');
+  const rec = store.library.find((g) => g.id === 'worst');
+  assert.deepEqual(rec.myWorst, { ply: 1, cat: 'blunder' });
+  assert.deepEqual(rec.opWorst, { ply: 2, cat: 'mistake' });
 });

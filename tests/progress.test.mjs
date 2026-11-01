@@ -7,6 +7,8 @@ import {
   phaseReport, personalBests, playerSide, ownGames,
   sliceRange, filterGames, colourSplit, typeSplit, decisionProfile, accuracyHistogram,
   scoreTrend, momentum, stability, gradeSeries, sortRows, ERROR_KEYS,
+  playedAt, orderTime, myBrilliantCount, dayKey, dailyActivity, metricEvidence,
+  opponentReport, opponentKey, focusAreas, gameRows,
 } from "../lib/progress.js";
 
 // Minimal library-record factory; only the fields progress.js reads.
@@ -28,17 +30,77 @@ test("sortChronological orders oldest to newest", () => {
 });
 
 test("progressPoints normalizes fields and tolerates null accuracy/rating", () => {
-  const [p] = progressPoints([rec({ id: "a", savedAt: 5, myAcc: 82.4, myRating: null, result: "win", type: "Blitz", brilliantCount: 2, date: "2026.01.02" })]);
+  const [p] = progressPoints([rec({ id: "a", savedAt: 5, myAcc: 82.4, myRating: null, result: "win", type: "Blitz", myCounts: { brilliant: 2 }, date: "2026.01.02" })]);
   assert.equal(p.accuracy, 82.4);
   assert.equal(p.rating, null);
   assert.equal(p.result, "win");
   assert.equal(p.brilliants, 2);
+  assert.equal(p.at, new Date(2026, 0, 2).getTime(), "a point is dated by the day it was played");
+});
+
+test("progressPoints reports the review's rating estimate, falling back to the game's Elo", () => {
+  const [old, fresh] = progressPoints([
+    rec({ id: "old", savedAt: 1, date: "2026.01.01", myRating: 1400 }),
+    rec({ id: "new", savedAt: 2, date: "2026.01.02", myRating: 1500, myEstimate: 1750 }),
+  ]);
+  assert.equal(old.rating, 1400, "no estimate stored: the PGN's rating is all there is");
+  assert.equal(old.ratingEstimated, false);
+  assert.equal(fresh.rating, 1750, "the review's own estimate wins over the platform rating");
+  assert.equal(fresh.ratingEstimated, true);
+});
+
+/* ---------------- ordering: games played, not games analyzed ---------------- */
+
+test("playedAt reads the PGN date and ignores unknown ones", () => {
+  assert.equal(playedAt({ date: "2026.01.02" }), new Date(2026, 0, 2).getTime());
+  assert.equal(playedAt({ date: "2026-1-2" }), new Date(2026, 0, 2).getTime());
+  assert.equal(playedAt({ date: "????.??.??" }), null);
+  assert.equal(playedAt({ date: "" }), null);
+  assert.equal(playedAt({}), null);
+  assert.equal(playedAt(null), null);
+  assert.equal(playedAt({ date: "2026.13.40" }), null, "an impossible date is not a date");
+  assert.equal(orderTime({ date: "2026.01.02", savedAt: 9 }), new Date(2026, 0, 2).getTime());
+  assert.equal(orderTime({ savedAt: 9 }), 9, "an undated game falls back to its save time");
+  assert.equal(orderTime({}), 0);
+});
+
+test("a game is ordered by when it was played, not by when it was analyzed", () => {
+  const records = [
+    rec({ id: "monday", date: "2026.01.05", savedAt: Date.UTC(2026, 0, 6) }),
+    rec({ id: "weekend", date: "2026.01.10", savedAt: Date.UTC(2026, 0, 6) }),   // analyzed FIRST, played LAST
+    rec({ id: "undated", savedAt: Date.UTC(2026, 0, 20) }),                     // no PGN date: the save time decides
+  ];
+  assert.deepEqual(sortChronological(records).map((r) => r.id), ["monday", "weekend", "undated"]);
+  assert.deepEqual(sliceRange(records, 2).map((r) => r.id), ["weekend", "undated"],
+    "\"last 2\" is the two most recent games played, so a re-analysis cannot promote an old game");
+});
+
+test("summarizeProgress dates the window by when the games were played", () => {
+  const s = summarizeProgress([
+    rec({ id: "1", date: "2026.01.01", savedAt: 5000 }),
+    rec({ id: "2", date: "2026.02.01", savedAt: 1000 }),
+  ]);
+  assert.equal(s.first, new Date(2026, 0, 1).getTime());
+  assert.equal(s.last, new Date(2026, 1, 1).getTime());
 });
 
 test("progressPoints carries the opponent so the charts can label a point", () => {
   const [p] = progressPoints([rec({ id: "a", myName: "Ann", opName: "Bob" })]);
   assert.equal(p.opponent, "Bob");
   assert.equal(progressPoints([rec({ id: "b" })])[0].opponent, "", "missing names stay empty, not undefined");
+});
+
+test("brilliants count the tracked side only, never the opponent's", () => {
+  assert.equal(myBrilliantCount({ brilliantCount: 3, myCounts: { brilliant: 1 } }), 1);
+  assert.equal(myBrilliantCount({ brilliantCount: 3, myBrilliant: true }), 1, "older records only have the flag");
+  assert.equal(myBrilliantCount({ brilliantCount: 3, myBrilliant: false }), 0);
+  assert.equal(myBrilliantCount({ brilliantCount: 3 }), 0, "no per-side data: claim nothing");
+  const s = summarizeProgress([
+    rec({ id: "1", brilliantCount: 3, myCounts: { brilliant: 1 } }),
+    rec({ id: "2", brilliantCount: 1, myBrilliant: true }),
+    rec({ id: "3", brilliantCount: 9 }),
+  ]);
+  assert.equal(s.brilliants, 2, "1 + 1 + 0, not the 13 both sides produced");
 });
 
 test("progressPoints maps an unknown result to empty", () => {
@@ -171,10 +233,10 @@ test("phaseReport tolerates junk phase values", () => {
 
 test("personalBests finds standout games and runs", () => {
   const records = [
-    rec({ id: "1", savedAt: 1, result: "win", myAcc: 70, brilliantCount: 1, opRating: 1400, plies: 60, date: "2026.01.01", opName: "A" }),
+    rec({ id: "1", savedAt: 1, result: "win", myAcc: 70, myBrilliant: true, brilliantCount: 1, opRating: 1400, plies: 60, date: "2026.01.01", opName: "A" }),
     rec({ id: "2", savedAt: 2, result: "win", myAcc: 92.4, brilliantCount: 0, opRating: 1700, plies: 40, date: "2026.01.02", opName: "B" }),
-    rec({ id: "3", savedAt: 3, result: "loss", myAcc: 88, brilliantCount: 3, opRating: 1500, plies: 80, date: "2026.01.03", opName: "C" }),
-    rec({ id: "4", savedAt: 4, result: "win", myAcc: 80, brilliantCount: 0, opRating: 1600, plies: 24, date: "2026.01.04", opName: "D" }),
+    rec({ id: "3", savedAt: 3, result: "loss", myAcc: 88, myCounts: { brilliant: 2 }, brilliantCount: 3, opRating: 1500, plies: 80, date: "2026.01.03", opName: "C" }),
+    rec({ id: "4", savedAt: 4, result: "win", myAcc: 80, brilliantCount: 9, opRating: 1600, plies: 24, date: "2026.01.04", opName: "D" }),
   ];
   const best = Object.fromEntries(personalBests(records).map((b) => [b.key, b]));
   assert.equal(best.accuracy.id, "2");
@@ -184,11 +246,11 @@ test("personalBests finds standout games and runs", () => {
   assert.equal(best.winStreak.text, "2 games");
   assert.equal(best.unbeaten.value, 2);
   assert.equal(best.brilliants.id, "3");
-  assert.equal(best.brilliants.text, "3");
+  assert.equal(best.brilliants.text, "2", "only your brilliants count, not the opponent's 9 in game 4");
   assert.equal(best.topWin.id, "2");
   assert.equal(best.topWin.text, "1700");
   assert.equal(best.fastestWin.id, "4");
-  assert.equal(best.fastestWin.text, "24 moves");
+  assert.equal(best.fastestWin.text, "12 moves", "24 plies is a 12-move win");
 });
 
 test("personalBests leaves a category empty until a game qualifies for it", () => {
@@ -226,7 +288,8 @@ test("ownGames keeps only the tracked account and drops games reviewed for other
 test("ownGames re-points a game saved from the opponent's seat", () => {
   const saved = rec({
     id: "g", myName: "Carl", opName: "Ann", meSide: "w",
-    myAcc: 61, opAcc: 88, myRating: 1200, opRating: 1900,
+    myAcc: 61, opAcc: 88, myRating: 1200, opRating: 1900, myEstimate: 1150, opEstimate: 1950,
+    myGrade: 5.2, opGrade: 8.1, myCounts: { brilliant: 0, blunder: 5 }, opCounts: { brilliant: 2, blunder: 1 },
     myPhases: { opening: 55, middlegame: null, endgame: null }, result: "loss", brilliantCount: 3,
   });
   const [mine] = ownGames([saved], "Ann");
@@ -235,6 +298,11 @@ test("ownGames re-points a game saved from the opponent's seat", () => {
   assert.equal(mine.opName, "Carl");
   assert.equal(mine.myAcc, 88, "accuracy follows the account, not the saved seat");
   assert.equal(mine.myRating, 1900);
+  assert.equal(mine.myEstimate, 1950, "the review's estimate follows the account too");
+  assert.equal(mine.myGrade, 8.1, "the grade must describe the tracked account");
+  assert.equal(mine.myCounts.blunder, 1, "decision tallies are per side, so they are re-pointed");
+  assert.equal(mine.opCounts.blunder, 5);
+  assert.equal(mine.myBrilliant, null, "the old whole-game brilliant flag cannot be split");
   assert.equal(mine.result, "win", "a loss for the saved seat is a win for the tracked account");
   assert.equal(mine.myPhases, null, "the opponent's per-phase accuracy is not stored, so it must not be claimed");
   assert.equal(mine.brilliantCount, 3, "game-wide fields are untouched");
@@ -245,6 +313,122 @@ test("a tracked account's own games pass through unchanged", () => {
   const saved = rec({ id: "g", myName: "Ann", opName: "Bob", meSide: "b", myAcc: 70, result: "win", myPhases: { opening: 80 } });
   const [mine] = ownGames([saved], "ann");
   assert.equal(mine, saved, "same object, same fields - no needless copying");
+});
+
+/* ---------------- daily tracker + the evidence behind a card ---------------- */
+
+test("dayKey names the local calendar day, or nothing without a PGN date", () => {
+  assert.equal(dayKey({ date: "2026.10.02" }), "2026-10-02");
+  assert.equal(dayKey({ date: "2026-1-2" }), "2026-01-02");
+  assert.equal(dayKey({ date: "????.??.??" }), null);
+  assert.equal(dayKey({}), null);
+});
+
+test("dailyActivity fills a continuous window and counts each day", () => {
+  const now = new Date(2026, 10, 1, 12).getTime();          // 1 Nov 2026, noon
+  const daily = dailyActivity([
+    rec({ id: "a", date: "2026.11.01" }),
+    rec({ id: "b", date: "2026.11.01", result: "win", myAcc: 80, myEstimate: 1600 }),
+    rec({ id: "c", date: "2026.10.31", result: "loss" }),
+    rec({ id: "d", date: "2026.10.30", result: "draw", myAcc: 60 }),
+    rec({ id: "undated", savedAt: 5 }),
+    rec({ id: "old", date: "2026.01.01" }),                 // before the window
+  ], { days: 7, now });
+  assert.equal(daily.cells.length, 7, "every day is a cell, even with no games");
+  assert.equal(daily.cells.at(-1).key, "2026-11-01");
+  assert.equal(daily.cells.at(-1).games, 2);
+  assert.equal(daily.cells.at(-1).wins, 1);
+  assert.equal(daily.cells.at(-1).accuracy, 80);
+  assert.equal(daily.cells.at(-1).rating, 1600);
+  assert.equal(daily.cells.at(-2).key, "2026-10-31");
+  assert.equal(daily.cells.at(-2).losses, 1);
+  assert.equal(daily.games, 4, "the undated and out-of-window games are not silently counted");
+  assert.equal(daily.undated, 1);
+  assert.equal(daily.outside, 1);
+  assert.equal(daily.activeDays, 3);
+  assert.equal(daily.max, 2);
+  assert.equal(daily.streak, 3, "three consecutive days ending today");
+  assert.equal(daily.best, 3);
+  assert.equal(daily.today, "2026-11-01");
+});
+
+test("dailyActivity does not call a run that ended last week a current streak", () => {
+  const now = new Date(2026, 10, 1, 12).getTime();
+  const daily = dailyActivity([rec({ id: "x", date: "2026.10.29" })], { days: 7, now });
+  assert.equal(daily.streak, 0);
+  assert.equal(daily.best, 1);
+  assert.equal(daily.bestEnd, "2026-10-29");
+});
+
+test("filterGames scopes to a single played day", () => {
+  const all = [rec({ id: "a", date: "2026.10.01" }), rec({ id: "b", date: "2026.10.02" }), rec({ id: "c" })];
+  assert.deepEqual(filterGames(all, { day: "2026-10-02" }).map((r) => r.id), ["b"]);
+  assert.equal(filterGames(all, { day: "" }).length, 3);
+  assert.equal(filterGames(all, { day: "2026-10-02", result: "win" }).length, 0, "combines with the other filters");
+});
+
+test("metricEvidence lists the games behind a number, highest first", () => {
+  const ev = metricEvidence([
+    rec({ id: "a", date: "2026.10.01", myAcc: 70, opName: "A", result: "loss", myWorst: { ply: 13, cat: "blunder" } }),
+    rec({ id: "b", date: "2026.10.02", myAcc: 90, opName: "B", result: "win" }),
+    rec({ id: "c", date: "2026.10.03", myAcc: null, result: "win" }),
+  ], "accuracy");
+  assert.equal(ev.games, 2, "a game with no accuracy is skipped, never treated as zero");
+  assert.equal(ev.mean, 80);
+  assert.deepEqual(ev.rows.map((r) => r.id), ["b", "a"]);
+  assert.equal(ev.rows[0].text, "90");
+  assert.equal(ev.rows[1].ply, 13, "the worst move rides along for the deep link");
+  assert.equal(ev.rows[1].category, "blunder");
+  assert.equal(ev.min, 70);
+  assert.equal(ev.max, 90);
+  assert.equal(metricEvidence([], "nope"), null);
+});
+
+test("metricEvidence does not average score and win rate on the wrong scale", () => {
+  const records = [
+    rec({ id: "w", result: "win", date: "2026.10.01" }),
+    rec({ id: "d", result: "draw", date: "2026.10.02" }),
+    rec({ id: "l", result: "loss", date: "2026.10.03" }),
+    rec({ id: "x", result: "", date: "2026.10.04" }),
+  ];
+  const score = metricEvidence(records, "score");
+  assert.equal(score.games, 3, "a game without a result cannot contribute");
+  assert.equal(score.mean, 50, "the mean is the same percentage the card shows");
+  assert.deepEqual(score.rows.map((r) => r.text), ["loss", "draw", "win"], "newest first");
+  const winRate = metricEvidence(records, "winRate");
+  assert.equal(winRate.games, 2, "draws are excluded");
+  assert.equal(winRate.mean, 50);
+});
+
+test("metricEvidence pools the error rate instead of averaging per-game rates", () => {
+  const ev = metricEvidence([
+    rec({ id: "big", myCounts: counts({ best: 90, inacc: 5, blunder: 5 }) }),   // 10 errors in 100 moves
+    rec({ id: "small", myCounts: counts({ best: 1, blunder: 1 }) }),            // 1 error in 2 moves
+  ], "errorRate");
+  assert.equal(ev.pooled.num, 11);
+  assert.equal(ev.pooled.den, 102);
+  assert.equal(Math.round(ev.pooled.value * 10) / 10, 10.8);
+  assert.deepEqual(ev.rows.map((r) => r.id), ["small", "big"], "worst first");
+  assert.equal(Math.round(ev.rows[0].value), 50);
+});
+
+test("metricEvidence sums your brilliants and never the opponent's", () => {
+  const ev = metricEvidence([
+    rec({ id: "a", brilliantCount: 4, myCounts: counts({ brilliant: 1 }) }),
+    rec({ id: "b", brilliantCount: 2, myCounts: counts({ brilliant: 2 }) }),
+  ], "brilliants");
+  assert.equal(ev.total, 3);
+  assert.equal(ev.games, 2);
+  assert.equal(ev.rows[0].id, "b", "highest first");
+});
+
+test("metricEvidence caps the rows but keeps the full sample size", () => {
+  const many = Array.from({ length: 20 }, (_, i) => rec({ id: `g${i}`, savedAt: 100 + i, myAcc: 50 + i }));
+  const ev = metricEvidence(many, "accuracy", { limit: 5 });
+  assert.equal(ev.rows.length, 5);
+  assert.equal(ev.shown, 5);
+  assert.equal(ev.games, 20);
+  assert.equal(ev.mean, 59.5);
 });
 
 /* ---------------- report window: ranges and filters ---------------- */
@@ -415,4 +599,109 @@ test("sortRows sorts by any column, both ways, without touching the input", () =
   assert.deepEqual(sortRows(rows, "key", "asc").map((r) => r.key), ["A", "B", "C"]);
   assert.deepEqual(sortRows(rows, "score").map((r) => r.key), ["B", "A", "C"], "a missing score sorts last");
   assert.deepEqual(rows.map((r) => r.key), ["A", "B", "C"], "the original order is preserved");
+});
+
+/* ---------------- head to head, scoping, coaching ---------------- */
+
+test("opponentReport groups by name and ignores placeholder seats", () => {
+  const out = opponentReport([
+    rec({ id: "1", opName: "Magnus", result: "loss", myAcc: 70, opRating: 2800 }),
+    rec({ id: "2", opName: " magnus ", result: "win", myAcc: 90, opRating: 2800 }),
+    rec({ id: "3", opName: "Hikaru", result: "draw", myAcc: 80 }),
+    rec({ id: "4", opName: "White", result: "win" }),   // the Live board's own seat label
+    rec({ id: "5", opName: "", result: "win" }),
+  ]);
+  assert.deepEqual(out.rows.map((r) => r.key), ["magnus", "hikaru"], "most played first, then the worse record");
+  assert.equal(out.unnamed, 2, "placeholder and missing names are counted, not invented as a rival");
+  const magnus = out.rows[0];
+  assert.equal(magnus.games, 2);
+  assert.equal(magnus.wins, 1);
+  assert.equal(magnus.losses, 1);
+  assert.equal(magnus.score, 50);
+  assert.equal(magnus.accuracy, 80);
+  assert.equal(magnus.opponentRating, 2800);
+  assert.equal(magnus.lastId, "2", "the row carries its most recent game");
+  assert.equal(opponentKey(rec({ opName: "black" })), "");
+});
+
+test("filterGames scopes by opponent and opening", () => {
+  const records = [
+    rec({ id: "1", opName: "Magnus", eco: "B90", opening: "Sicilian", meSide: "w" }),
+    rec({ id: "2", opName: "Hikaru", eco: "C50", opening: "Italian", meSide: "b" }),
+    rec({ id: "3", opName: "magnus", eco: "C50", opening: "Italian", meSide: "b" }),
+  ];
+  assert.deepEqual(filterGames(records, { opponent: "magnus" }).map((r) => r.id), ["1", "3"]);
+  assert.deepEqual(filterGames(records, { opening: "C50|Italian" }).map((r) => r.id), ["2", "3"]);
+  assert.deepEqual(filterGames(records, { opponent: "magnus", opening: "C50|Italian" }).map((r) => r.id), ["3"]);
+});
+
+test("focusAreas names the weakest phase and links the game behind it", () => {
+  const areas = focusAreas([
+    rec({ id: "1", myPhases: { opening: 88, middlegame: 86, endgame: 60 }, myWorst: { ply: 41, cat: "blunder" } }),
+    rec({ id: "2", myPhases: { opening: 90, middlegame: 84, endgame: 64 } }),
+    rec({ id: "3", myPhases: { opening: 86, middlegame: 88, endgame: 66 } }),
+  ]);
+  const phase = areas.find((a) => a.key === "phase");
+  assert.match(phase.title, /endgame is the weak link/);
+  assert.equal(phase.target.kind, "game");
+  assert.equal(phase.target.id, "1", "the game with the worst endgame is the one to open");
+  assert.equal(phase.target.ply, 41);
+});
+
+test("focusAreas flags the costliest error type and the weaker colour", () => {
+  const counts = (inacc, mistake) => ({ inacc, mistake, best: 30 });
+  const records = [
+    rec({ id: "w1", meSide: "w", result: "win", myCounts: counts(1, 1) }),
+    rec({ id: "w2", meSide: "w", result: "win", myCounts: counts(2, 1) }),
+    rec({ id: "w3", meSide: "w", result: "win", myCounts: counts(1, 2) }),
+    rec({ id: "b1", meSide: "b", result: "loss", myCounts: counts(6, 3) }),
+    rec({ id: "b2", meSide: "b", result: "loss", myCounts: counts(5, 4) }),
+    rec({ id: "b3", meSide: "b", result: "loss", myCounts: counts(4, 5) }),
+  ];
+  const areas = focusAreas(records);
+  const decision = areas.find((a) => a.key === "decision");
+  assert.equal(decision.title, "inaccuracies cost you most");
+  assert.equal(decision.target.id, "b1", "the game with the most of them");
+  const colour = areas.find((a) => a.key === "colour");
+  assert.equal(colour.target.kind, "colour");
+  assert.equal(colour.target.value, "b");
+  assert.equal(colour.title, "Black is your weaker side");
+});
+
+test("focusAreas flags a nemesis and an opening that is not working", () => {
+  const records = Array.from({ length: 5 }, (_, i) =>
+    rec({ id: `s${i}`, opName: "Rival", result: "loss", eco: "B90", opening: "Sicilian Defence" }));
+  const areas = focusAreas(records);
+  const opening = areas.find((a) => a.key === "opening");
+  assert.equal(opening.title, "Sicilian Defence is not working");
+  assert.equal(opening.target.kind, "opening");
+  assert.equal(opening.target.value, "B90|Sicilian Defence");
+  const nemesis = areas.find((a) => a.key === "nemesis");
+  assert.equal(nemesis.target.value, "rival");
+  assert.match(nemesis.detail, /0-0-5/);
+  assert.deepEqual(areas.map((a) => a.weight), [...areas.map((a) => a.weight)].sort((a, b) => b - a),
+    "ranked most severe first");
+});
+
+test("focusAreas says nothing when nothing clears its threshold", () => {
+  const records = [
+    rec({ id: "1", opName: "A", result: "win", myCounts: { best: 40 }, myPhases: { opening: 85, middlegame: 84, endgame: 83 } }),
+    rec({ id: "2", opName: "B", result: "win", myCounts: { best: 40 }, myPhases: { opening: 84, middlegame: 85, endgame: 84 } }),
+  ];
+  assert.deepEqual(focusAreas(records), []);
+});
+
+test("gameRows exposes the table's numbers and the worst move", () => {
+  const [row] = gameRows([rec({
+    id: "g", date: "2026.02.03", opName: "Magnus", meSide: "b", result: "win", myAcc: 81.2,
+    myGrade: 7.4, myCounts: { inacc: 2, mistake: 1, best: 30 }, plies: 61, opening: "Sicilian",
+    myWorst: { ply: 41, cat: "blunder" },
+  })]);
+  assert.equal(row.colourLabel, "Black");
+  assert.equal(row.errors, 3);
+  assert.equal(row.moves, 31, "61 plies is a 31-move game");
+  assert.equal(row.ply, 41);
+  assert.equal(row.category, "blunder");
+  assert.equal(row.errorRate, (3 / 33) * 100);
+  assert.equal(row.at, new Date(2026, 1, 3).getTime());
 });
