@@ -6,7 +6,7 @@ import { browserAPI } from "./browser-compat.js";
 import { openAnalysisTab } from "./analyze-flow.js";
 import {
   progressPoints, summarizeProgress, openingReport, underperformingOpenings,
-  movingAverage, linePath, phaseReport, personalBests,
+  movingAverage, linePath, phaseReport, personalBests, ownGames,
 } from "./lib/progress.js";
 import {
   createBackup, parseBackup, mergeLibraries, replaceLibrary, backupSummary,
@@ -180,6 +180,11 @@ function renderOpenings(records) {
 /* ---------------- shared navigation + opening a game ---------------- */
 let activeTab = "progress";
 let library = [];
+// The single account this page tracks - the handle from the popup's manual panel (storage "username",
+// the same value that seats a review). A library can also hold games reviewed for someone else, or be
+// used by another person, so counting all of it would move these numbers for reasons that are not
+// your chess. Empty = nothing to filter by, and the page says so instead of pretending.
+let username = "";
 // A one-shot message shown on the Data tab after a re-render (notice is consumed by renderData).
 let notice = "";
 let noticeBad = false;
@@ -201,13 +206,32 @@ function emptyState() {
     el("br"), "Have a backup? Restore it from the Data tab.");
 }
 
+// Who the reports are counting, and what was left out - so "my progress" can never silently mean
+// "every game in this library".
+function trackingStrip(showing, total) {
+  if (!username) {
+    return el("p", { class: "note" }, `No username set - showing all ${total} games in the library. `
+      + "Set your username in the extension popup (Manual setup - Username) and this page will count only your games.");
+  }
+  const skipped = total - showing;
+  return el("p", { class: "sub" }, `Tracking ${username} - ${showing} of ${total} games`
+    + (skipped > 0 ? `, ${skipped} from other players left out.` : "."));
+}
+
+function noGamesForPlayer() {
+  return el("div", { class: "empty" }, `No games for ${username} in the library yet.`,
+    el("br"), "This page matches either player's name, so it counts the games you played and skips the ones you only reviewed for someone else.");
+}
+
 function render() {
   for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-pressed", String(b.dataset.tab === activeTab));
   // The Data tab must work on an empty library too - that is where you import one.
   if (activeTab === "data") { view.replaceChildren(renderData()); return; }
-  view.replaceChildren(library.length
-    ? (activeTab === "openings" ? renderOpenings(library) : renderProgress(library))
-    : emptyState());
+  if (!library.length) { view.replaceChildren(emptyState()); return; }
+  const tracked = username ? ownGames(library, username) : library;
+  view.replaceChildren(
+    trackingStrip(tracked.length, library.length),
+    tracked.length ? (activeTab === "openings" ? renderOpenings(tracked) : renderProgress(tracked)) : noGamesForPlayer());
 }
 
 for (const b of document.querySelectorAll(".tab")) {
@@ -316,7 +340,21 @@ function renderData() {
 }
 
 try {
-  const stored = await browserAPI.storage.local.get("library");
+  const stored = await browserAPI.storage.local.get(["library", "username"]);
   library = Array.isArray(stored.library) ? stored.library : [];
-} catch { library = []; }
+  username = typeof stored.username === "string" ? stored.username.trim() : "";
+} catch { library = []; username = ""; }
+
+// The handle (and the library) can change while this page is open - the popup saves one, an analysis
+// tab saves games - so follow the storage instead of requiring a reload.
+try {
+  browserAPI.storage.onChanged?.addListener((changes, area) => {
+    if (area && area !== "local") return;
+    if (!changes || (!("username" in changes) && !("library" in changes))) return;
+    if (changes.username) username = typeof changes.username.newValue === "string" ? changes.username.newValue.trim() : "";
+    if (changes.library) library = Array.isArray(changes.library.newValue) ? changes.library.newValue : [];
+    render();
+  });
+} catch { /* no onChanged in this runtime: the page picks both up on its next open */ }
+
 render();

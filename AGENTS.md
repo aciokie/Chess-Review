@@ -75,7 +75,8 @@ CI gate (`.github/workflows/verify.yml`, Node 22 — `package.json` declares no 
 - Neither `scripts/promote-concept-integration.mjs` (the generator) nor `research/` exists in this checkout, so the hash/fingerprint assertions in `tests/concept-integration.test.mjs` self-skip — an accidental detector edit will not be caught by tests here
 
 ## Progress page & backup (fork-native, not upstream)
-- The Progress page reads only `browserAPI.storage.local["library"]`; per-phase accuracy and personal bests depend on records saved *after* `saveToLibrary` began writing `plies` + `myPhases`, so older records are skipped (the reports tolerate missing fields)
+- The Progress page reads only `browserAPI.storage.local["library"]`, and reports on **one account**: the handle in `storage.local.username` (popup → Manual setup → Username, the same value that seats a review). `ownGames()` in `lib/progress.js` keeps only that account's games and re-points the `my*` fields when a record was saved from the opponent's seat (swapping accuracy/rating/names, inverting `result`, dropping `myPhases` since the opponent's per-phase numbers are not stored). With no handle set the page shows the whole library **and says so** — never silently mixing other people's games into "my progress". `progress.js` follows `storage.onChanged` so saving a handle updates an open page
+- Per-phase accuracy and personal bests depend on records saved *after* `saveToLibrary` began writing `plies` + `myPhases`, so older records are skipped (the reports tolerate missing fields)
 - `lib/library-backup.js` deliberately excludes the per-game analysis caches (`analysis:<id>`) and `gamecache:*` — they are large and rebuild on demand, keeping a 1000-game backup a few hundred KB
 
 ## Packaging & lint

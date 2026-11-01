@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   libraryRecords, sortChronological, progressPoints, summarizeProgress,
   openingKey, openingReport, underperformingOpenings, movingAverage, linePath,
-  phaseReport, personalBests,
+  phaseReport, personalBests, playerSide, ownGames,
 } from "../lib/progress.js";
 
 // Minimal library-record factory; only the fields progress.js reads.
@@ -190,4 +190,51 @@ test("personalBests leaves a category empty until a game qualifies for it", () =
     assert.equal(best[key].id, null);
   }
   assert.deepEqual(personalBests([]).map((b) => b.text), [null, null, null, null, null, null]);
+});
+
+// Progress tracks ONE account (the handle from the popup's manual panel), so a library that also
+// holds games reviewed for other people cannot move your numbers.
+test("playerSide finds the tracked account in either seat, case-insensitively", () => {
+  const white = rec({ myName: "Ann", opName: "Bob", meSide: "w" });
+  const black = rec({ myName: "Ann", opName: "Bob", meSide: "b" });
+  assert.equal(playerSide(white, "ann"), "w", "the saved side");
+  assert.equal(playerSide(black, "ann"), "b");
+  assert.equal(playerSide(white, "bob"), "b", "the opponent's seat");
+  assert.equal(playerSide(black, " BO B " .trim()), null);
+  assert.equal(playerSide(white, "  bob  "), "b", "trimmed");
+  assert.equal(playerSide(white, ""), null, "no handle means no match");
+  assert.equal(playerSide(white, null), null);
+  assert.equal(playerSide(null, "ann"), null);
+});
+
+test("ownGames keeps only the tracked account and drops games reviewed for others", () => {
+  const mine = rec({ id: "mine", myName: "Ann", opName: "Bob", meSide: "w" });
+  const friends = rec({ id: "friends", myName: "Carl", opName: "Dana", meSide: "w" });
+  const theirs = rec({ id: "theirs", myName: "Carl", opName: "ann", meSide: "w" });
+  assert.deepEqual(ownGames([mine, friends, theirs], "Ann").map((r) => r.id), ["mine", "theirs"]);
+  assert.deepEqual(ownGames([mine, friends], "").map((r) => r.id), [], "an unset handle matches nothing");
+});
+
+test("ownGames re-points a game saved from the opponent's seat", () => {
+  const saved = rec({
+    id: "g", myName: "Carl", opName: "Ann", meSide: "w",
+    myAcc: 61, opAcc: 88, myRating: 1200, opRating: 1900,
+    myPhases: { opening: 55, middlegame: null, endgame: null }, result: "loss", brilliantCount: 3,
+  });
+  const [mine] = ownGames([saved], "Ann");
+  assert.equal(mine.meSide, "b", "the tracked account was Black");
+  assert.equal(mine.myName, "Ann");
+  assert.equal(mine.opName, "Carl");
+  assert.equal(mine.myAcc, 88, "accuracy follows the account, not the saved seat");
+  assert.equal(mine.myRating, 1900);
+  assert.equal(mine.result, "win", "a loss for the saved seat is a win for the tracked account");
+  assert.equal(mine.myPhases, null, "the opponent's per-phase accuracy is not stored, so it must not be claimed");
+  assert.equal(mine.brilliantCount, 3, "game-wide fields are untouched");
+  assert.equal(saved.myAcc, 61, "the stored record is not mutated");
+});
+
+test("a tracked account's own games pass through unchanged", () => {
+  const saved = rec({ id: "g", myName: "Ann", opName: "Bob", meSide: "b", myAcc: 70, result: "win", myPhases: { opening: 80 } });
+  const [mine] = ownGames([saved], "ann");
+  assert.equal(mine, saved, "same object, same fields - no needless copying");
 });

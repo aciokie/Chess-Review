@@ -44,7 +44,9 @@ immediately when disabled. Existing scores and coach comments are unchanged.
 - **Progress page** (open it from the popup): accuracy and estimated-rating trends across
   your saved games, accuracy split by game phase (opening, middlegame, endgame), an openings
   report that flags openings you score badly with, and personal bests. It is engine-free —
-  it only reads your local Library.
+  it only reads your local Library. It reports on **one account**: the username from the
+  popup's Manual setup panel, so games you reviewed for someone else never move your numbers
+  (with no username set it says so and shows the whole Library).
 - **Backup and restore** on the Progress page's **Data** tab: export your Library plus
   settings, handle, layout and account history to a JSON file, then import it later or on
   another PC — either merged (games matched by id, the newer copy wins) or as a replacement.
