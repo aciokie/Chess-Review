@@ -5,6 +5,8 @@ import {
   libraryRecords, sortChronological, progressPoints, summarizeProgress,
   openingKey, openingReport, underperformingOpenings, movingAverage, linePath,
   phaseReport, personalBests, playerSide, ownGames,
+  sliceRange, filterGames, colourSplit, typeSplit, decisionProfile, accuracyHistogram,
+  scoreTrend, momentum, stability, gradeSeries, sortRows, ERROR_KEYS,
 } from "../lib/progress.js";
 
 // Minimal library-record factory; only the fields progress.js reads.
@@ -31,6 +33,12 @@ test("progressPoints normalizes fields and tolerates null accuracy/rating", () =
   assert.equal(p.rating, null);
   assert.equal(p.result, "win");
   assert.equal(p.brilliants, 2);
+});
+
+test("progressPoints carries the opponent so the charts can label a point", () => {
+  const [p] = progressPoints([rec({ id: "a", myName: "Ann", opName: "Bob" })]);
+  assert.equal(p.opponent, "Bob");
+  assert.equal(progressPoints([rec({ id: "b" })])[0].opponent, "", "missing names stay empty, not undefined");
 });
 
 test("progressPoints maps an unknown result to empty", () => {
@@ -237,4 +245,174 @@ test("a tracked account's own games pass through unchanged", () => {
   const saved = rec({ id: "g", myName: "Ann", opName: "Bob", meSide: "b", myAcc: 70, result: "win", myPhases: { opening: 80 } });
   const [mine] = ownGames([saved], "ann");
   assert.equal(mine, saved, "same object, same fields - no needless copying");
+});
+
+/* ---------------- report window: ranges and filters ---------------- */
+
+const series = (n, over = () => ({})) => Array.from({ length: n }, (_, i) => rec({
+  id: `g${i}`, savedAt: 100 + i, myAcc: 50 + i, result: i % 3 === 0 ? "win" : i % 3 === 1 ? "loss" : "draw",
+  type: i % 2 ? "Blitz" : "Rapid", meSide: i % 2 ? "b" : "w", ...over(i),
+}));
+
+test("sliceRange keeps the newest N games and everything when unset", () => {
+  const all = series(10);
+  assert.deepEqual(sliceRange(all, 3).map((r) => r.id), ["g7", "g8", "g9"], "newest three, oldest first");
+  assert.equal(sliceRange(all, 0).length, 10);
+  assert.equal(sliceRange(all, null).length, 10);
+  assert.equal(sliceRange(all, 99).length, 10, "a range wider than the library is harmless");
+});
+
+test("filterGames applies colour, time class and result together", () => {
+  const all = series(6);
+  assert.equal(filterGames(all, { colour: "b" }).length, 3);
+  assert.equal(filterGames(all, { type: "Blitz" }).length, 3);
+  assert.equal(filterGames(all, { result: "draw" }).length, 2);
+  const both = filterGames(all, { colour: "b", type: "Blitz" });
+  assert.ok(both.every((r) => r.meSide === "b" && r.type === "Blitz"));
+  assert.equal(filterGames(all, {}).length, 6, "no filters = everything");
+});
+
+test("colourSplit reports volume, score and accuracy per colour", () => {
+  const rows = colourSplit([
+    rec({ id: "1", meSide: "w", result: "win", myAcc: 90 }),
+    rec({ id: "2", meSide: "w", result: "loss", myAcc: 70 }),
+    rec({ id: "3", meSide: "b", result: "draw", myAcc: 80 }),
+  ]);
+  const [white, black] = rows;
+  assert.equal(white.label, "White");
+  assert.equal(white.games, 2);
+  assert.equal(white.score, 50, "one win of two decided games");
+  assert.equal(white.accuracy, 80);
+  assert.equal(black.games, 1);
+  assert.equal(black.score, 50, "a single draw scores half");
+  assert.equal(black.accuracy, 80);
+});
+
+test("colourSplit and typeSplit stay null-safe with no games", () => {
+  assert.deepEqual(colourSplit([]).map((r) => r.games), [0, 0]);
+  assert.deepEqual(colourSplit([]).map((r) => r.score), [null, null]);
+  assert.deepEqual(typeSplit([]), []);
+});
+
+test("typeSplit groups by time class, most played first", () => {
+  const rows = typeSplit(series(6));
+  assert.deepEqual(rows.map((r) => r.key), ["Blitz", "Rapid"], "three each, ties broken by name");
+  assert.equal(rows[0].games, 3);
+  const untyped = typeSplit([rec({ id: "x", type: "" })]);
+  assert.equal(untyped[0].label, "Unrated", "a game with no time class is still counted");
+});
+
+/* ---------------- decision quality ---------------- */
+
+const counts = (over = {}) => ({ brilliant: 0, great: 0, best: 0, excellent: 0, good: 0, book: 0, forced: 0, inacc: 0, mistake: 0, miss: 0, blunder: 0, ...over });
+
+test("decisionProfile tallies both sides and computes your error rate", () => {
+  const profile = decisionProfile([
+    rec({ id: "1", myCounts: counts({ best: 20, inacc: 3, mistake: 2, blunder: 1 }), opCounts: counts({ best: 10, blunder: 5 }) }),
+    rec({ id: "2", myCounts: counts({ best: 10, mistake: 4 }), opCounts: counts({ inacc: 2 }) }),
+  ]);
+  assert.equal(profile.games, 2);
+  assert.equal(profile.moves, 40, "20 + 5 + 10 + 5 of my classified moves");
+  assert.equal(profile.me.mistake, 6);
+  assert.equal(profile.them.blunder, 5);
+  assert.equal(profile.errorMoves, 10, "inacc + mistake + miss + blunder");
+  assert.equal(profile.errorRate, 25, "10 errors in 40 classified moves");
+  const row = profile.rows.find((r) => r.key === "blunder");
+  assert.equal(row.me, 1);
+  assert.equal(row.them, 5);
+  assert.equal(row.share, 2.5);
+});
+
+test("decisionProfile says nothing rather than zero when no game carries tallies", () => {
+  assert.equal(decisionProfile([rec({ id: "old" }), rec({ id: "older" })]), null);
+  assert.equal(decisionProfile([]), null);
+  assert.ok(ERROR_KEYS.includes("miss") && ERROR_KEYS.includes("blunder"));
+});
+
+test("accuracyHistogram bins the games and counts the total", () => {
+  const { bins, total, size } = accuracyHistogram([
+    rec({ id: "1", myAcc: 0 }), rec({ id: "2", myAcc: 9.9 }), rec({ id: "3", myAcc: 10 }),
+    rec({ id: "4", myAcc: 55 }), rec({ id: "5", myAcc: 100 }), rec({ id: "6", myAcc: null }),
+  ]);
+  assert.equal(size, 10);
+  assert.equal(total, 5, "the null accuracy is skipped");
+  assert.equal(bins[0].count, 2, "0 and 9.9 share the first bin");
+  assert.equal(bins[1].count, 1, "10 starts the second");
+  assert.equal(bins[5].count, 1);
+  assert.equal(bins[9].count, 1, "100 lands in the last bin, not out of range");
+  assert.equal(bins.reduce((n, b) => n + b.count, 0), total);
+});
+
+/* ---------------- trends and form ---------------- */
+
+test("scoreTrend is a rolling tournament score", () => {
+  const rows = scoreTrend([
+    rec({ id: "1", savedAt: 1, result: "win" }), rec({ id: "2", savedAt: 2, result: "loss" }),
+    rec({ id: "3", savedAt: 3, result: "draw" }), rec({ id: "4", savedAt: 4, result: "win" }),
+  ], 2);
+  assert.equal(rows.length, 4);
+  assert.equal(rows[0].value, 1);
+  assert.equal(rows[1].value, 0.5, "win + loss");
+  assert.equal(rows[2].value, 0.25, "loss + draw");
+  assert.equal(rows[3].value, 0.75, "draw + win");
+  assert.equal(rows[0].id, "1", "points stay tied to their game");
+});
+
+test("scoreTrend ignores games without a result", () => {
+  const rows = scoreTrend([rec({ id: "1", savedAt: 1, result: "" }), rec({ id: "2", savedAt: 2, result: "win" })], 10);
+  assert.equal(rows[0].value, null);
+  assert.equal(rows[1].value, 1);
+});
+
+test("momentum compares the recent window with the stretch before it", () => {
+  const all = [
+    ...series(5, () => ({ myAcc: 50, myRating: 1400, result: "loss" })),
+    ...series(5, (i) => ({ id: `r${i}`, myAcc: 70, myRating: 1500, result: "win" })).map((r, i) => ({ ...r, savedAt: 1000 + i })),
+  ];
+  const m = momentum(all, 5);
+  assert.equal(m.recentGames, 5);
+  assert.equal(m.previousGames, 5);
+  assert.equal(m.accuracy.recent, 70);
+  assert.equal(m.accuracy.previous, 50);
+  assert.equal(m.delta.accuracy, 20);
+  assert.equal(m.delta.rating, 100);
+  assert.equal(m.score.recent, 100, "the tournament score is a percentage, like accuracy");
+  assert.equal(m.score.previous, 0);
+  assert.equal(m.delta.score, 100, "100% vs 0%");
+});
+
+test("momentum returns nulls instead of inventing a comparison", () => {
+  const m = momentum(series(3), 5);
+  assert.equal(m.previousGames, 0);
+  assert.equal(m.delta.accuracy, null);
+  assert.equal(m.delta.score, null);
+});
+
+test("stability measures the spread of accuracy", () => {
+  const even = stability([rec({ id: "1", savedAt: 1, myAcc: 80 }), rec({ id: "2", savedAt: 2, myAcc: 80 })]);
+  assert.equal(even.mean, 80);
+  assert.equal(even.sd, 0);
+  const wild = stability([rec({ id: "1", savedAt: 1, myAcc: 60 }), rec({ id: "2", savedAt: 2, myAcc: 90 })]);
+  assert.equal(wild.sd, 21.2, "sample standard deviation of 60/90");
+  const one = stability([rec({ id: "1", savedAt: 1, myAcc: 70 })]);
+  assert.equal(one.sd, null, "a single game has no spread");
+});
+
+test("gradeSeries keeps one point per game and leaves gaps for old records", () => {
+  const rows = gradeSeries([
+    rec({ id: "old", savedAt: 1 }),
+    rec({ id: "new", savedAt: 2, myGrade: 7.25 }),
+  ]);
+  assert.deepEqual(rows.map((r) => r.id), ["old", "new"]);
+  assert.equal(rows[0].value, null, "no grade stored");
+  assert.equal(rows[1].value, 7.3, "rounded for display");
+});
+
+test("sortRows sorts by any column, both ways, without touching the input", () => {
+  const rows = [{ key: "A", games: 2, score: 30 }, { key: "B", games: 10, score: 55 }, { key: "C", games: 5, score: null }];
+  assert.deepEqual(sortRows(rows, "games").map((r) => r.key), ["B", "C", "A"]);
+  assert.deepEqual(sortRows(rows, "games", "asc").map((r) => r.key), ["A", "C", "B"]);
+  assert.deepEqual(sortRows(rows, "key", "asc").map((r) => r.key), ["A", "B", "C"]);
+  assert.deepEqual(sortRows(rows, "score").map((r) => r.key), ["B", "A", "C"], "a missing score sorts last");
+  assert.deepEqual(rows.map((r) => r.key), ["A", "B", "C"], "the original order is preserved");
 });

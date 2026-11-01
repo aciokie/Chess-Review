@@ -6913,6 +6913,16 @@ function saveToLibrary() {
     const brilliantCount = S.classif ? S.classif.filter((c) => c === "brilliant").length : 0;
     const hasBrilliant = brilliantCount > 0;
     const myBrilliant = !!S.classif?.some((c, i) => c === "brilliant" && S.positions[i]?.color === S.meSide);
+    // The analyzed side's average 0-10 move grade (null when nothing was graded).
+    const gradeFor = (side) => {
+      let sum = 0, n = 0;
+      for (let i = 1; i <= S.total; i++) {
+        if (S.positions[i]?.color !== side) continue;
+        const g = S.moveGrades?.[i];
+        if (Number.isFinite(g)) { sum += g; n++; }
+      }
+      return n ? Math.round((sum / n) * 10) / 10 : null;
+    };
     const rec = {
       id, savedAt: Date.now(), pgn: S.pgn, meta: S.meta || {},
       meSide: S.meSide,
@@ -6930,6 +6940,13 @@ function saveToLibrary() {
       // fastest win without re-reading the analysis.
       plies: S.total,
       myPhases: S.phaseAcc?.[S.meSide] || null,
+      // Decision tallies per side (from the classifier) and the analyzed side's average move grade,
+      // so the Progress page can show a mistake profile and a grade trend without re-reading the
+      // (large) per-game analysis blobs. Absent on records saved before these were added.
+      myCounts: S.counts?.[S.meSide] || null,
+      opCounts: S.counts?.[opSide] || null,
+      myGrade: gradeFor(S.meSide),
+      opGrade: gradeFor(opSide),
     };
     const writes = { [analysisCacheKey(id)]: {
       pgn: S.pgn, settingsKey: analysisSettingsKey(), engineBuild: S.activeEngineBuild,

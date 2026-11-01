@@ -97,6 +97,124 @@
       .bests td.hint { color: var(--ink-3); font-size: 12px; text-align: left; }
       .bests tbody tr.none { cursor: default; }
       .bests tbody tr.none:hover { background: none; }
+
+      /* ---------- interactive report: filters, motion, new panels ---------- */
+      :root {
+        --ease: cubic-bezier(.22,.61,.36,1);
+        /* Chess.com-style decision colours, used by the Decision quality panel. */
+        --dq-brilliant: #26c2a3; --dq-great: #749bbf; --dq-best: #81b64c; --dq-excellent: #96bc4b;
+        --dq-good: #95b776; --dq-book: #a88865; --dq-forced: #8d9a86;
+        --dq-inacc: #f7c631; --dq-mistake: #ffa459; --dq-miss: #ff7769; --dq-blunder: #fa412d;
+      }
+
+      /* Filters: every panel reports on what these chips select. */
+      .controls { display: flex; flex-direction: column; gap: 6px; margin: 0 0 16px; }
+      .chip-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .chip-label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3);
+        font-weight: 700; min-width: 74px; }
+      .chip { font: inherit; font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 999px;
+        cursor: pointer; color: var(--ink-2); background: var(--panel-2); border: 1px solid var(--line);
+        transition: color .16s var(--ease), border-color .16s var(--ease), background-color .16s var(--ease), transform .16s var(--ease); }
+      .chip:hover { color: var(--ink); border-color: color-mix(in oklab, var(--accent) 45%, var(--line)); transform: translateY(-1px); }
+      .chip:active { transform: translateY(0); }
+      .chip.on { color: var(--accent-ink); background: linear-gradient(160deg, var(--accent), var(--accent-strong));
+        border-color: transparent; box-shadow: 0 6px 18px -12px var(--accent); }
+
+      /* Cards: one after another, and they lift under the pointer. */
+      .card { transition: transform .18s var(--ease), border-color .18s var(--ease), box-shadow .18s var(--ease);
+        animation: rise .5s var(--ease) both; animation-delay: calc(var(--i, 0) * 45ms); }
+      .card:hover { transform: translateY(-2px); border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+        box-shadow: 0 16px 34px -22px rgba(0,0,0,.85); }
+      .card.good .v { color: var(--accent); }
+      .card.bad .v { color: var(--loss); }
+      .card.strong .v { text-shadow: 0 0 22px color-mix(in oklab, var(--accent) 45%, transparent); }
+
+      /* Split panels (colour, time control). */
+      .split { margin-top: 14px; animation: rise .45s var(--ease) both; animation-delay: calc(var(--i, 0) * 60ms); }
+      .split-head, .split-foot { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--ink-3); }
+      .split-head { margin-bottom: 5px; }
+      .split-name { font-weight: 700; color: var(--ink); font-size: 13px; }
+      .split-foot { margin-top: 4px; }
+      .split .bar { cursor: help; }
+
+      /* Bars grow from nothing on their own width. */
+      .bar > i { animation: grow .7s var(--ease) both; }
+
+      /* Recent form: two little bars per row, previous vs recent. */
+      .mom-row { display: grid; grid-template-columns: 92px 62px 74px 1fr; align-items: center; gap: 10px; padding: 5px 0; }
+      .mom-name { font-size: 12.5px; color: var(--ink-2); }
+      .mom-val { font-weight: 800; font-variant-numeric: tabular-nums; }
+      .delta { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .delta.up { color: var(--accent); } .delta.down { color: var(--loss); } .delta.flat { color: var(--ink-3); }
+      .mom-bars { display: flex; align-items: flex-end; gap: 4px; height: 26px; }
+      .mom-bars > i { width: 14px; border-radius: 4px 4px 2px 2px; background: var(--panel-3); animation: growUp .6s var(--ease) both; }
+      .mom-bars > i.prev { background: color-mix(in oklab, var(--accent) 28%, var(--panel-3)); }
+      .mom-bars > i.rec { background: linear-gradient(180deg, var(--accent), var(--accent-strong)); }
+      .mom-legend { display: flex; gap: 14px; font-size: 11px; color: var(--ink-3); margin-top: 8px; }
+
+      /* Accuracy distribution. */
+      .hist { display: flex; align-items: flex-end; gap: 6px; margin-top: 10px; }
+      .hist-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: help; }
+      .hist-bar { width: 100%; height: 104px; display: flex; align-items: flex-end; background: var(--panel-3);
+        border-radius: 6px; overflow: hidden; }
+      .hist-bar > i { display: block; width: 100%; border-radius: 6px;
+        background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+        animation: growUp .6s var(--ease) both; animation-delay: calc(var(--i, 0) * 40ms); transition: filter .15s var(--ease); }
+      .hist-col:hover .hist-bar > i { filter: brightness(1.18); }
+      .hist-n { font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+      .hist-ax { font-size: 10px; color: var(--ink-3); }
+
+      /* Decision quality: your bar next to your opponent's, coloured by category. */
+      .dec-head, .dec { display: grid; grid-template-columns: 96px 1fr 34px 1fr 34px; align-items: center; gap: 8px; }
+      .dec-head { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3);
+        font-weight: 700; margin: 8px 0 4px; }
+      .dec { padding: 3px 0; animation: rise .45s var(--ease) both; animation-delay: calc(var(--i, 0) * 30ms); }
+      .dec-name { font-size: 12.5px; color: var(--ink-2); }
+      .dec-bar { height: 9px; border-radius: 999px; background: var(--panel-3); overflow: hidden; }
+      .dec-bar > i { display: block; height: 100%; border-radius: 999px; background: var(--c, var(--accent));
+        animation: grow .6s var(--ease) both; }
+      .dec-bar.opp > i { opacity: .4; }
+      .dec-n { font-size: 12px; text-align: right; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+      .dec-n.opp { color: var(--ink-3); }
+
+      /* Charts: the line draws itself in, dots fade in, points are hoverable/clickable. */
+      .chart .chart-line { stroke-dasharray: 1; animation: draw 1.1s var(--ease) both; }
+      .chart .chart-raw { animation: fadeIn .9s var(--ease) .25s both; }
+      .chart .chart-dot { fill: var(--accent); stroke: var(--panel); stroke-width: 1; opacity: 0;
+        animation: pop .35s var(--ease) .55s both; }
+      .chart-hit { fill: transparent; cursor: pointer; }
+      .chart-hit:hover + .chart-dot { fill: var(--ink); stroke: var(--accent); stroke-width: 1.6; }
+
+      /* Sortable openings table. */
+      .openings th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+      .openings th.sortable:hover { color: var(--ink); }
+      .openings .caret { margin-left: 4px; font-size: 9px; opacity: .35; }
+      .openings th.active { color: var(--ink); }
+      .openings th.active .caret { opacity: 1; color: var(--accent); }
+
+      /* Panels ease in as they are drawn. */
+      .panel { animation: rise .5s var(--ease) both; }
+
+      /* One shared tooltip for charts, bars and histogram columns. */
+      #tip { position: fixed; z-index: 60; pointer-events: none; display: grid; gap: 2px;
+        padding: 8px 10px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line);
+        box-shadow: 0 18px 40px -18px rgba(0,0,0,.9); font-size: 12px; color: var(--ink-2);
+        opacity: 0; transform: translateY(4px); transition: opacity .12s var(--ease), transform .12s var(--ease); }
+      #tip.show { opacity: 1; transform: none; }
+      #tip b { color: var(--ink); font-size: 13px; }
+      .tip-res.win { color: var(--accent); } .tip-res.loss { color: var(--loss); }
+
+      @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+      @keyframes grow { from { width: 0; } }
+      @keyframes growUp { from { height: 0; } }
+      @keyframes draw { from { stroke-dashoffset: 1; } }
+      @keyframes pop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
+      @keyframes fadeIn { from { opacity: 0; } }
+
+      /* Respect the OS setting: everything above is decoration. */
+      @media (prefers-reduced-motion: reduce) {
+        * { animation: none !important; transition: none !important; }
+      }
     </style>
   </head>
   <body>
