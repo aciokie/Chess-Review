@@ -9,6 +9,7 @@ import {
   scoreTrend, momentum, stability, gradeSeries, sortRows, ERROR_KEYS,
   playedAt, orderTime, myBrilliantCount, dayKey, dailyActivity, metricEvidence,
   opponentReport, opponentKey, focusAreas, gameRows, ratingScale, libraryFlip,
+  sortOpeningsByScore,
 } from "../lib/progress.js";
 
 // Minimal library-record factory; only the fields progress.js reads.
@@ -796,6 +797,25 @@ test("sortRows keeps rows with no value last in both directions", () => {
   const rows = [{ key: "A", score: 10 }, { key: "B", score: null }, { key: "C", score: 30 }];
   assert.deepEqual(sortRows(rows, "score", "asc").map((r) => r.key), ["A", "C", "B"]);
   assert.deepEqual(sortRows(rows, "score", "desc").map((r) => r.key), ["C", "A", "B"]);
+});
+
+test("the openings W-D-L column sorts by score, then by games played", () => {
+  const rows = [
+    { key: "a", games: 20, wins: 10, draws: 0, losses: 10, score: 50 },
+    { key: "b", games: 8, wins: 6, draws: 2, losses: 0, score: 87.5 },
+    { key: "c", games: 6, wins: 5, draws: 1, losses: 0, score: 91.7 },
+  ];
+  // By wins alone A would lead (10) though it only scores 50%: the column is the record, so it
+  // sorts by what that record is worth.
+  assert.deepEqual(sortOpeningsByScore(rows, "desc").map((r) => r.key), ["c", "b", "a"]);
+  assert.deepEqual(sortOpeningsByScore(rows, "asc").map((r) => r.key), ["a", "b", "c"]);
+  const tied = [{ key: "few", games: 2, score: 60 }, { key: "many", games: 9, score: 60 }];
+  assert.deepEqual(sortOpeningsByScore(tied, "desc").map((r) => r.key), ["many", "few"],
+    "a two-game 60% must not outrank a nine-game one");
+  const undecided = [{ key: "none", games: 3, score: null }, { key: "some", games: 3, score: 40 }];
+  assert.deepEqual(sortOpeningsByScore(undecided, "desc").map((r) => r.key), ["some", "none"]);
+  assert.deepEqual(sortOpeningsByScore(undecided, "asc").map((r) => r.key), ["some", "none"],
+    "an opening with no decided game sorts last either way, like sortRows");
 });
 
 test("streaks are counted over every tracked game, not the filtered window", () => {

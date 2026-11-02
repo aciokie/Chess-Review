@@ -9,6 +9,7 @@ import {
   movingAverage, linePath, phaseReport, personalBests, ownGames, libraryFlip,
   sliceRange, filterGames, colourSplit, typeSplit, decisionProfile, accuracyHistogram,
   scoreTrend, momentum, stability, gradeSeries, sortRows,
+  sortOpeningsByScore,
   dailyActivity, metricEvidence, opponentReport, focusAreas, gameRows, opponentKey, PHASE_LABELS,
 } from "./lib/progress.js";
 import {
@@ -917,7 +918,11 @@ function renderOpenings(records) {
     }, label, el("span", { class: "caret" }, active ? (openSort.dir === "asc" ? "▲" : "▼") : ""));
   };
 
-  const ordered = sortRows(report, openSort.key, openSort.dir);
+  // W-D-L shows a record, not one number of it, so it sorts by score (then games) instead of wins:
+  // 10-0-10 and 0-20-0 are the same win count and nothing like the same result.
+  const ordered = openSort.key === "wdl"
+    ? sortOpeningsByScore(report, openSort.dir)
+    : sortRows(report, openSort.key, openSort.dir);
   // A row scopes the whole report to that opening (the chip in the toolbar clears it); the button in
   // the last column goes straight to your latest game in it.
   const rows = ordered.map((g) => el("tr", { class: weakKeys.has(g.key) ? "warn-row" : "",
@@ -936,7 +941,7 @@ function renderOpenings(records) {
   ));
 
   const table = el("table", { class: "openings" },
-    el("thead", {}, el("tr", {}, th("Opening", "name"), th("Games", "games"), th("Score", "score"), th("W–D–L", "wins"), th("Avg acc", "accuracy"), th("Opp rating", "opponentRating"), el("th", {}, ""))),
+    el("thead", {}, el("tr", {}, th("Opening", "name"), th("Games", "games"), th("Score", "score"), th("W–D–L", "wdl"), th("Avg acc", "accuracy"), th("Opp rating", "opponentRating"), el("th", {}, ""))),
     el("tbody", {}, ...rows));
 
   const weakRow = (g) => el("tr", { class: "warn-row",
