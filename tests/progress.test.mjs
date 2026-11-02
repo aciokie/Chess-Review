@@ -8,7 +8,7 @@ import {
   sliceRange, filterGames, colourSplit, typeSplit, decisionProfile, accuracyHistogram,
   scoreTrend, momentum, stability, gradeSeries, sortRows, ERROR_KEYS,
   playedAt, orderTime, myBrilliantCount, dayKey, dailyActivity, metricEvidence,
-  opponentReport, opponentKey, focusAreas, gameRows, ratingScale,
+  opponentReport, opponentKey, focusAreas, gameRows, ratingScale, libraryFlip,
 } from "../lib/progress.js";
 
 // Minimal library-record factory; only the fields progress.js reads.
@@ -323,6 +323,25 @@ test("ownGames re-points a game saved from the opponent's seat", () => {
   assert.equal(mine.myPhases, null, "the opponent's per-phase accuracy is not stored, so it must not be claimed");
   assert.equal(mine.brilliantCount, 3, "game-wide fields are untouched");
   assert.equal(saved.myAcc, 61, "the stored record is not mutated");
+});
+
+test("libraryFlip reopens a game on the tracked account's seat", () => {
+  // Saved from Carl's seat (White), reviewed for Ann: the page reports Ann's game, so the review must
+  // open as Black. The stored hint describes Carl's view and must not win here.
+  const theirs = rec({ id: "theirs", meSide: "w", myName: "Carl", opName: "Ann", meta: { flip: false } });
+  assert.equal(libraryFlip(theirs, "Ann"), true);
+  assert.equal(libraryFlip(theirs, "ann"), true, "the handle matches case-insensitively");
+  // The same game for its own seat keeps the perspective it was saved with, even when that was flipped
+  // by hand: only the re-pointed records change.
+  const mine = rec({ id: "mine", meSide: "w", myName: "Ann", opName: "Carl", meta: { flip: true } });
+  assert.equal(libraryFlip(mine, "Ann"), true);
+  assert.equal(libraryFlip(rec({ id: "plain", meSide: "b", myName: "Ann", opName: "Carl" }), "Ann"), true,
+    "no stored hint falls back to the saved side");
+  // Without a handle (or a record that names neither seat) nothing can be re-pointed.
+  assert.equal(libraryFlip(rec({ id: "b", meSide: "b", myName: "Carl", opName: "Ann", meta: { flip: false } }), ""), false);
+  assert.equal(libraryFlip(rec({ id: "c", meSide: "b", myName: "Carl", opName: "Dana" }), "Ann"), true);
+  assert.equal(libraryFlip(null, "Ann"), false, "a missing record seats White");
+  assert.equal(libraryFlip(rec({ id: "weird", meSide: "w", meta: { flip: "yes" } }), "Ann"), true, "the hint is coerced");
 });
 
 test("a tracked account's own games pass through unchanged", () => {

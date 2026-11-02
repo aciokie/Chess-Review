@@ -6,7 +6,7 @@ import { browserAPI } from "./browser-compat.js";
 import { openAnalysisTab } from "./analyze-flow.js";
 import {
   progressPoints, summarizeProgress, openingReport, underperformingOpenings,
-  movingAverage, linePath, phaseReport, personalBests, ownGames,
+  movingAverage, linePath, phaseReport, personalBests, ownGames, libraryFlip,
   sliceRange, filterGames, colourSplit, typeSplit, decisionProfile, accuracyHistogram,
   scoreTrend, momentum, stability, gradeSeries, sortRows,
   dailyActivity, metricEvidence, opponentReport, focusAreas, gameRows, opponentKey, PHASE_LABELS,
@@ -980,12 +980,13 @@ let noticeBad = false;
 const view = document.getElementById("view");
 
 const recordById = () => new Map(library.map((r) => [r.id, r]));
-// Reopen a saved game in the analyzer, reproducing the exact perspective it was saved with (stored
-// flip hint first, else the saved side) - the same rule as openLibraryGame in analysis.js.
+// Reopen a saved game in the analyzer, seated as the account this page reports on. ownGames re-points
+// a record saved from the opponent's seat at that account, so reopening from the raw record's flip
+// hint would seat the board as the other player and land a "move N" link on their view.
 function openGame(id, ply = null) {
   const rec = recordById().get(id);
   if (!rec || !rec.pgn) return;
-  const flip = (rec.meta && rec.meta.flip != null) ? rec.meta.flip : (rec.meSide === "b");
+  const flip = libraryFlip(rec, username);
   const meta = { ...(rec.meta || {}), flip };
   // A move-level link lands the review on that position instead of the starting one. The review
   // treats it as one-shot, so it never gets written back into the saved game.
