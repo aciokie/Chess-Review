@@ -616,8 +616,15 @@ function dailyPanel(records) {
     type: "button",
     "data-level": String(level(cell.games)),
     "aria-label": `${dayLabel(cell.key)}: ${cell.games} games`,
-    "aria-pressed": String(cell.key === daySel),
-    onclick: () => { daySel = daySel === cell.key ? "" : cell.key; rangeLast = 0; inspectKey = ""; render(); },
+    // A day with no games has nothing to scope to, so it is not a control: no click handler (clicking
+    // it used to filter every report down to an empty day) and no pressed state to announce. The
+    // tooltip still says "No games", which is the useful answer there.
+    ...(cell.games
+      ? {
+        "aria-pressed": String(cell.key === daySel),
+        onclick: () => { daySel = daySel === cell.key ? "" : cell.key; rangeLast = 0; inspectKey = ""; render(); },
+      }
+      : { "aria-disabled": "true" }),
     onmousemove: (e) => showTip([
       el("b", {}, dayLabel(cell.key)),
       el("span", {}, cell.games

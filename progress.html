@@ -425,6 +425,9 @@
       .day[data-level="3"] { background: color-mix(in oklab, var(--accent) 70%, var(--panel-3)); }
       .day[data-level="4"] { background: var(--accent); }
       .day.on { outline: 2px solid var(--ink); outline-offset: 1px; }
+      /* A day with no games is inert: no pointer cursor, no hover pop. */
+      .day[aria-disabled="true"] { cursor: default; }
+      .day[aria-disabled="true"]:hover { transform: none; border-color: var(--line-soft); }
       .day.empty { visibility: hidden; cursor: default; }
       .day-legend { display: inline-flex; align-items: center; gap: 4px; }
       .day-legend .day { cursor: default; }
