@@ -6,3 +6,6 @@ calibration-runs/
 # Project-local OpenCode config (contains a browser-extension secret token).
 opencode.json
 .opencode/
+# Local scratch folder for ad-hoc unpacked-extension runs (run.mjs, shots/): never shipped, never
+# committed - a plain `git add -A` used to pick it up.
+tmp-ext-test/
