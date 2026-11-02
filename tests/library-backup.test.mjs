@@ -5,6 +5,7 @@ import {
   BACKUP_FORMAT, BACKUP_VERSION, createBackup, parseBackup, backupSummary,
   mergeLibraries, replaceLibrary, restorableSettingsKeys,
 } from "../lib/library-backup.js";
+import { libraryRecords } from "../lib/progress.js";
 
 const rec = (over = {}) => ({ id: over.id || "g", savedAt: 1, myAcc: null, ...over });
 const file = (data, extra = {}) => JSON.stringify({ format: BACKUP_FORMAT, version: BACKUP_VERSION, ...extra, data });
@@ -50,6 +51,27 @@ test("mergeLibraries adds new games and keeps the newer copy of an existing one"
   assert.deepEqual(library.map((r) => r.id), ["c", "a", "b"]);   // newest first
   assert.equal(library.find((r) => r.id === "a").myAcc, 90);
   assert.equal(library.find((r) => r.id === "b").myAcc, 60);
+});
+
+test("an imported numeric id is coerced to a string so the game survives", () => {
+  // Every other reader requires a string id (analysis.js and progress.js cleanLibrary), so a backup
+  // carrying a numeric id used to be counted as imported and then silently dropped on the next read.
+  const parsed = parseBackup(file({ library: [{ id: 7, savedAt: 1, pgn: "1. e4" }] }));
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(parsed.backup.data.library.map((r) => r.id), ["7"], "ids are strings everywhere else");
+  assert.equal(backupSummary(parsed.backup).games, 1);
+  const merged = mergeLibraries([], parsed.backup.data.library);
+  assert.deepEqual(merged.library.map((r) => r.id), ["7"]);
+  assert.equal(merged.library[0].pgn, "1. e4", "the rest of the record is untouched");
+  assert.deepEqual(replaceLibrary(parsed.backup.data.library).library.map((r) => r.id), ["7"]);
+  assert.equal(libraryRecords(merged.library).length, 1, "and it is a record for the Progress page");
+});
+
+test("a record whose id cannot be a string is still refused", () => {
+  const incoming = [{ id: null, savedAt: 1 }, { id: {}, savedAt: 2 }, { id: NaN, savedAt: 3 }, { id: Infinity, savedAt: 4 }, { id: "", savedAt: 5 }];
+  assert.deepEqual(mergeLibraries([], incoming).library, []);
+  assert.deepEqual(replaceLibrary(incoming).library, []);
+  assert.equal(backupSummary(parseBackup(file({ library: incoming })).backup).games, 0);
 });
 
 test("mergeLibraries caps the result and replaceLibrary restores exactly", () => {

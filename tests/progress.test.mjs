@@ -19,9 +19,12 @@ const rec = (over = {}) => ({
 });
 
 test("libraryRecords drops non-records", () => {
-  const out = libraryRecords([null, undefined, {}, { id: "a" }, 7, "x"]);
+  const out = libraryRecords([null, undefined, {}, { id: "a" }, { id: 7 }, { id: "" }, 7, "x"]);
   assert.deepEqual(out.map((r) => r.id), ["a"]);
   assert.deepEqual(libraryRecords("nope"), []);
+  // The analyzer and this page's storage read both require a string id; a record this helper accepted
+  // with a numeric one was counted here and dropped there.
+  assert.deepEqual(libraryRecords([{ id: 7 }]), []);
 });
 
 test("sortChronological orders oldest to newest", () => {
