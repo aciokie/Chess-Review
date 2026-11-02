@@ -10,7 +10,8 @@ import {
   sliceRange, filterGames, colourSplit, typeSplit, decisionProfile, accuracyHistogram,
   scoreTrend, momentum, stability, gradeSeries, sortRows,
   sortOpeningsByScore,
-  dailyActivity, metricEvidence, opponentReport, focusAreas, gameRows, opponentKey, PHASE_LABELS,
+  dailyActivity, metricEvidence, opponentReport, focusAreas, gameRows, opponentKey, opponentName,
+  PHASE_LABELS,
 } from "./lib/progress.js";
 import {
   createBackup, parseBackup, mergeLibraries, replaceLibrary, backupSummary,
@@ -1007,10 +1008,11 @@ function openGame(id, ply = null) {
   openAnalysisTab({ pgn: rec.pgn, meta, source: "library" });
 }
 
-// The name as the library last spelled it, for the toolbar chip of an active opponent filter.
+// The name as the games this page reports on spell it, for the toolbar chip of an active opponent
+// filter. The raw library is the wrong place to look: a rival whose games were all saved from their
+// seat is named there as the tracked account, so the chip could only say "selected".
 function opponentLabel(key) {
-  for (const rec of library) if (opponentKey(rec) === key) return String(rec.opName).trim();
-  return "selected";
+  return opponentName(ownGames(library, username), key) || "selected";
 }
 
 /**

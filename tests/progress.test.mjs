@@ -9,6 +9,7 @@ import {
   scoreTrend, momentum, stability, gradeSeries, sortRows, ERROR_KEYS,
   playedAt, orderTime, myBrilliantCount, dayKey, dailyActivity, metricEvidence,
   opponentReport, opponentKey, focusAreas, gameRows, ratingScale, libraryFlip,
+  opponentName,
   sortOpeningsByScore,
 } from "../lib/progress.js";
 
@@ -800,6 +801,7 @@ test("sortRows keeps rows with no value last in both directions", () => {
 });
 
 test("the openings W-D-L column sorts by score, then by games played", () => {
+
   const rows = [
     { key: "a", games: 20, wins: 10, draws: 0, losses: 10, score: 50 },
     { key: "b", games: 8, wins: 6, draws: 2, losses: 0, score: 87.5 },
@@ -816,6 +818,19 @@ test("the openings W-D-L column sorts by score, then by games played", () => {
   assert.deepEqual(sortOpeningsByScore(undecided, "desc").map((r) => r.key), ["some", "none"]);
   assert.deepEqual(sortOpeningsByScore(undecided, "asc").map((r) => r.key), ["some", "none"],
     "an opening with no decided game sorts last either way, like sortRows");
+});
+
+test("an opponent filter is named from the tracked games, not the raw library", () => {
+  // Every game against Rival was reviewed from Rival's seat, so the raw record names the tracked
+  // account as the opponent: looking the key up there found nothing and the chip said "selected".
+  const raw = [rec({ id: "r1", myName: "Rival", opName: "Ana", meSide: "w", result: "loss" })];
+  const tracked = ownGames(raw, "Ana");
+  assert.equal(tracked[0].opName, "Rival", "ownGames re-points the names at the tracked account");
+  const key = opponentKey(tracked[0]);
+  assert.equal(opponentName(tracked, key), "Rival");
+  assert.equal(opponentName(raw, key), "", "the raw library has no game against Rival to name it");
+  assert.equal(opponentName(tracked, "nobody"), "");
+  assert.equal(opponentName(tracked, ""), "", "an empty filter key has no name");
 });
 
 test("streaks are counted over every tracked game, not the filtered window", () => {
