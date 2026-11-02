@@ -387,6 +387,27 @@ test("dailyActivity fills a continuous window and counts each day", () => {
   assert.equal(daily.today, "2026-11-01");
 });
 
+test("playedAt rejects a game dated in the future", () => {
+  const now = new Date(2026, 10, 1, 12).getTime();          // 1 Nov 2026, noon
+  assert.equal(playedAt({ date: "2026.11.01" }, { now }), new Date(2026, 10, 1).getTime(), "today is a real day");
+  assert.equal(playedAt({ date: "2026.11.02" }, { now }), new Date(2026, 10, 2).getTime(),
+    "tomorrow is accepted: a PGN written in another timezone may be a day ahead");
+  assert.equal(playedAt({ date: "2026.11.03" }, { now }), null, "the day after tomorrow cannot have been played");
+  assert.equal(playedAt({ date: "2027.05.05" }, { now }), null, "a clock-skewed PGN is undated, not future-dated");
+  assert.equal(playedAt({ date: "2026.10.31" }, { now }), new Date(2026, 9, 31).getTime(), "the past is untouched");
+});
+
+test("dailyActivity counts a future-dated game as undated instead of dropping it", () => {
+  const now = new Date(2026, 10, 1, 12).getTime();
+  const daily = dailyActivity([
+    rec({ id: "played", date: "2026.10.31", result: "win" }),
+    rec({ id: "future", date: "2027.05.05", result: "win" }),   // would otherwise fall outside the window
+  ], { days: 84, now });
+  assert.equal(daily.games, 1);
+  assert.equal(daily.undated, 1, "reported as unplaceable, not silently missing from the cards' count");
+  assert.equal(daily.outside, 0);
+});
+
 test("dailyActivity does not call a run that ended last week a current streak", () => {
   const now = new Date(2026, 10, 1, 12).getTime();
   const daily = dailyActivity([rec({ id: "x", date: "2026.10.29" })], { days: 7, now });

@@ -600,8 +600,9 @@ function dailyPanel(records) {
   if (!daily.games) {
     return el("div", { class: "panel" },
       el("h3", {}, "Daily tracker"),
+      // Not "carries no date": a future-dated PGN has one, it just cannot be a day you played on.
       el("p", { class: "sub" }, daily.undated
-        ? `${daily.undated} saved ${daily.undated === 1 ? "game carries" : "games carry"} no date in its PGN, so ${daily.undated === 1 ? "it" : "they"} cannot be placed on a day.`
+        ? `${daily.undated} saved ${daily.undated === 1 ? "game has" : "games have"} no usable date in ${daily.undated === 1 ? "its" : "their"} PGN — missing, unreadable, or set in the future — so ${daily.undated === 1 ? "it" : "they"} cannot be placed on a day.`
         : "No games in the last 84 days."));
   }
   const level = (n) => (!n ? 0
@@ -632,7 +633,7 @@ function dailyPanel(records) {
       `${daily.games} ${daily.games === 1 ? "game" : "games"} on ${daily.activeDays} ${daily.activeDays === 1 ? "day" : "days"} in the last ${daily.days}`
       + ` · current streak ${daily.streak} ${daily.streak === 1 ? "day" : "days"}`
       + ` · best run ${daily.best} ${daily.best === 1 ? "day" : "days"}`
-      + (daily.undated ? ` · ${daily.undated} undated` : "")),
+      + (daily.undated ? ` · ${daily.undated} without a usable date` : "")),
     el("div", { class: "days" },
       ...Array.from({ length: lead }, () => el("span", { class: "day empty", "aria-hidden": "true" })),
       ...cells),
