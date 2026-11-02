@@ -443,6 +443,17 @@ test("metricEvidence lists the games behind a number, highest first", () => {
   assert.equal(metricEvidence([], "nope"), null);
 });
 
+test("the score and win-rate rules describe the percentages the page shows", () => {
+  const records = [rec({ id: "w", result: "win" }), rec({ id: "d", result: "draw" })];
+  const score = metricEvidence(records, "score");
+  const winRate = metricEvidence(records, "winRate");
+  // The card and the evidence column both print 0-100, so a rule saying "a win is 1" reads as 1%.
+  assert.match(score.rule, /100%/);
+  assert.match(score.rule, /50%/);
+  assert.doesNotMatch(score.rule, /a win is 1\b/);
+  assert.match(winRate.rule, /percentage/);
+});
+
 test("metricEvidence does not average score and win rate on the wrong scale", () => {
   const records = [
     rec({ id: "w", result: "win", date: "2026.10.01" }),
