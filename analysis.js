@@ -7170,7 +7170,10 @@ function mainlineNavigationLimit() {
   if (!S.analyzing) return S.total;
   let furthest = 0;
   for (let i = 0; i <= S.total; i++) if (S.evals[i]) furthest = i;
-  return Math.max(Math.max(0, S.progress || 0), furthest);
+  // A deep link (Progress opens a game at its worst move) seats the board at a ply no evaluation has
+  // reached yet, and a fresh batch publishes nothing: the limit must never sit behind the board, or
+  // the first Next/End clamps it back to ply 0. Forward steps still wait for the batch to get there.
+  return Math.max(S.idx, Math.max(0, S.progress || 0), furthest);
 }
 function go(to) {
   const prev = S.idx;

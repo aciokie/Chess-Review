@@ -57,3 +57,34 @@ test('a different move still opens a variation', async t => {
   assert.equal(S.analysisMode, true, 'a deviating move is a variation');
   assert.ok(S.variation);
 });
+
+// Progress deep-links to the move that decided a game, so the board starts at a ply no evaluation has
+// reached yet. A fresh batch publishes nothing at the start, so the limit was 0 and the first Next or
+// End snapped the board back to the opening position.
+const DEEP_PGN = '1. e4 e5 2. Nf3 Nc6 3. Bb5';
+
+test('a deep-linked position survives the first navigation click of a fresh batch', async t => {
+  const a = app(t, { url: 'https://extension.test/analysis.html#deep-link' });
+  loadGame(a, DEEP_PGN);
+  a.call('computeDerived'); a.call('buildUI'); a.call('renderAll');
+  a.replace('startAnalysis', () => {});                  // the batch's results are not under test here
+  await a.call('applyGame', { pgn: DEEP_PGN, meta: { gameId: 'deep', startPly: 3 }, analysis: null });
+  const S = a.state;
+  assert.equal(S.idx, 3, 'the link landed on its ply');
+  S.analyzing = true;                                     // nothing published yet: a fresh batch
+  S.progress = 0;
+  S.evals = S.positions.map(() => null);
+  S.bests = S.positions.map(() => null);
+
+  a.call('go', S.idx + 1);                                // Next
+  assert.equal(S.idx, 3, 'Next must not rewind the board to ply 0');
+  assert.ok(a.call('mainlineNavigationLimit') >= 3, 'the limit cannot sit behind the board');
+  a.call('go', S.total);                                  // End
+  assert.equal(S.idx, 3, 'nor End');
+
+  // Forward navigation resumes as soon as the batch reaches the linked ply.
+  S.progress = 4;
+  S.evals = S.positions.map((_, i) => (i <= 4 ? { cp: 0 } : null));
+  a.call('go', 4);
+  assert.equal(S.idx, 4);
+});
