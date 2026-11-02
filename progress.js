@@ -10,8 +10,7 @@ import {
   sliceRange, filterGames, colourSplit, typeSplit, decisionProfile, accuracyHistogram,
   scoreTrend, momentum, stability, gradeSeries, sortRows,
   sortOpeningsByScore,
-  dailyActivity, metricEvidence, opponentReport, focusAreas, gameRows, opponentKey, opponentName,
-  PHASE_LABELS,
+  dailyActivity, metricEvidence, opponentReport, focusAreas, gameRows, opponentName, PHASE_LABELS,
 } from "./lib/progress.js";
 import {
   createBackup, parseBackup, mergeLibraries, replaceLibrary, backupSummary,
