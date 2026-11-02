@@ -191,3 +191,19 @@ test('14: a junk entry in stored library does not break a save', async t => {
   assert.ok(a.store.library.some((rec) => rec.id === 'keep'), 'the real record survives');
   assert.equal(a.store.library.length, 2, 'the junk is dropped, the new game is added');
 });
+
+test('15: a non-array stored library does not wipe the saved games', async t => {
+  // `??` only falls back on null/undefined, so a half-written string or object in storage was cleaned
+  // to [] and then written straight back - erasing every saved game on the next save/favorite.
+  const a = app(t);
+  a.replace('renderLibrary', () => {});
+  loadGame(a, '1. e4 e5');
+  a.call('computeDerived');
+  a.state.meta = { gameId: 'a' };
+  await a.call('saveToLibrary');
+  assert.deepEqual(a.store.library.map((rec) => rec.id), ['a']);
+  a.store.library = { not: 'a library' };
+  await a.call('toggleFav', 'a');
+  assert.deepEqual(a.store.library.map((rec) => rec.id), ['a'], 'the in-memory list is used, not the bad value');
+  assert.equal(a.store.library[0].fav, true);
+});

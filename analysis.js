@@ -6884,7 +6884,10 @@ const cleanLibrary = (value) => (Array.isArray(value) ? value : [])
 function updateLibrary(update, analysisWrites = {}) {
   const commit = async () => {
     const stored = await browserAPI.storage.local.get("library");
-    const current = cleanLibrary(stored.library ?? S.library);
+    // `??` would accept a string or an object here, clean it to [] and then write that empty list
+    // back - erasing every saved game. Only a real array counts; a corrupted value falls back to the
+    // list this tab already has instead of wiping storage.
+    const current = cleanLibrary(Array.isArray(stored.library) ? stored.library : S.library);
     const next = update(current);
     // Cap the list; drop the analysis blobs of any games that fall off the end.
     const dropped = next.slice(LIBRARY_MAX);
