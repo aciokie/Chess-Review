@@ -673,6 +673,16 @@ button { font-family: inherit; cursor: pointer; }
 /* mistake-practice status text in the controls bar */
 .controls .practice-pos { color: var(--ink-2); font-weight: 700; font-family: var(--font-ui); }
 .controls .practice-status { color: var(--ink-3); font-size: 13px; margin-right: 4px; }
+/* Live board: take back the last move. Kept apart from "Previous", which only steps back for a look;
+   this one changes the game. */
+.controls .live-undo {
+  margin-left: 8px;
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--line));
+  color: var(--ink);
+}
+.controls .live-undo:hover:not([disabled]) {
+  background: color-mix(in oklab, var(--accent) 14%, var(--panel-2));
+}
 /* "Practice your mistakes" button in the Accuracy panel header */
 .panel-head .practice-btn {
   margin-left: auto; border: 1px solid color-mix(in oklab, var(--accent) 45%, var(--line));

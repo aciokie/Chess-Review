@@ -254,6 +254,57 @@ test('the end-of-game button exists for a finished live game only', async t => {
   assert.equal(foot.hidden, true);
 });
 
+test('undo takes back the move just played so a misclick never stays in the game', async t => {
+  const a = liveBoard(t, { engine: fakeEngine(async () => ({ score: { cp: 30 }, bestmove: 'e7e5', lines: [] })) });
+  const S = a.state;
+  a.call('applyUserMove', 'e2', 'e4', false); await settle();
+  a.call('applyUserMove', 'e7', 'e5', false); await settle();
+  assert.equal(S.total, 2);
+  assert.equal(S.positions.length, 3);
+  assert.equal(a.call('canUndoLiveMove'), true);
+
+  a.call('undoLiveMove');
+
+  assert.equal(S.total, 1, 'only the last move is removed');
+  assert.equal(S.positions.length, S.total + 1);
+  assert.equal(S.positions.at(-1).san, 'e4');
+  assert.equal(S.evals.length, S.total + 1, 'the removed ply’s evidence is gone');
+  assert.equal(S.bests.length, S.total + 1);
+  assert.equal(S.idx, 1, 'the board sits on the new last move');
+  assert.equal(S.idx, S.total);
+  assert.match(S.pgn, /1\. e4 \*/);
+  assert.doesNotMatch(S.pgn, /e5/);
+  assert.equal(S.headers.Result, '*', 'the game is still open');
+  assert.equal(a.call('isLiveBoard'), true, 'undo never ends the game');
+});
+
+test('undo is offered only at the live tip and never once the game has ended', async t => {
+  const a = liveBoard(t);
+  const S = a.state;
+  assert.equal(a.call('canUndoLiveMove'), false, 'nothing to undo on an empty board');
+  a.call('applyUserMove', 'e2', 'e4', false); await settle();
+  assert.equal(a.call('canUndoLiveMove'), true, 'the board is on the move just played');
+  a.call('go', 0);
+  assert.equal(a.call('canUndoLiveMove'), false, 'reviewing an earlier ply is not the live tip');
+  a.call('go', S.total);
+  assert.equal(a.call('canUndoLiveMove'), true);
+  a.call('finishLive', '1-0', 'resign');
+  assert.equal(a.call('canUndoLiveMove'), false, 'a finished game keeps its stamped result');
+});
+
+test('the live controls bar carries an undo button that is disabled until a move is played', async t => {
+  const a = liveBoard(t);
+  const { document } = a.dom.window;
+  const button = () => document.querySelector('.controls .live-undo');
+  assert.ok(button(), 'the live board has an undo button');
+  assert.equal(button().disabled, true, 'nothing to undo yet');
+  a.call('applyUserMove', 'e2', 'e4', false); await settle();
+  assert.equal(button().disabled, false);
+  button().click();
+  assert.equal(a.state.total, 0, 'clicking it takes the move back');
+  assert.equal(button().disabled, true, 'and is disabled again on the empty board');
+});
+
 test('a live tab reload resumes the game in progress, a new tab starts a fresh one', async t => {
   const a = liveBoard(t);
   a.call('applyUserMove', 'e2', 'e4', false); await settle();

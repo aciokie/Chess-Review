@@ -474,6 +474,7 @@ const ICONS = {
   gear: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>`,
   first: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h2v14H7zM19 5l-9 7 9 7z"/></svg>`,
   prev: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5l-9 7 9 7z"/></svg>`,
+  undo: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-4"/></svg>`,
   next: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5l9 7-9 7z"/></svg>`,
   last: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 5h2v14h-2zM5 5l9 7-9 7z"/></svg>`,
   play: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5l12 7-12 7z"/></svg>`,
@@ -3420,6 +3421,34 @@ function resignLive(side) {
   finishLive(side === "w" ? "0-1" : "1-0", "resign");
 }
 
+// Take back the move just played. A misclicked piece would otherwise be a permanent mainline move:
+// playing from the tip is the only way to grow the game, and a move from an earlier ply opens a
+// variation instead of replacing it. Only the last move can be undone, and only while the game is
+// still in progress - once it has ended the stamped result stays put.
+function canUndoLiveMove() {
+  return isLiveBoard() && !S.analysisMode && S.total > 0 && S.idx === S.total;
+}
+function undoLiveMove() {
+  if (!canUndoLiveMove()) return;
+  S.positions.pop();
+  S.evals.pop();
+  S.bests.pop();
+  S.total = S.positions.length - 1;
+  S.idx = S.total;
+  S.liveGen = (S.liveGen || 0) + 1;   // invalidate a tail search that included the removed ply
+  S.liveError = null;
+  // Variations branch from a position index; drop any that pointed past the new end.
+  if (S.savedVars?.length) S.savedVars = S.savedVars.filter((v) => v.branchIdx <= S.total);
+  S.pgn = livePgnText(liveCfg(), S.positions, "*");
+  S.headers = parseHeaders(S.pgn);
+  S.selectedSq = null;
+  computeDerived();
+  paintBoard();
+  renderLive();
+  rememberReviewJob();                // a reload resumes the shortened game, not the misclick
+  requestLiveAnalysis();              // the predecessor's search may still be missing (rapid moves)
+}
+
 // End the live game: stamp the Result into the PGN and stop the move-by-move search, but do NOT
 // start the full review. The game stays on this board with the live analysis it already has, and the
 // player picks what happens next from the button under the graph (see liveFinishPending below).
@@ -3725,13 +3754,26 @@ function renderControls() {
   // The forward buttons are blocked at the furthest evaluation we have (only during analysis).
   const maxPly = mainlineNavigationLimit();
   const atEnd = S.idx >= maxPly;
-  UI.controls.replaceChildren(
+  const kids = [
     el("button", { "aria-label": "Start", onclick: () => go(0) }, icon("first")),
     el("button", { "aria-label": "Previous", onclick: navPrev }, icon("prev")),
     el("button", { class: "play", "aria-label": playing ? "Pause" : "Play", onclick: toggleAuto }, icon(playing ? "pause" : "play")),
     el("button", { "aria-label": "Next", disabled: atEnd, onclick: navNext }, icon("next")),
     el("button", { "aria-label": "End", disabled: atEnd, onclick: () => go(maxPly) }, icon("last")),
-  );
+  ];
+  // A live game grows at the tip, so a misclicked piece would become a permanent mainline move. The
+  // undo button is kept apart from "Previous" (which only steps back for a look) and is offered only
+  // while the game is running and the board sits on its last move.
+  if (isLiveBoard()) {
+    kids.push(el("button", {
+      class: "live-undo", type: "button",
+      "aria-label": "Undo last move",
+      title: "Undo last move (Ctrl+Z)",
+      disabled: !canUndoLiveMove(),
+      onclick: undoLiveMove,
+    }, icon("undo")));
+  }
+  UI.controls.replaceChildren(...kids);
 }
 
 /* ---------------- Insight panel (move commentary + practice coaching) ----------------
@@ -7251,6 +7293,9 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "Home") { if (S.analysisMode) gotoVar(0); else gotoMainline(0); }
   else if (e.key === "End") { if (S.analysisMode) gotoVar(S.variation.positions.length - 1); else gotoMainline(S.total); }
   else if (e.key === "Escape") { if (S.analysisMode) exitAnalysis(); }
+  else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && String(e.key).toLowerCase() === "z") {
+    if (canUndoLiveMove()) { e.preventDefault(); undoLiveMove(); }
+  }
   else if (e.key === "f" && !e.ctrlKey && !e.metaKey) toggleFlip(); // Ctrl+F must not flip the board
 });
 
