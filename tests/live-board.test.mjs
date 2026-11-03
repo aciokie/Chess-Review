@@ -332,6 +332,24 @@ test('the live board fetches the runner-up so Great can fire during play', async
   assert.equal(S.bests[2].lines.length, 1, 'the scored live root is untouched');
 });
 
+test('a fully scored live board never reports an engine failure from the optional runner-up pass', async t => {
+  const a = liveBoard(t, { engine: fakeEngine(async (fen) => ({
+    score: { cp: 30 },
+    bestmove: fen.length > 50 ? 'e2e4' : 'e7e5',
+    lines: [],
+  })) });
+  const S = a.state;
+  a.call('applyUserMove', 'e2', 'e4', false);
+  await settle();
+  assert.ok(S.evals[1] && S.bests[1], 'the move is scored');
+  // From here the only reason to touch the engine is the annotation pass.
+  a.replace('ensureLiveEngine', async () => { throw Error('engine could not start'); });
+  S.liveError = null;
+  await a.call('requestLiveAnalysis');
+  await settle();
+  assert.equal(S.liveError, null, 'a finished board keeps its analysis instead of an error');
+});
+
 test('a live tab reload resumes the game in progress, a new tab starts a fresh one', async t => {
   const a = liveBoard(t);
   a.call('applyUserMove', 'e2', 'e4', false); await settle();

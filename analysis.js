@@ -3382,6 +3382,9 @@ async function requestLiveAnalysis() {
     renderLive();
   } catch (e) {
     if (!valid()) return;
+    // Nothing was missing, so the board is already scored and only the optional runner-up pass failed:
+    // never replace a finished position with an engine error.
+    if (!missing.length) return;
     // Same retry affordance explore uses (renderReview renders the "Retry analysis" button).
     S.liveError = "Stockfish stopped before this position was ready.";
     if (S.liveEngine?.dead) { S.liveEngine.terminate(); S.liveEngine = null; }
@@ -7537,14 +7540,15 @@ async function annotateKeyMoves(engines, stillCurrent, max = KEY_MOVE_SEARCH_MAX
     && !S.bests[i - 1].annotationTried && !_isCheckmate(i - 1, S))
     .sort((a, b) => a - b).slice(0, max).map((i) => i - 1);
   if (!roots.length) return 0;
-  // Mark the attempt before searching: the live board calls this after every move, and a search that
-  // legitimately yields no usable runner-up must not be retried forever.
-  for (const i of roots) S.bests[i].annotationTried = true;
   let next = 0;
   await Promise.all(engines.map(async (eng) => {
     while (stillCurrent()) {
       const i = roots[next++];
       if (i == null) return;
+      // Mark only the root actually being attempted: the live board supersedes this run on the next
+      // move, and a root marked up front would be skipped forever even though it was never searched
+      // (that silently costs Great and a won-position Brilliant for every ply still queued).
+      if (S.bests[i]) S.bests[i].annotationTried = true;
       try {
         const extra = await eng.analyse(S.positions[i].fen, S.settings.engineDepth, 2, searchHistory(S.positions, i));
         if (!stillCurrent()) return;
@@ -7556,6 +7560,14 @@ async function annotateKeyMoves(engines, stillCurrent, max = KEY_MOVE_SEARCH_MAX
       }
     }
   }));
+  // A superseded run keeps neither the result nor the "tried" mark: the next run (the next live move,
+  // or the next review flush) must be able to decide these roots again.
+  if (!stillCurrent()) {
+    for (const i of roots) {
+      const root = S.bests[i];
+      if (root && !root.annotationSearch) delete root.annotationTried;
+    }
+  }
   return roots.length;
 }
 

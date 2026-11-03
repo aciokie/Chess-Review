@@ -118,6 +118,24 @@ test('a full one-line review runs the key-move pass and publishes Great', async 
   assert.equal(S.classif[3], 'great');
 });
 
+test('a superseded annotation run leaves its key move retryable', async t => {
+  const a = app(t), S = oneLineGreat(a);
+  // The live board supersedes this run when the next move is played: the search returns after the
+  // token changed, so its result is discarded. The root must not stay marked as "tried" - that would
+  // block the runner-up (and Great/Brilliant) for the rest of the game.
+  let current = true;
+  const superseded = fakeEngine(async () => { current = false; return twoLines(); });
+  await a.call('annotateKeyMoves', [superseded], () => current);
+  assert.equal(S.bests[2].annotationSearch, undefined);
+  assert.ok(!S.bests[2].annotationTried, 'a superseded attempt is not remembered as tried');
+  // The next tail search can still decide it.
+  let retried = 0;
+  await a.call('annotateKeyMoves', [fakeEngine(async () => { retried++; return twoLines(); })], () => true);
+  assert.equal(retried, 1, 'the root is searched again');
+  a.call('computeDerived');
+  assert.equal(S.classif[3], 'great');
+});
+
 test('a runner-up search that fails or yields no usable line is not repeated on every repaint', async t => {
   const a = app(t), S = oneLineGreat(a);
   let first = 0;
