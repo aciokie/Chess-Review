@@ -140,7 +140,7 @@ CI gate (`.github/workflows/verify.yml`, Node 22 — `package.json` declares no 
 
 ## Workflow & environment
 - This is a fork of `T-Julsgaard/Chess-Review` (the public upstream). `README.md`, `CONTRIBUTING.md`, `.github/pull_request_template.md`, `.github/ISSUE_TEMPLATE/` and `.github/dependabot.yml` describe the upstream contribution flow
-- Push verified changes straight to `main` (this repo's convention; no PR flow) and never push upstream
+- **Always commit and push.** A verified change is not done until it is on `main`: commit and push it in the same turn, never leave verified work sitting uncommitted, and never stop at a local edit. Push straight to `main` (this repo's convention; no PR flow) and never push upstream
 - When asked to *audit/check* something, stay read-only — report findings and wait for an explicit go-ahead before editing
 - `git push` writes to stderr, so PowerShell reports exit code 1 even on success — verify the `old..new main -> main` line instead
 - `Set-Content -Encoding UTF8` writes a BOM, which lands in the commit subject when you use `git commit -F` — use `-Encoding ascii` (or the write tool) for message files
