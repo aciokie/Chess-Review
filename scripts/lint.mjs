@@ -15,13 +15,20 @@ const stage = path.join(stageRoot, 'lint-source');
 const webExt = path.join(root, 'node_modules', 'web-ext', 'bin', 'web-ext.js');
 // 'native' holds the optional Windows native-engine helper (its sources and the bundled Stockfish
 // executable): it is not part of any browser package, so web-ext lint must not scan it.
-const skip = new Set(['.git', 'node_modules', 'web-ext-artifacts', 'calibration-runs', 'native', 'manifest.json']);
+// 'tmp-ext-test' is the gitignored scratch used by the real-engine and real-browser runs; it never ships.
+const skip = new Set(['.git', 'node_modules', 'web-ext-artifacts', 'calibration-runs', 'native', 'manifest.json',
+  'tmp-ext-test']);
+// The puzzle library is one 27 MB data file. web-ext refuses to parse anything over 5 MB, and the
+// browser packages do not carry it in this shape anyway: scripts/package-puzzles.mjs rewrites the
+// staged copy into an index plus ~4 MB parts, so only the source tree is ever this large.
+const oversized = new Set([path.join('data', 'learning', 'puzzles.json')]);
 
 async function stageDir(rel) {
   const fromDir = path.join(root, rel);
   for (const entry of await readdir(fromDir, { withFileTypes: true })) {
     if (!rel && skip.has(entry.name)) continue;
     const relPath = rel ? path.join(rel, entry.name) : entry.name;
+    if (oversized.has(relPath)) continue;
     const to = path.join(stage, relPath);
     if (entry.isDirectory()) {
       await mkdir(to, { recursive: true });

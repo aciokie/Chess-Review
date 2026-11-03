@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { cmd } from 'web-ext';
+import { packagePuzzles } from './package-puzzles.mjs';
 import './verify-engines.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -81,10 +82,13 @@ for (const browser of ['chrome', 'firefox']) {
     delete target.background.service_worker;
   }
   await writeFile(path.join(sourceDir, 'manifest.json'), JSON.stringify(target, null, 2) + '\n');
+  // Split the puzzle library for the store ZIPs only; the source snapshot above keeps the
+  // single readable file. This must run before build, which reads the staged tree.
+  const puzzleLibrary = await packagePuzzles(sourceDir);
   const filename = `chess-review-${manifest.version}-${browser}.zip`;
   await cmd.build({ sourceDir, artifactsDir: releaseDir, filename, overwriteDest: false });
   const zip = path.join(releaseDir, filename);
-  results.push({ browser, sourceDir, zip, sha256: await sha256(zip), unpackedBytes: await size(sourceDir), zipBytes: (await stat(zip)).size });
+  results.push({ browser, sourceDir, zip, sha256: await sha256(zip), unpackedBytes: await size(sourceDir), zipBytes: (await stat(zip)).size, puzzleLibrary });
 }
 await writeFile(path.join(releaseDir, 'release-sizes.json'), JSON.stringify(results, null, 2) + '\n');
 const record = {

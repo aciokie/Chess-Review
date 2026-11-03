@@ -31,6 +31,7 @@ CI gate (`.github/workflows/verify.yml`, ubuntu-24.04 + Node 22; `package.json` 
 - jsdom cannot build the library sidebar dropdowns (they parse HTML through `DOMParser`): any test that reaches `renderLibrary` must stub it or `libDropdown`, or it fails inside `el()`.
 - `npm run lint` lints `tests/*.mjs` too and rejects `innerHTML`/`outerHTML` assignment from a value (`UNSAFE_VAR_ASSIGNMENT`) — build replacement nodes with DOM APIs instead.
 - Network code (`recent-games.js`) takes an injected `fetchImpl` — unit tests never touch the network.
+- `tests/learning-puzzles.test.mjs` mounts the **real** learning workspace on the real board: `a.context.loadLearningWorkspace = loadLearningWorkspace` (the harness strips imports, so the global must be injected) after `buildUI()` + `buildBoard()`. `lib/learning` reads its bundled JSON with `fetch` in its own realm, so that test swaps `globalThis.fetch` for a disk reader (`servePuzzles`) — the same request is `runtime.getURL()` in the extension. Build the board with `buildBoard()` before `openLearning()`, or `mountEmbedded` finds no `.board` to dock.
 - `npm run test:browsers` reads `web-ext-artifacts/latest-release.json`, so it needs a prior `npm run build` (it drives the *packaged* extensions, not the working tree).
 
 ## Architecture
@@ -43,6 +44,7 @@ CI gate (`.github/workflows/verify.yml`, ubuntu-24.04 + Node 22; `package.json` 
 - **Recent games**: `recent-games.js` pages through a user's games (30 per page via `createRecentGamesPager`; Lichess uses the export's `until`, Chess.com walks monthly archives) from the platform APIs by username (popup section "Recent games")
 - **Game identity & caching**: `gameid.js` owns what makes two games "the same" (platform id, else a PGN hash) and every `gamecache:` key; `gamecache.js` stores fetched PGNs locally (LRU-capped) so re-opening a seen game costs no API calls
 - **Concepts pipeline**: `lib/concepts/` runs detectors off the UI thread in `worker.js`; `runtime.js` executes them by group, then `lib/coach-insights.js` (`coachInsights`/`coachReply`/`playerText`/`tidyText`) phrases the findings. `controls.js` `CONCEPT_GROUPS` / `DEFAULT_CONCEPT_GROUPS` are implementation controls (cost-ordered, most heavy groups default off), not research acceptance
+- **Learning workspace** (`lib/learning`, vendored from upstream): puzzles, lessons and openings, opened from the top-bar `#learningToggle` or the board-side `.learn-entry-button` (`openLearning()`). It is loaded lazily by `lib/learning-loader.js` and *embedded on the review board*: `workspace.js` moves the board's own squares into its own dock, so piece sets, the board frame, coords and drag behave identically. The puzzle library is the Lichess CC0 sample (`data/learning/puzzles.json`, 50,000 puzzles) read through `runtime.getURL`; the leaderboard client ships inert because `leaderboard-config.js` has an empty endpoint
 - **No build step for source** — the extension loads raw JS/CSS; `npm run build` only packages for stores
 - **Reference docs**: `docs/MOVE_CLASSIFICATION.md` is the authoritative classifier policy (categories are annotations — they never move accuracy/rating); `docs/PERFORMANCE.md` records the baseline and how to compare `npm run perf` runs (only at a matching `--reps`)
 
@@ -61,6 +63,9 @@ CI gate (`.github/workflows/verify.yml`, ubuntu-24.04 + Node 22; `package.json` 
 | `progress.html`, `progress.js`, `lib/progress.js` | Engine-free Progress page (accuracy/rating trend, openings, per-phase accuracy, personal bests) + the **Data** tab (backup export/import); all math lives in `lib/progress.js` so Node can test it |
 | `lib/library-backup.js` | Pure export/import of the local library + settings (`chess-review-backup` v1 JSON); merge is id-keyed with the newer `savedAt` winning |
 | `lib/library-seat.js` | Shared `playerSide`/`libraryFlip` seat rule (Progress page and analyzer must agree) |
+| `lib/learning/` | Puzzles / lessons / openings workspace (vendored from upstream) + its rules engine; `workspace.js` is the whole UI, `content.js` the lesson and opening content, `validation.js` the answer checker |
+| `lib/learning-loader.js` | Lazy door into `lib/learning/workspace.js` — keeps lesson content off the review's startup path |
+| `data/learning/puzzles.json` | Lichess CC0 puzzle sample (50,000); `scripts/package-puzzles.mjs` splits it for the store ZIPs |
 | `lib/concepts/` | Concepts detectors + runtime (worker) + provenance |
 | `lib/coach-insights.js` | Concept finding presentation (ordering, perspective swap, wording) |
 | `native/` | Windows Native Messaging host (C# source; installer compiles it — no prebuilt exe is committed), bundled SF19 exe, installer, docs |
@@ -99,7 +104,8 @@ CI gate (`.github/workflows/verify.yml`, ubuntu-24.04 + Node 22; `package.json` 
 
 ## Packaging & lint
 - `scripts/package.mjs` uses an **explicit allowlist**: top-level files (`files`) and whole directories (`directories`: `lib`, `data`, `engine`, …) are copied by name, so a new **top-level** file a page/script imports MUST be added or the store ZIPs break (this bit `recent-games.js`); a new file under a listed directory ships automatically
-- `native/` goes into the **source snapshot only**, never the browser ZIPs; `scripts/lint.mjs` skips `.git`, `node_modules`, `web-ext-artifacts`, `calibration-runs`, `native`, `manifest.json`
+- `scripts/package-puzzles.mjs` runs between staging and `cmd.build` and rewrites the staged `data/learning/puzzles.json` into an index + parts; the **source snapshot keeps the single readable file**, so the two ZIP kinds differ for that path on purpose
+- `native/` goes into the **source snapshot only**, never the browser ZIPs; `scripts/lint.mjs` skips `.git`, `node_modules`, `web-ext-artifacts`, `calibration-runs`, `native`, `tmp-ext-test`, `manifest.json` and the 27 MB `data/learning/puzzles.json`
 - `manifest.version` must equal `package.json` `version` or the build throws
 
 ## CI (GitHub Actions)
@@ -130,6 +136,15 @@ CI gate (`.github/workflows/verify.yml`, ubuntu-24.04 + Node 22; `package.json` 
 - MV3 service workers idle out (~30 s): seed storage through an extension **page** context, not a captured worker
 - `npm run test:browsers` uses packaged ZIPs + isolated profiles; it falls back to `C:\Program Files\Google\Chrome\Application\chrome.exe` / `C:\Program Files\Mozilla Firefox\firefox.exe` unless `CHROME_PATH` / `FIREFOX_PATH` is set
 - **A real engine can run in Node too**: `native/engine/stockfish-windows-x86-64-universal.exe` speaks plain UCI, so a child-process UCI client can produce real scoring roots and feed them to the real classifier in the vm harness (no browser needed). `tmp-ext-test/` is the gitignored scratch dir for these (`real-engine-classify.test.mjs`, `badges-browser.mjs`, `run.mjs`, `shots/`) — keep throwaway scripts there (a plain `git add -A` once committed them)
+
+## Learning workspace (lib/learning, vendored)
+- The 41 files under `lib/learning/`, plus `lib/puzzle-badge.js`, `lib/move-animation.js`, `lib/learning-loader.js`, `lib/learning-announcement.js` and `data/learning/`, are **copied from upstream** — port fixes by copying, not by rewriting, and keep the imports pointing at this fork's `lib/chess.js` / `flags.js` / `browser-compat.js`. Wording belongs in `lib/coach-insights.js` only for concepts; learning copy lives in its own files
+- **`lib/mate-mark.js` is deliberately NOT the upstream version**: upstream's newer one builds the checkmate badge with `createContextualFragment`, which `npm run lint` rejects (`UNSAFE_VAR_ASSIGNMENT`). It needs no learning features — do not "update" it without rebuilding the badge with `createElementNS`
+- The workspace is **embedded**, so it ducks the review instead of replacing it: `paintBoard`, `buildBoard`, `renderBestArrow`, `renderUserArrows`, `renderThreatArrow`, `renderUserMarks`, `initBoardInput` and `alignPlayers` all return early on `learningWorkspace?.embedded`, the document keydown returns on `learningWorkspace`, `toggleFlip` delegates to `workspace.flipBoard()`, and `practiceAdvance` defers through `deferredPracticeAdvance`. **A new board-touching function needs the same guard** or it will rebuild the squares out from under an open puzzle (it moves the real 64 squares, so a repaint is silently destructive). `paintBoard` takes `{ restoring: true }` to opt back in for the workspace's own restore
+- The learning board's squares carry **both** `sq` and `learn-square`, and use the workspace's own state classes (`sel`, `last-move`, `puzzle-hint-square`, `puzzle-wrong`, `premove`). This fork's review board spells those differently (`.sq.hl`), so the ported rules are **scoped to `.learn-square`** on purpose — do not widen them to `.sq` or the review board silently changes look
+- `DEFAULT_LAYOUT.learn` is a real module box; `LAYOUT_VERSION` was bumped to 9 so saved layouts pick it up. Keep the box inside the old extent (it ends at y=976, controls reach 982) or the desktop canvas and its fitted zoom move for everyone
+- Puzzle and practice feedback both go through the review's own per-event FX (`SOUND_EVENTS` `puzzleSuccess` / `puzzleIncorrect`), so `playWrongSound`/`playPuzzleSuccess` are thin wrappers over `triggerFx`. `sounds/success/03-gentle-piano.wav` is the success default
+- `data/learning/puzzles.json` is ~27 MB: **web-ext refuses to parse anything over 5 MB**, so `scripts/package-puzzles.mjs` rewrites the staged copy into an index plus ~4 MB parts (`loadPuzzleData` follows `puzzleFiles`) and `scripts/lint.mjs` skips that one path in the working tree. Break either and `npm run lint` or the store ZIPs fail, not the tests
 
 ## Concepts pipeline (lib/concepts)
 - `lib/concepts/detectors/E*.mjs` (297 files) are generated copies of the `research/` experiments; their bytes and a source fingerprint are recorded in `lib/concepts/integration-provenance.json`. **Do not hand-edit detectors.**

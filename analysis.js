@@ -6,6 +6,8 @@
 import { Chess } from "./lib/chess.js";
 import { Engine } from "./engine/uci.js";
 import { matedKingSquare, mateMark } from "./lib/mate-mark.js";
+import { loadLearningWorkspace } from "./lib/learning-loader.js";
+import { mountLearningAnnouncement } from "./lib/learning-announcement.js";
 import { NativeEngine, nativeMessagingSupported, probeNativeHost, NATIVE_SCORING_CAPABILITY } from "./engine/native.js";
 import { flagCodeForCountryId, countryNameForId } from "./flags.js";
 import { browserAPI } from "./browser-compat.js";
@@ -435,9 +437,12 @@ const LOADERS = { dots: "pulse", bounce: "bounce", spinner: "spin", wave: "wave"
 // v8: the automatic responsive layout is the default; a canvas layout is only used once the user
 // reorganizes (S.layoutMode "custom"), and then starts from a snapshot of the screen. These boxes
 // also define the desktop automatic layout and hidden-module snapshot fallback.
+// v9: a "Solve Puzzles" module joins the right column under Engine, so saved v8 layouts are reset
+// once to pick it up. Its box deliberately ends at y=976, inside the previous extent (controls reach
+// 982), so the new module cannot resize the desktop canvas for anyone.
 // Geometry copied from the maintainer's saved unpacked-extension layout (September 2026).
 // Accuracy and Engine use the expanded breakdown baseline; collapse shifts Engine up.
-const LAYOUT_VERSION = 8;
+const LAYOUT_VERSION = 9;
 const DEFAULT_LAYOUT = {
   board:    { x: 344,  y: 0,   w: 822, h: 934 },
   evalbar:  { x: 288,  y: 58,  w: 30,  h: 816 },
@@ -448,6 +453,7 @@ const DEFAULT_LAYOUT = {
   accuracy: { x: 1510, y: 216, w: 294, h: 536 },
   graph:    { x: 1200, y: 620, w: 302, h: 178 },
   engine:   { x: 1512, y: 768, w: 294, h: 146 },
+  learn:    { x: 1512, y: 922, w: 294, h: 54  },
   concepts: { x: 1822, y: 60,  w: 294, h: 854 },
 };
 const GRIP_SVG = `<svg viewBox="0 0 12 12" width="12" height="12"><path d="M11 4 4 11M11 8 8 11" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>`;
@@ -594,6 +600,10 @@ const SOUND_EVENTS = [
   ["capture", "Capture", "sounds/capture.mp3"],
   ["check", "Check", "sounds/Check.mp3"],
   ["castle", "Castle", "sounds/Castling.mp3"],
+  // Learning puzzles (lib/learning) drive these two through the onPuzzleSuccess / onPuzzleWrong
+  // callbacks; the review's own practice mode shares them.
+  ["puzzleSuccess", "Puzzle solved", "sounds/success/03-gentle-piano.wav"],
+  ["puzzleIncorrect", "Puzzle missed", "sounds/Wrong/Incorrect.mp3"],
 ];
 const _fxFileById = (id) => (FX_SOUNDS.find(([x]) => x === id) || [])[2] || null;
 const _eventDef = (ev) => SOUND_EVENTS.find(([k]) => k === ev) || SOUND_EVENTS[0];
@@ -741,12 +751,16 @@ function playMoveSound(ply) {
   if (!S.settings.sound || ply < 1 || !S.positions[ply]) return;
   playEvent(sanSound(S.positions[ply].san));
 }
-// The practice mistake cue is fixed to Incorrect.
-let _wrongAudio = null;
+// Puzzle feedback (the review's practice mode and the learning workspace's puzzles) runs through the
+// same per-event FX knobs as the board sounds, so Settings → Sound can retune both cues. The default
+// is still the Incorrect cue the practice mode has always used.
 function playWrongSound() {
   if (!S.settings.sound) return;
-  if (!_wrongAudio) _wrongAudio = new Audio(_url("sounds/Wrong/Incorrect.mp3"));
-  try { _wrongAudio.volume = masterVol(); _wrongAudio.currentTime = 0; _wrongAudio.play().catch(() => {}); } catch {}
+  triggerFx("puzzleIncorrect");
+}
+function playPuzzleSuccess() {
+  if (!S.settings.sound) return;
+  triggerFx("puzzleSuccess");
 }
 
 /* ---------------- State ---------------- */
@@ -1960,6 +1974,9 @@ function buildUI() {
     ),
     el("div", { class: "topbar-meta", id: "meta" }),
     el("div", { class: "topbar-right" },
+      el("button", { type: "button", id: "learningToggle", class: "icon-btn learning-toggle", onclick: toggleLearning },
+        el("span", { class: "learning-toggle-icon", "aria-hidden": "true" }, icon("book")),
+        el("span", { class: "learning-toggle-label" }, "Learn with Chess review")),
       // aria-label (not title) → keeps the buttons labelled for screen readers without the native
       // hover tooltip the user found unnecessary.
       el("button", { class: "icon-btn", "aria-label": "Flip board", onclick: toggleFlip }, icon("flip")),
@@ -1994,6 +2011,11 @@ function buildUI() {
   const statsMount = el("div", { id: "statsMount" });
   const engineMount = el("div", { id: "engineMount" });
   const conceptsMount = el("div", { id: "conceptsMount" });
+  // The second door into the learning workspace, next to the panels: a plain button in its own
+  // module. It is deliberately not part of the controls bar — nothing else there opens a workspace.
+  const learnMount = el("div", { class: "learn-entry" },
+    el("button", { class: "learn-entry-button", "data-motion": S.settings.moveAnim === false ? "off" : "on", onclick: openPuzzles },
+      icon("book"), el("span", { class: "learn-entry-label" }, "Solve Puzzles")));
 
   // The stage holds every module. In the automatic layout the side wrappers group the panels into
   // columns (styles.css picks wide / medium / narrow by window size); in the custom layout they are
@@ -2005,7 +2027,7 @@ function buildUI() {
       makeMod("review", reviewMount),
       el("div", { class: "side-cols" },
         el("div", { class: "side-a" }, makeMod("moves", movesPanel), makeMod("graph", graphMount, graphFoot), makeMod("controls", controls)),
-        el("div", { class: "side-b" }, makeMod("accuracy", statsMount), makeMod("engine", engineMount)),
+        el("div", { class: "side-b" }, makeMod("accuracy", statsMount), makeMod("engine", engineMount), makeMod("learn", learnMount)),
       ),
       makeMod("coach", coachMount),
     ),
@@ -2069,6 +2091,113 @@ function buildUI() {
     alignment.observe(UI.review.closest(".mod"));
   }
   window.addEventListener("resize", () => { fitEnginePanel(); fitGraphFoot(); growCanvas(); alignPlayers(); positionSettings(); });
+}
+
+/* ---------------- Learning workspace (lib/learning) ----------------
+   Lessons, openings and puzzles open as a full workspace that takes over the board. It is loaded
+   lazily (lib/learning-loader.js) so none of that code sits on the review's startup path, and it is
+   embedded on the review board rather than in a page of its own: the workspace moves the board's
+   squares into its own dock, which keeps the piece styles, board frame and drag behaviour identical.
+
+   While it is open the review must not repaint the board out from under it, so every function that
+   touches the board, its arrows or its squares returns early on `learningWorkspace?.embedded`
+   (see the guards in buildBoard / paintBoard / renderBestArrow / renderUserArrows /
+   renderThreatArrow / initBoardInput / alignPlayers / practiceAdvance / toggleFlip / toggleAuto). */
+let learningWorkspace = null;
+let learningAnnouncement = null;
+let openingLearning = false;
+let deferredPracticeAdvance = false;
+// The in-flight board drag's cancel hook, so opening learning can never freeze a half-dropped piece.
+let _cancelBoardDrag = null;
+
+function openPuzzles(event) {
+  const button = event.currentTarget;
+  button.classList.add("is-activating");
+  setTimeout(() => button.classList.remove("is-activating"), 460);
+  return openLearning();
+}
+function toggleLearning() {
+  if (learningWorkspace) return learningWorkspace.close();
+  return openLearning();
+}
+function syncLearningToggle() {
+  const button = document.getElementById("learningToggle");
+  if (!button) return;
+  const learning = !!learningWorkspace && !learningWorkspace.closing, mode = learning ? "learning" : "review";
+  button.dataset.motion = S.settings.moveAnim === false ? "off" : "on";
+  if (button.dataset.mode === mode) return;
+  button.querySelector(".learning-toggle-label").textContent = learning ? "Return to Game review" : "Learn with Chess review";
+  button.querySelector(".learning-toggle-icon").replaceChildren(icon(learning ? "prev" : "book"));
+  button.dataset.mode = mode;
+}
+async function openLearning() {
+  if (learningWorkspace || openingLearning) return;
+  learningAnnouncement?.close();
+  openingLearning = true;
+  const positions = S.positions;
+  let LearningWorkspace;
+  try { ({ LearningWorkspace } = await loadLearningWorkspace()); }
+  catch (error) { console.warn(error); toast("Learning could not load. Try opening it again."); return; }
+  finally { openingLearning = false; }
+  // The game was replaced (a new review, a library game) while the module was loading.
+  if (S.positions !== positions) return;
+  if (learningWorkspace) return;
+  // Finish an already-started practice animation before freezing its exact board.
+  if (S.practice && (S.practice.rolling || S.practice.demoing || S.practice.busy)) {
+    toast("Let the current practice move finish, then open learning."); return;
+  }
+  const playing = !!S.autoTimer;
+  if (playing) { clearInterval(S.autoTimer); S.autoTimer = null; renderControls(); }
+  const sourceFen = activePos().fen, wasAnalysis = S.analysisMode;
+  const snapshot = { idx: S.idx, flipped: S.flipped, selectedSq: wasAnalysis ? null : S.selectedSq,
+    lineWalking: !wasAnalysis && S.lineWalking, bestWalking: !wasAnalysis && S.bestWalking };
+  stopLineWalk();
+  if (wasAnalysis) exitAnalysis(undefined, { render: false });
+  closePromotionPicker();
+  _cancelBoardDrag?.();
+  UI.settings.hidden = true;
+  hideBoardBadgeTip();
+  learningWorkspace = new LearningWorkspace({ document, storage: browserAPI.storage.local, makePiece, url: _url,
+    settings: () => S.settings, flipped: S.flipped, book: () => BOOK || {}, startDrag,
+    onPuzzleWrong: playWrongSound, onPuzzleMove: playSanSound, onPuzzlePremove: playMoveSound,
+    onOpeningMove: playSanSound, onFreeMove: playSanSound, onPuzzleSuccess: playPuzzleSuccess,
+    createAnalysisEngine: () => createEngine({ Hash: S.settings.engineHash, "Skill Level": S.settings.engineSkill }),
+    navigationButton: document.getElementById("learningToggle"),
+    embedded: { stage: UI.canvas, boardWrap: UI.boardWrap, fen: sourceFen, reviewFen: activePos().fen, startDrag,
+      restoreBoard: () => {
+        paintBoard({ restoring: true });
+        if (wasAnalysis) { renderEvalBar(); renderPlayers(); renderControls(); renderReview(); renderEngineCurrent(); }
+      },
+      drawArrow: (from, to, flipped) => learningArrow(from, to, flipped, USER_ARROW_COLOR),
+      drawBestArrow: (from, to, flipped) => learningArrow(from, to, flipped, /^#[0-9a-f]{6}$/i.test(S.settings.bestArrowColor || "") ? S.settings.bestArrowColor : ARROW_COLOR),
+    },
+    onClosing: syncLearningToggle,
+    onClose: () => {
+      learningWorkspace = null;
+      syncLearningToggle();
+      alignPlayers();
+      if (UI.settings && !UI.settings.hidden) renderSettings();
+      S.idx = snapshot.idx; S.flipped = snapshot.flipped; S.selectedSq = snapshot.selectedSq;
+      if (!S.practice) { paintBoard(); }
+      renderControls();
+      if (deferredPracticeAdvance) {
+        deferredPracticeAdvance = false;
+        const practice = S.practice;
+        setTimeout(() => { if (S.practice === practice) practiceAdvance(); }, 1300);
+      }
+      if (playing && !S.practice && !S.analysisMode) toggleAuto();
+      if (snapshot.bestWalking) playBestMoves();
+      else if (snapshot.lineWalking) startLineWalk();
+    } });
+  syncLearningToggle();
+  await learningWorkspace.open();
+}
+// Board arrows for the learning workspace: the same geometry and sliders as the review's own arrows,
+// so a hint or an engine line drawn on a puzzle matches the review's arrow settings exactly.
+function learningArrow(from, to, flipped, color) {
+  const a = arrowXY(from, flipped), b = arrowXY(to, flipped);
+  const { shaft, head } = arrowBuild(arrowWaypoints(a, b), S.settings.arrowHead, S.settings.arrowHead * .70);
+  return arrowNode(shaft, head, color);
 }
 
 /* ---------------- Loading indicator ----------------
@@ -2390,6 +2519,7 @@ function makePiece(type, side) {
   return el("img", { class: "piece-img", src: _url(`pieces-img/${setFolder}/${code}.svg`), alt: "", draggable: "false" });
 }
 function buildBoard() {
+  if (learningWorkspace?.embedded) return;   // the workspace owns the board's squares while it is open
   const files = ["a","b","c","d","e","f","g","h"];
   const ranks = [8,7,6,5,4,3,2,1];
   const rowOrder = S.flipped ? [...ranks].reverse() : ranks;
@@ -2433,7 +2563,8 @@ function boardCategory() {
   if (!S.analysisMode) return S.classif[S.idx] || null;
   return null;
 }
-function paintBoard() {
+function paintBoard(opts = {}) {
+  if (learningWorkspace?.embedded && !opts.restoring) return;   // see buildBoard
   hideBoardBadgeTip();
   const pos = activePos();
   const boardEl = UI.boardWrap.querySelector(".board");
@@ -2551,6 +2682,7 @@ function arrowBuild(pts, headLen, headHalf) {
 }
 const arrowFmt = (p) => `${+p.x.toFixed(4)},${+p.y.toFixed(4)}`;
 function renderBestArrow() {
+  if (learningWorkspace?.embedded) return;   // the workspace draws its own arrows on the board
   const board = UI.boardWrap.querySelector(".board");
   if (!board) return;
   let svg = board.querySelector("svg.best-arrow");
@@ -2673,6 +2805,7 @@ function toggleUserArrow(from, to) {
 }
 // preview: temporary arrow during dragging (drawn on top of the saved ones).
 function renderUserArrows(preview) {
+  if (learningWorkspace?.embedded) return;   // the workspace keeps its own arrow layer
   const board = UI.boardWrap.querySelector(".board");
   if (!board) return;
   let svg = board.querySelector("svg.user-arrows");
@@ -2810,6 +2943,7 @@ function threatFen(fen) {
 // "Show the threat": draw the opponent's best move (as if it were their turn) as a yellow arrow.
 let _threatToken = 0;
 async function renderThreatArrow() {
+  if (learningWorkspace?.embedded) return;   // the workspace draws its own arrows on the board
   const board = UI.boardWrap.querySelector(".board");
   if (!board) return;
   let svg = board.querySelector("svg.threat-arrow");
@@ -2822,10 +2956,10 @@ async function renderThreatArrow() {
   if (uci === undefined) {
     const token = ++_threatToken;
     let eng; try { eng = await getHelperEngine(); } catch { return; }
-    if (token !== _threatToken) return;
+    if (token !== _threatToken || learningWorkspace?.embedded) return;
     eng.stop();
     let res; try { res = await eng.analyse(threatFen(fen), Math.min(14, S.settings.engineDepth), 1); } catch { return; }
-    if (token !== _threatToken) return;
+    if (token !== _threatToken || learningWorkspace?.embedded) return;
     uci = res && res.bestmove ? res.bestmove : null;
     S.threatCache.set(fen, uci);
     if (activePos().fen !== fen) return;          // position changed while we searched
@@ -2853,6 +2987,8 @@ function toggleMark(sq) {
   renderUserMarks();
 }
 function renderUserMarks() {
+  // While learning is open the workspace keeps its own marks on its own squares.
+  if (learningWorkspace?.embedded) return;
   for (const [name, sq] of Object.entries(sqByName)) {
     const on = S.userMarks.includes(name);
     sq.classList.toggle("marked", on);
@@ -2954,8 +3090,11 @@ function initBoardInput() {
   const wrap = UI.boardWrap;
   wrap.addEventListener("contextmenu", (e) => e.preventDefault());
   // Never let the browser start its own image/element drag on the board (the stray ghost image).
-  wrap.addEventListener("dragstart", (e) => e.preventDefault());
+  // While learning is open its board uses HTML5 drag as a fallback, so leave the event alone then.
+  wrap.addEventListener("dragstart", (e) => { if (!learningWorkspace?.embedded) e.preventDefault(); });
   wrap.addEventListener("pointerdown", (e) => {
+    // The learning workspace owns the board while it is open (its squares carry their own handlers).
+    if (learningWorkspace) return;
     if (e.button === 2) { rightPointerDown(e); return; }
     if (e.button !== 0) return;
     // During practice the board only accepts moves while you're actively solving (not while it's
@@ -3031,6 +3170,7 @@ function startDrag(e, from) {
     ghost.remove();
     if (orig) orig.style.visibility = "";
     if (lastHover && sqByName[lastHover]) sqByName[lastHover].classList.remove("drag-over");
+    if (_cancelBoardDrag === cancel) _cancelBoardDrag = null;
   };
   // Cancel: put the piece back where it was picked up, and deselect.
   const cancel = () => { if (done) return; finish(); S.selectedSq = null; renderSelection(); };
@@ -3054,6 +3194,7 @@ function startDrag(e, from) {
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", up);
   window.addEventListener("contextmenu", onCtx);
+  _cancelBoardDrag = cancel;
 }
 
 /* ---------------- Analysis mode: moves, variations, live engine ---------------- */
@@ -3512,12 +3653,15 @@ function reviewFinishedLiveGame() {
 }
 // Exit analysis mode. With mainIdx: jump to that mainline position; otherwise stay put.
 // (Analysis mode is indicated/closed via the Exit button in the controls bar.)
-function exitAnalysis(mainIdx) {
+// `opts.render === false` leaves the panels alone: the caller is about to repaint everything anyway
+// (openLearning hides the whole stage behind the workspace, so a repaint here is wasted work).
+function exitAnalysis(mainIdx, opts = {}) {
   stopLineWalk();
   if (S.meta?.explore && S.variation) { gotoVar(0); return; }
   if (!S.analysisMode) { if (mainIdx != null) go(mainIdx); return; }
   S.analysisMode = false; S.variation = null; S.selectedSq = null; S.liveToken++;
   if (mainIdx != null) { go(mainIdx); return; }
+  if (opts.render === false) return;
   paintBoard(); renderEvalBar(); renderPlayers(); renderControls(); renderReview(); renderEngineCurrent();
 }
 
@@ -3724,6 +3868,7 @@ function renderPlayers() {
 // Align the player strip with the board's actual left edge (the board can be
 // centered in its module, so we measure instead of guessing a fixed offset).
 function alignPlayers() {
+  if (learningWorkspace?.embedded) return;   // the board is docked elsewhere while learning is open
   const board = UI.boardWrap && UI.boardWrap.querySelector(".board");
   const top = UI.playerTop && UI.playerTop.querySelector(".player-strip");
   if (!board || !top) return;
@@ -6149,6 +6294,8 @@ async function toggleSettings() {
   closeArrowColorPicker();
   UI.settings.hidden = !UI.settings.hidden;
   if (!UI.settings.hidden) renderSettings();
+  // The learning workspace is laid out around the settings popover, so it has to re-measure.
+  learningWorkspace?.settingsLayoutChanged();
 }
 
 /* ---------------- Optional, isolated concept analysis ---------------- */
@@ -6498,6 +6645,8 @@ function applySettings() {
   clearBoardArt(UI.boardWrap && UI.boardWrap.querySelector(".board"));
   applyBoardFrame(UI.boardWrap && UI.boardWrap.querySelector(".board"));
   applyBackground();
+  // A workspace open behind the settings popover follows the piece set, sound and motion it reads.
+  learningWorkspace?.refreshSettings();
 }
 // Bundled background presets (relative to the extension's analysis page).
 const BG_PRESETS = { slate: "backgrounds/bg-slate.webp" };
@@ -6738,6 +6887,9 @@ function practiceBeginSolve(solvePos) {
 }
 function practiceAdvance() {
   const p = S.practice; if (!p) return;
+  // Learning owns the board while it is open; roll to the next mistake once the workspace closes
+  // again (its onClose replays this) instead of animating underneath it.
+  if (learningWorkspace) { deferredPracticeAdvance = true; return; }
   p.i++;
   p.solving = false;
   p.advancing = true;   // keep the "✓ Correct! Moving on…" message during the roll to the next spot
@@ -7298,6 +7450,9 @@ function variationStep(delta) {
   requestLiveEval();
 }
 function toggleFlip() {
+  // Flipping the shared board is the workspace's job while it is open, so the review's own flip
+  // button (and Ctrl+F) keeps working there instead of building a second board underneath.
+  if (learningWorkspace?.embedded) { learningWorkspace.flipBoard(); return; }
   S.flipped = !S.flipped; buildBoard(); renderPlayers(); renderEvalBar();
 }
 function toggleAuto() {
@@ -7309,6 +7464,17 @@ function toggleAuto() {
   renderControls();
 }
 document.addEventListener("keydown", (e) => {
+  // Pressing a nav key while the return animation is still playing and focus sits on the button that
+  // opened the workspace must not also move the review one ply (the button is not a board control).
+  if (learningWorkspace?.closing && e.target?.closest?.('#learningToggle,.learn-entry-button')
+      && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) {
+    e.preventDefault();
+    document.activeElement?.blur();
+    // The return animation must not restore button focus after navigation starts.
+    learningWorkspace.previousFocus = null;
+  }
+  // Learning owns the keyboard while it is open (it handles its own navigation and Escape).
+  if (learningWorkspace) return;
   if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
   if (promoPicker && promotionKey(e)) return;   // promotion panel open: Q/N/R/B pick, Esc cancels
   // During practice the only shortcut is Escape to exit; nav keys are disabled.
@@ -7942,6 +8108,10 @@ async function resetLegacyZoom() {
     // Fit the desktop composition or custom canvas; narrow windows retain the responsive grid.
     initTabZoom();
     requestAnimationFrame(alignPlayers); // measure the board after the first layout
+    // One-time pointer at the two learning entry buttons. It claims its marker under a lock and
+    // fails closed, so it can never nag and never appears twice across tabs.
+    learningAnnouncement = mountLearningAnnouncement({ document, storage: browserAPI.storage.local,
+      motion: () => S.settings.moveAnim !== false });
   } catch (err) {
     const e = document.getElementById("error");
     e.hidden = false;
