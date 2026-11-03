@@ -97,11 +97,15 @@ A Great move is the **only good reply**, not merely a reply after an error:
 
 ## Extra annotation lines
 
-Brilliant in a won position and Great need a second line. With **Analysis lines = 1** (the default)
-the review searches one line per position (fast) and those two cases stay at Best/Excellent. Raising
-**Analysis lines** to 2 or more makes the review run one extra multi-line search per position at the
-chosen depth (stored as `annotationSearch`, validated for exactness/depth/legality). It is used only
-for categories and never replaces the scored best/played pair.
+Brilliant in a won position and Great need a second line (the runner-up). With **Analysis lines = 1**
+(the default) the scored search has only one, so once the batch finishes the review classifies the
+game, collects the few plies where a runner-up would decide Great or a won-position Brilliant, and runs
+one 2-line search at each of those positions only (at most 40 per review). Every other position keeps
+the fast single line. Raising **Analysis lines** to 2 or more instead searches every position that way.
+Either way the extra search is stored as `annotationSearch`, validated for exactness/depth/legality and
+for the exact position, history and engine settings it was made for. It is used only for categories
+and never replaces the scored best/played pair. If the extra search fails or is invalid, the move
+keeps its ordinary Best/Excellent category. Games saved before this change need a re-analysis to gain it.
 
 ## Move grades
 

@@ -1422,6 +1422,7 @@ function brilliantEligible(i, mover, std, wpDrop, state) {
   if (!topMove || topMove !== root?.bestmove || topLine?.multipv !== 1 || !topLine.depth) return false;
   const rank = topMove === played ? 2 : 1;
   const line = root.lines.find(l => l.multipv === rank);
+  if (!line && rank === 2) state.annotationWanted?.brilliant.add(i);   // only the runner-up is missing
   if (!line || line.bound !== "exact" || line.depth !== topLine.depth) return false;
   const alternative = line.score;
   if (!alternative) return false;
@@ -1453,7 +1454,9 @@ function annotationSearchFor(i, result, count) {
 // Annotation searches never replace the original best/played pair used by numerical scoring.
 function annotationRoot(index, state = S) {
   const root = state.bests[index], extra = root?.annotationSearch;
-  return state.settings.classifyLines > 1 && extra?.key === engineContextKey(state.positions[index].fen, searchHistory(state.positions, index))
+  // The key pins position, history, build and search settings, so a matching extra search is safe to
+  // use at any "Analysis lines" setting (the default 1-line review adds one only for key moves).
+  return extra?.key === engineContextKey(state.positions[index].fen, searchHistory(state.positions, index))
     ? extra.result : root;
 }
 // Great means finding the only good reply, not merely replying after an error. The runner-up
@@ -1465,6 +1468,7 @@ function onlyGoodReply(i, state) {
   const move = state.positions[i];
   const played = (move.from || "") + (move.to || "") + (move.promotion || "");
   const topMove = (top?.pv || "").split(" ")[0], nextMove = (next?.pv || "").split(" ")[0];
+  if (top && !next && top.bound === "exact" && topMove === played && topMove === root.bestmove) state.annotationWanted?.great.add(i);
   if (!top || !next || top.bound !== "exact" || next.bound !== "exact"
     || !Number.isInteger(top.depth) || top.depth <= 0 || next.depth !== top.depth
     || topMove !== played || topMove !== root.bestmove || !nextMove || nextMove === topMove
@@ -1698,6 +1702,8 @@ function classifyLine(state) {
   state.accMove = new Array(N + 1).fill(null);
   state.moveGrades = new Array(N + 1).fill(null);
   state.annotationEvidence = new Array(N + 1).fill(null);
+  // Plies whose Great / won-position Brilliant would be decided by a runner-up line the review lacks.
+  state.annotationWanted = { great: new Set(), brilliant: new Set() };
   if (!state._sacCache || state._sacCache.length !== N + 1) { state._sacCache = new Array(N + 1).fill(undefined); state._forcedCache = new Array(N + 1).fill(undefined); }
 
   // Per-ply inputs for the classifier. It only ever looks BACKWARDS, so one forward pass to fill
@@ -7481,6 +7487,13 @@ async function startAnalysis() {
     return;
   }
   if (!stillCurrent()) return;            // a newer analysis (or a different game) took over
+  // Default 1-line review: Great and won-position Brilliant need a runner-up line, so search just the
+  // few positions where that line decides the category (not every position - that is what stays fast).
+  if (multipv === 1) {
+    try { await annotateKeyMoves(engines, stillCurrent); }
+    catch (error) { console.warn("[Chess Review] key-move annotation search failed; categories use the scored line only", error); }
+    if (!stillCurrent()) return;
+  }
   terminateEngines();
   S.analyzing = false;
   S.progress = S.total;
@@ -7491,6 +7504,37 @@ async function startAnalysis() {
   if (!S.analysisMode) renderEngineCurrent();
   dbg("analysis completed for", batchGameId);
   saveToLibrary();   // the game is fully analyzed → keep it in the user's library
+}
+
+// Cap on extra runner-up searches per review, so a pathological game cannot stall the finish.
+const KEY_MOVE_SEARCH_MAX = 40;
+// Great and a won-position Brilliant compare the played move with the runner-up. A 1-line review has
+// none, so classify once, collect the plies that would be decided by it, and search only those roots
+// at 2 lines. Each result is validated (exact, one depth, legal, distinct) before it is used, and it
+// never replaces the scored best/played pair.
+async function annotateKeyMoves(engines, stillCurrent) {
+  classifyLine(S);
+  const wanted = new Set(S.annotationWanted?.great || []);
+  for (const i of S.annotationWanted?.brilliant || []) if (_sacAt(i, S)) wanted.add(i);
+  const roots = [...wanted].filter((i) => i >= 1 && S.bests[i - 1] && !S.bests[i - 1].annotationSearch
+    && !_isCheckmate(i - 1, S)).sort((a, b) => a - b).slice(0, KEY_MOVE_SEARCH_MAX).map((i) => i - 1);
+  if (!roots.length) return;
+  let next = 0;
+  await Promise.all(engines.map(async (eng) => {
+    while (stillCurrent()) {
+      const i = roots[next++];
+      if (i == null) return;
+      try {
+        const extra = await eng.analyse(S.positions[i].fen, S.settings.engineDepth, 2, searchHistory(S.positions, i));
+        if (!stillCurrent()) return;
+        const search = annotationSearchFor(i, extra, 2);
+        if (search && S.bests[i]) S.bests[i].annotationSearch = search;
+      } catch (error) {
+        if (!stillCurrent()) return;
+        console.warn("[Chess Review] key-move search failed at ply", i, error);
+      }
+    }
+  }));
 }
 
 // IndexedDB position cache for cross-game evaluation reuse
