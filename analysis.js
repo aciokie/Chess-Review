@@ -2190,6 +2190,10 @@ async function openLearning() {
       else if (snapshot.lineWalking) startLineWalk();
     } });
   syncLearningToggle();
+  // `?debug` only: the workspace has no other handle from the page, so a browser session cannot
+  // inspect the live state (selected square, held drag, answer validation) without this. Set before
+  // open() so it is reachable even if mounting fails.
+  if (DEBUG) globalThis.__chessReviewLearning = () => learningWorkspace;
   await learningWorkspace.open();
 }
 // Board arrows for the learning workspace: the same geometry and sliders as the review's own arrows,
@@ -2516,9 +2520,14 @@ function makePiece(type, side) {
   // Only the two bundled SVG sets remain (Cburnett = "image", Merida); anything else → default set.
   const setFolder = BUNDLED_PIECE_SETS[S.settings.pieceStyle] || BUNDLED_PIECE_SETS.image;
   const code = (side === "w" ? "w" : "b") + type.toUpperCase(); // wK, bN …
-  return el("img", { class: "piece-img", src: _url(`pieces-img/${setFolder}/${code}.svg`), alt: "", draggable: "false" });
+  // data-piece identifies the piece without reading the artwork: the learning workspace matches it
+  // when it repaints a held drag, and re-renders the same piece after a piece-set change.
+  return el("img", { class: "piece-img", "data-piece": code, src: _url(`pieces-img/${setFolder}/${code}.svg`), alt: "", draggable: "false" });
 }
 function buildBoard() {
+  // Drop anything holding the old squares before they are replaced.
+  _cancelBoardDrag?.();
+  closePromotionPicker();
   if (learningWorkspace?.embedded) return;   // the workspace owns the board's squares while it is open
   const files = ["a","b","c","d","e","f","g","h"];
   const ranks = [8,7,6,5,4,3,2,1];
@@ -3143,22 +3152,39 @@ function rightPointerDown(e) {
   window.addEventListener("pointerup", up);
 }
 // Drag: a floating piece clone follows the mouse; release on a legal square → move.
-function startDrag(e, from) {
-  const board = UI.boardWrap.querySelector(".board");
+// `input` is the drag context, supplied by whoever owns the board being dragged on. The learning
+// workspace passes its own squares, position, hit-test and move callback, because its board is not
+// the review's: a drag there must consult the puzzle's FEN and make a puzzle move, never reach into
+// the review's position. Without it the drag falls back to the review board's own state.
+//   { board, squares, fen, squareAt, move, deselect }
+function startDrag(e, from, input = null) {
+  let squares = input?.squares || sqByName;
+  const fen = () => (typeof input?.fen === "function" ? input.fen() : (input?.fen || activePos().fen));
+  const squareAt = input?.squareAt || squareFromEvent;
+  const deselect = () => { if (input) input.deselect(); else { S.selectedSq = null; renderSelection(); } };
+  _cancelBoardDrag?.();
+  let board = input?.board || UI.boardWrap.querySelector(".board");
   if (!board) return;
+  // boardInner (the padding box), not the whole element: a decorative board frame is a border and
+  // would otherwise be counted as squares.
   const cell = boardInner(board).width / 8;
-  const orig = sqByName[from] && sqByName[from].querySelector(".piece, .piece-svg, .piece-img");
+  let orig = squares[from] && squares[from].querySelector(".piece, .piece-svg, .piece-img");
   const ghost = el("div", { class: "drag-piece ps-" + S.settings.pieceStyle });
   if (orig) ghost.append(orig.cloneNode(true));
   ghost.style.width = ghost.style.height = cell + "px";
   document.body.append(ghost);
-  const place = (ev) => { ghost.style.left = ev.clientX + "px"; ghost.style.top = ev.clientY + "px"; };
+  // The ghost is centred on the pointer: stop at the edge with at most half the piece outside.
+  const place = (ev) => {
+    const r = board.getBoundingClientRect();
+    ghost.style.left = Math.max(r.left, Math.min(r.left + r.width, ev.clientX)) + "px";
+    ghost.style.top = Math.max(r.top, Math.min(r.top + r.height, ev.clientY)) + "px";
+  };
   place(e);
   if (orig) orig.style.visibility = "hidden";
   let moved = false, lastHover = null, done = false;
   const setHover = (sq) => {
-    if (lastHover && sqByName[lastHover]) sqByName[lastHover].classList.remove("drag-over");
-    if (sq && sqByName[sq] && isLegalTarget(activePos().fen, from, sq)) { sqByName[sq].classList.add("drag-over"); lastHover = sq; }
+    if (lastHover && squares[lastHover]) squares[lastHover].classList.remove("drag-over");
+    if (sq && squares[sq] && isLegalTarget(fen(), from, sq)) { squares[sq].classList.add("drag-over"); lastHover = sq; }
     else lastHover = null;
   };
   // Shared cleanup (idempotent): remove listeners + ghost, show the original piece again.
@@ -3166,35 +3192,59 @@ function startDrag(e, from) {
     if (done) return; done = true;
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", onPointerCancel);
+    window.removeEventListener("blur", cancel);
     window.removeEventListener("contextmenu", onCtx);
     ghost.remove();
     if (orig) orig.style.visibility = "";
-    if (lastHover && sqByName[lastHover]) sqByName[lastHover].classList.remove("drag-over");
+    if (lastHover && squares[lastHover]) squares[lastHover].classList.remove("drag-over");
     if (_cancelBoardDrag === cancel) _cancelBoardDrag = null;
   };
   // Cancel: put the piece back where it was picked up, and deselect.
-  const cancel = () => { if (done) return; finish(); S.selectedSq = null; renderSelection(); };
+  const cancel = () => { if (done) return; finish(); deselect(); };
+  // Learning can paint the opponent's reply while the solver still holds a piece. Keep the pointer
+  // session and the ghost, and re-point them at the repainted squares (the piece must be the same
+  // one, or the held piece no longer exists and the drag is cancelled).
+  cancel.active = () => !done;
+  cancel.refresh = (next) => {
+    if (done) return;
+    if (orig) orig.style.visibility = "";
+    if (lastHover) squares[lastHover]?.classList.remove("drag-over");
+    squares = next;
+    orig = squares[from]?.querySelector(".piece, .piece-svg, .piece-img");
+    if (!orig || orig.dataset.piece !== ghost.firstElementChild?.dataset.piece) { cancel(); return; }
+    board = orig.closest(".board, .learn-board") || board;
+    orig.style.visibility = "hidden";
+    if (lastHover) setHover(lastHover);
+  };
+  const onPointerCancel = (ev) => { if (ev.pointerId === e.pointerId) cancel(); };
+  _cancelBoardDrag = cancel;
   // Right-click while dragging → cancel (both via contextmenu and the button bitmask).
   const onCtx = (ev) => { ev.preventDefault(); cancel(); };
   const move = (ev) => {
+    if (ev.pointerId !== e.pointerId) return;
     if (ev.buttons & 2) { cancel(); return; }
-    moved = true; place(ev); setHover(squareFromEvent(ev));
+    moved = true; place(ev); setHover(squareAt(ev));
   };
   const up = (ev) => {
+    if (ev.pointerId !== e.pointerId) return;
     if (done) return;                 // already cancelled via right-click
     finish();
-    const target = squareFromEvent(ev);
+    const target = squareAt(ev);
     if (moved) {
-      if (target && target !== from && isLegalTarget(activePos().fen, from, target)) {
-        S.selectedSq = null; applyUserMove(from, target, false);   // drag → no animation
-      } else { S.selectedSq = null; renderSelection(); }   // drag without a legal target → deselect
+      if (target && target !== from && isLegalTarget(fen(), from, target)) {
+        if (input) input.move(from, target);   // the board's own move, not the review's
+        else { S.selectedSq = null; applyUserMove(from, target, false); }   // drag → no animation
+      } else { deselect(); }   // drag without a legal target → deselect
     }
     // pure click (not moved) → keep the selection for click-to-move
   };
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", onPointerCancel);
+  window.addEventListener("blur", cancel);
   window.addEventListener("contextmenu", onCtx);
-  _cancelBoardDrag = cancel;
+  return cancel;   // the learning workspace keeps this handle to refresh or cancel a held drag
 }
 
 /* ---------------- Analysis mode: moves, variations, live engine ---------------- */

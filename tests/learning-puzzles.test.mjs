@@ -16,6 +16,7 @@ import { normalizeProgress, progressTotals, recordPuzzle, ChallengeClock, challe
 import { puzzleStatistics } from '../lib/learning/statistics.js';
 import { PUZZLE_RUN_MODES, runPuzzleRating, pickRunPuzzle, runBest } from '../lib/learning/puzzle-runs.js';
 import { LESSONS, OPENINGS, CATEGORIES, DIFFICULTIES, THEME_NAMES, playUci, linePositions } from '../lib/learning/content.js';
+import { validateExercise, validSquares } from '../lib/learning/validation.js';
 import { packagePuzzles } from '../scripts/package-puzzles.mjs';
 
 // Node cannot fetch file: URLs, so serve the bundled JSON through the loader's injected fetcher.
@@ -261,7 +262,20 @@ test('the package step splits the library into parts the loader still reads as o
 
 /* ---------------- the review-page integration ---------------- */
 
+// lib/learning reads its bundled JSON with fetch inside its own realm, so serve it from disk here;
+// the same request goes to runtime.getURL() in the extension. Without it the workspace never leaves
+// its loading state and silently falls back to the free board — which looks like a working page.
+function servePuzzles(t) {
+  const real = globalThis.fetch;
+  globalThis.fetch = async url => {
+    const relative = decodeURIComponent(new URL(String(url)).pathname.replace(/^\//, ''));
+    return { ok: true, json: async () => JSON.parse(await readFile(relative, 'utf8')) };
+  };
+  t.after(() => { globalThis.fetch = real; });
+}
+
 function learningApp(t) {
+  servePuzzles(t);
   const a = app(t);
   loadGame(a, REVIEW_PGN);
   a.context.loadLearningWorkspace = loadLearningWorkspace;
@@ -271,16 +285,9 @@ function learningApp(t) {
   return a;
 }
 
-// lib/learning reads its bundled JSON with fetch inside its own realm; serve it from disk here.
-// The same request goes to runtime.getURL() in the extension.
-function servePuzzles(t) {
-  const real = globalThis.fetch;
-  globalThis.fetch = async url => {
-    const relative = decodeURIComponent(new URL(String(url)).pathname.replace(/^\//, ''));
-    return { ok: true, json: async () => JSON.parse(await readFile(relative, 'utf8')) };
-  };
-  t.after(() => { globalThis.fetch = real; });
-}
+// Every workspace test needs the loaded library: assert it rather than discover it later.
+const assertReady = workspace => assert.equal(workspace.ready, true,
+  'the workspace must finish loading (progress + puzzle library) before its views render');
 
 test('the review page offers two learning entry points and they follow the workspace', async t => {
   const a = learningApp(t);
@@ -364,7 +371,6 @@ test('a member can open the workspace straight from the board-side button', asyn
 });
 
 test('a puzzle is played to completion on the review board and stored', async t => {
-  servePuzzles(t);
   const a = learningApp(t);
   const document = a.dom.window.document;
   await a.call('openLearning');
@@ -393,8 +399,224 @@ test('a puzzle is played to completion on the review board and stored', async t 
   assert.equal(stored.puzzleRating.elo, INITIAL_PUZZLE_ELO + stored.puzzles[puzzle.id].ratingResult.delta);
 });
 
+/* ---------------- board input on the learning board ----------------
+   The workspace builds the squares and hands the host its own movement context, so these tests drive
+   the real input path (pointer events on the squares) instead of calling the workspace's API. A
+   regression here leaves a puzzle board that renders perfectly and cannot be played. */
+
+// A fabricated one-move mate, appended to the loaded library so the input path is deterministic.
+const INPUT_PUZZLE = { id: 'test-input-mate', fen: '7k/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1',
+  solution: ['a1a8'], rating: 1200, theme: 'mateIn1', themes: ['mateIn1'] };
+
+async function openPuzzle(t) {
+  const a = learningApp(t);
+  await a.call('openLearning');
+  const workspace = a.run('learningWorkspace');
+  workspace.puzzles.push(INPUT_PUZZLE);
+  await workspace.startPuzzleSelection([INPUT_PUZZLE]);
+  await settle();
+  assert.deepEqual(workspace.activity && { kind: workspace.activity.kind, id: workspace.activity.id, step: workspace.activity.step },
+    { kind: 'puzzle', id: INPUT_PUZZLE.id, step: 0 });
+  return { a, workspace };
+}
+
+// jsdom has neither PointerEvent nor layout (every rect is zero), so build a MouseEvent that carries
+// pointerId and give the board a real box for the workspace's own square hit-test.
+function pointerInput(a, size = 800) {
+  const view = a.dom.window;
+  const board = view.document.querySelector('.board');
+  board.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, right: size, bottom: size, width: size, height: size });
+  const centre = sq => ({ x: (sq.charCodeAt(0) - 97 + 0.5) * (size / 8), y: (8 - Number(sq[1]) + 0.5) * (size / 8) });
+  const fire = (target, type, { at = { x: 0, y: 0 }, button = 0, detail = 0 } = {}) => {
+    const event = new view.MouseEvent(type,
+      { bubbles: true, cancelable: true, button, detail, clientX: at.x, clientY: at.y });
+    Object.defineProperty(event, 'pointerId', { value: 1 });
+    target.dispatchEvent(event);
+  };
+  return { fire, centre, view, doc: view.document };
+}
+
+const pieceAt = (doc, sq) => doc.querySelector(`.board [data-square="${sq}"] .piece-img`)?.dataset.piece || null;
+const square = (doc, sq) => doc.querySelector(`.board [data-square="${sq}"]`);
+
+test('a dragged puzzle piece moves on the puzzle board, not the review board', async t => {
+  const { a, workspace } = await openPuzzle(t);
+  const { fire, centre, view, doc } = pointerInput(a);
+  assert.equal(pieceAt(doc, 'a1'), 'wR', 'the rook starts on a1');
+
+  fire(square(doc, 'a1'), 'pointerdown', { at: centre('a1') });
+  const ghost = doc.querySelector('.drag-piece');
+  assert.ok(ghost, 'picking a piece up shows the drag ghost');
+  assert.equal(ghost.querySelector('.piece-img')?.dataset.piece, 'wR', 'the ghost carries the picked piece');
+
+  fire(view, 'pointermove', { at: centre('a8') });
+  const target = square(doc, 'a8');
+  assert.equal(target.classList.contains('drag-over'), true,
+    'a8 is marked as a legal target - the drag must read the puzzle position, not the review game');
+
+  fire(view, 'pointerup', { at: centre('a8') });
+  await settle();
+  assert.equal(pieceAt(doc, 'a8'), 'wR', 'the rook is on a8 after the drop');
+  assert.equal(pieceAt(doc, 'a1'), null, 'the rook left a1');
+  assert.equal(ghost.isConnected, false, 'the ghost is removed when the drag ends');
+  assert.equal(workspace.feedback.status, 'completed', 'the mate completes the puzzle');
+});
+
+test('a drag that is dropped on an illegal square changes nothing', async t => {
+  const { a } = await openPuzzle(t);
+  const { fire, centre, view, doc } = pointerInput(a);
+  fire(square(doc, 'a1'), 'pointerdown', { at: centre('a1') });
+  fire(view, 'pointermove', { at: centre('b3') });
+  assert.equal(square(doc, 'b3').classList.contains('drag-over'), false, 'a rook does not reach b3 from a1');
+  fire(view, 'pointerup', { at: centre('b3') });
+  await settle();
+  assert.equal(pieceAt(doc, 'a1'), 'wR', 'the rook is back on a1');
+  assert.equal(pieceAt(doc, 'b3'), null);
+  assert.equal(doc.querySelector('.drag-piece'), null, 'the ghost is removed');
+});
+
+test('clicking a puzzle piece and its target plays the move too', async t => {
+  const { a } = await openPuzzle(t);
+  const { fire, centre, doc } = pointerInput(a);
+  const click = sq => {
+    fire(square(doc, sq), 'pointerdown', { at: centre(sq) });
+    fire(square(doc, sq), 'pointerup', { at: centre(sq) });
+    fire(square(doc, sq), 'click', { at: centre(sq), detail: 1 });
+  };
+  click('a1');
+  assert.equal(square(doc, 'a1').classList.contains('sel'), true, 'the rook is selected');
+  assert.equal(square(doc, 'a2').classList.contains('legal'), true, 'its legal targets are marked');
+  assert.equal(square(doc, 'b3').classList.contains('legal'), false, 'and only the legal ones');
+  click('a8');
+  await settle();
+  assert.equal(pieceAt(doc, 'a8'), 'wR', 'click-to-move plays the same move');
+});
+
+test('cancelling a held drag leaves the puzzle untouched', async t => {
+  const { a, workspace } = await openPuzzle(t);
+  const { fire, centre, view, doc } = pointerInput(a);
+  fire(square(doc, 'a1'), 'pointerdown', { at: centre('a1') });
+  fire(view, 'pointercancel', { at: centre('a1') });
+  await settle();
+  assert.equal(pieceAt(doc, 'a1'), 'wR', 'the piece stays where it was');
+  assert.equal(workspace.activity.step, 0, 'no move was made');
+  assert.equal(doc.querySelector('.drag-piece'), null);
+  // The workspace cancels a held drag when it is closed or repainted; that hook must exist.
+  fire(square(doc, 'a1'), 'pointerdown', { at: centre('a1') });
+  assert.equal(typeof workspace.cancelBoardInput?.refresh, 'function', 'a held drag can be re-pointed at repainted squares');
+  assert.equal(workspace.cancelBoardInput.active(), true, 'and reports that it is still live');
+  workspace.cancelBoardInput.refresh({ a1: square(doc, 'a1') });
+  assert.equal(workspace.cancelBoardInput.active(), true, 'the same piece keeps the drag alive');
+  fire(view, 'pointerup', { at: centre('a1') });
+  await settle();
+  assert.equal(pieceAt(doc, 'a1'), 'wR');
+});
+
+/* ---------------- lessons and openings on the same board ---------------- */
+
+test('a lesson exercise is answered on the board, but only on the Practise tab', async t => {
+  const a = learningApp(t);
+  await a.call('openLearning');
+  const workspace = a.run('learningWorkspace');
+  const lesson = LESSONS.find(l => l.exercises.some(e => e.type === 'move' && !e.objective.startsWith('event:')));
+  const answer = lesson.exercises.find(e => e.type === 'move' && !e.objective.startsWith('event:')).solution[0];
+
+  await workspace.startLesson(lesson.id);
+  await settle();
+  assert.equal(workspace.activity.tab, 'understand');
+  const { fire, centre, doc } = pointerInput(a);
+  const click = sq => {
+    fire(square(doc, sq), 'pointerdown', { at: centre(sq) });
+    fire(square(doc, sq), 'pointerup', { at: centre(sq) });
+    fire(square(doc, sq), 'click', { at: centre(sq), detail: 1 });
+  };
+  // "Understand" and "Observe" show a diagram of the idea; the board deliberately ignores input.
+  click(answer.slice(0, 2));
+  assert.equal(square(doc, answer.slice(0, 2)).classList.contains('sel'), false, 'the diagram board is not selectable');
+  assert.equal(workspace.feedback, null);
+
+  await workspace.lessonTab('practise');
+  await settle();
+  // The exercise position, not the example's.
+  assert.equal(workspace.currentFen(), lesson.exercises.find(e => e.type === 'move').fen);
+  click(answer.slice(0, 2));
+  assert.equal(square(doc, answer.slice(0, 2)).classList.contains('sel'), true, 'the practice board is selectable');
+  click(answer.slice(2, 4));
+  await settle();
+  assert.equal(workspace.feedback.status, 'correct', 'the board answer is graded');
+  const stored = a.store['learning:v1'];
+  assert.equal(stored.lessons[lesson.id].exercises[0].passed, true, 'a correct answer is recorded');
+});
+
+test('lesson choice and squares exercises are answered from their own controls', async t => {
+  const a = learningApp(t);
+  await a.call('openLearning');
+  const workspace = a.run('learningWorkspace');
+  const { fire, centre, doc } = pointerInput(a);
+  const click = sq => {
+    fire(square(doc, sq), 'pointerdown', { at: centre(sq) });
+    fire(square(doc, sq), 'pointerup', { at: centre(sq) });
+    fire(square(doc, sq), 'click', { at: centre(sq), detail: 1 });
+  };
+
+  const choiceLesson = LESSONS.find(l => l.exercises.some(e => e.type === 'choice'));
+  const choiceIndex = choiceLesson.exercises.findIndex(e => e.type === 'choice');
+  await workspace.startLesson(choiceLesson.id);
+  await workspace.lessonTab('practise');
+  workspace.activity.exercise = choiceIndex;
+  workspace.clearAnswer();
+  workspace.render();
+  await settle();
+  const options = [...doc.querySelectorAll('.learn-options button')];
+  assert.ok(options.length >= 2, 'a choice exercise offers its options');
+  // Pick the option the rules engine accepts rather than assuming its position in the list.
+  const choiceExercise = choiceLesson.exercises[choiceIndex];
+  const right = choiceExercise.options.findIndex((_, i) => validateExercise(choiceExercise, i).status === 'correct');
+  assert.ok(right >= 0, 'one option must be accepted');
+  options[right].click();
+  await settle();
+  assert.equal(workspace.feedback.status, 'correct');
+
+  const squareLesson = LESSONS.find(l => l.exercises.some(e => e.type === 'squares'));
+  const squareIndex = squareLesson.exercises.findIndex(e => e.type === 'squares');
+  const squareExercise = squareLesson.exercises[squareIndex];
+  const wanted = validSquares(squareExercise);
+  assert.ok(wanted.length, 'the rules engine knows the answer squares');
+  await workspace.startLesson(squareLesson.id);
+  await workspace.lessonTab('practise');
+  workspace.activity.exercise = squareIndex;
+  workspace.clearAnswer();
+  workspace.render();
+  await settle();
+  for (const name of wanted) click(name);
+  await settle();
+  assert.deepEqual([...workspace.marked].sort(), [...wanted].sort(), 'the clicks collect the answer squares');
+  // A squares exercise shows its selection with .selected (right-click marks use .marked).
+  assert.deepEqual([...doc.querySelectorAll('.board .selected')].map(n => n.dataset.square).sort(), [...wanted].sort());
+  [...doc.querySelectorAll('button')].find(b => b.textContent.trim() === 'Check selection').click();
+  await settle();
+  assert.equal(workspace.feedback.status, 'correct', 'selecting the right squares passes the exercise');
+});
+
+test('an opening line steps through the moves table on the review board', async t => {
+  const a = learningApp(t);
+  await a.call('openLearning');
+  const workspace = a.run('learningWorkspace');
+  const opening = OPENINGS.find(o => o.lines.length >= 3 && o.lines[0].moves.length >= 3);
+  await workspace.startOpening(opening.id);
+  await settle();
+  const doc = a.dom.window.document;
+  const buttons = [...doc.querySelectorAll('.learn-opening-moves tbody button')];
+  assert.equal(buttons.length, opening.lines[0].moves.length, 'every move of the line is listed');
+  const expected = linePositions(opening.lines[0]);
+  assert.equal(workspace.currentFen(), expected.positions[0], 'the line starts from the standard position');
+  buttons[2].click();
+  await settle();
+  assert.equal(workspace.currentFen(), expected.positions[3], 'clicking a move jumps to that position');
+  assert.equal(workspace.activity.ply, 3);
+});
+
 test('a wrong puzzle answer is reported as incorrect and never as a solve', async t => {
-  servePuzzles(t);
   const a = learningApp(t);
   await a.call('openLearning');
   const workspace = a.run('learningWorkspace');
