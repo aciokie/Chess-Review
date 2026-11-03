@@ -84,7 +84,8 @@ A preceding opponent error is not required.
 A Great move is the **only good reply**, not merely a reply after an error:
 
 - Excellent bucket, no mate involved, and the opponent's previous move was a Blunder or a Mistake-sized
-  slip that was not itself part of a "miss" chain.
+  slip (any Inaccuracy that lost at least `clsMistakeLoss` pawns) that was not itself part of a "miss"
+  chain.
 - `onlyGoodReply`: the root has an exact second line at the same depth for a different legal move, and
   that runner-up is at least the Inaccuracy threshold (5 expected points) worse than the played move.
   With one line this is unknown and the move keeps its ordinary category.
@@ -105,7 +106,15 @@ the fast single line. Raising **Analysis lines** to 2 or more instead searches e
 Either way the extra search is stored as `annotationSearch`, validated for exactness/depth/legality and
 for the exact position, history and engine settings it was made for. It is used only for categories
 and never replaces the scored best/played pair. If the extra search fails or is invalid, the move
-keeps its ordinary Best/Excellent category. Games saved before this change need a re-analysis to gain it.
+keeps its ordinary Best/Excellent category.
+
+The same key-move pass runs on the **Live board** after each tail search, so Great and a won-position
+Brilliant can appear while a game is being played, not only in the finished review. A one-line review
+also records an annotation generation in its settings key (`ANNOTATION_VERSION`): an older saved
+review has no runner-up evidence, so it is analysed once more instead of being restored without the
+categories. A failed attempt is remembered on the position (`annotationTried`) so a live repaint never
+repeats it.
+
 
 ## Move grades
 

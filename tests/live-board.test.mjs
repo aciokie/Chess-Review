@@ -305,6 +305,33 @@ test('the live controls bar carries an undo button that is disabled until a move
   assert.equal(button().disabled, true, 'and is disabled again on the empty board');
 });
 
+test('the live board fetches the runner-up so Great can fire during play', async t => {
+  const line = (cp, move) => ({ score: { cp }, pv: move, depth: 16, bound: 'exact', multipv: 1 });
+  const root = (cp, move) => ({ score: { cp }, bestmove: move, lines: [line(cp, move)] });
+  const twoLines = {
+    bestmove: 'g1f3', score: { cp: 120 }, lines: [
+      { score: { cp: 120 }, pv: 'g1f3', depth: 16, bound: 'exact', multipv: 1 },
+      { score: { cp: -100 }, pv: 'd2d4', depth: 16, bound: 'exact', multipv: 2 },
+    ],
+  };
+  const a = liveBoard(t, { engine: fakeEngine(async (fen, depth, count) => {
+    if (count === 2) return twoLines;
+    const board = fen.split(' ')[0];
+    if (board === 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR') return root(0, 'e2e4');
+    if (board === 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR') return root(0, 'c7c5'); // Black plays e5 anyway
+    if (board === 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR') return root(120, 'g1f3');
+    return root(-120, 'b8c6');
+  }) });
+  const S = a.state;
+  a.call('applyUserMove', 'e2', 'e4', false); await settle();
+  a.call('applyUserMove', 'e7', 'e5', false); await settle();
+  a.call('applyUserMove', 'g1', 'f3', false); await settle();
+  assert.equal(S.classif[2], 'inacc', 'Black slipped but is not across a clear-advantage line');
+  assert.equal(S.classif[3], 'great', 'the live tail search now includes the runner-up');
+  assert.ok(S.bests[2].annotationSearch, 'the live runner-up is kept apart from the scored line');
+  assert.equal(S.bests[2].lines.length, 1, 'the scored live root is untouched');
+});
+
 test('a live tab reload resumes the game in progress, a new tab starts a fresh one', async t => {
   const a = liveBoard(t);
   a.call('applyUserMove', 'e2', 'e4', false); await settle();

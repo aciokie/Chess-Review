@@ -109,7 +109,8 @@ non-forced decisions. Move categories are annotations and never change accuracy 
 Categories are judged on expected points from one root search per move (best and played move scored
 together). Brilliant and Great follow the upstream rules (a lasting, sound piece offer; the only good
 reply); they need a runner-up line, which the review fetches only for the few moves where it decides
-the category, so the default single-line review stays fast. Each move also shows a 0–10 score within its category, and completed reviews list top-move match,
+the category (the live board does the same after each move), so the default single-line review stays
+fast. Each move also shows a 0–10 score within its category, and completed reviews list top-move match,
 average loss and other game statistics. See [`docs/MOVE_CLASSIFICATION.md`](docs/MOVE_CLASSIFICATION.md).
 To reproduce the bundled coefficients offline (Node.js 22 or later), run
 `node tools/calibration/reproduce-public.mjs`; the method is in

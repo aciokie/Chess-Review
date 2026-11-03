@@ -1529,6 +1529,11 @@ function classifyMove(i, mover, isTop, book, std, loss, wpDrop, state = S) {
 
   const previousMistake = wasNotMateRel(0) && pStd(0) === "inacc" && pLoss(0) >= ML && (losingAdvAt(i - 1) || givingAdvAt(i - 1));
   const previousPreviousMistake = wasNotMateRel(1) && pStd(1) === "inacc" && pLoss(1) >= ML && (losingAdvAt(i - 2) || givingAdvAt(i - 2));
+  // A "Mistake-sized slip" for Great: any Blunder, or an Inaccuracy that actually lost a piece's
+  // worth of eval (not only one that crossed the clear-advantage line). The runner-up test below is
+  // what keeps Great meaningful - this gate only says there was something to punish.
+  const previousSlip = wasNotMateRel(0) && (pStd(0) === "blunder"
+    || (pStd(0) === "inacc" && pLoss(0) != null && pLoss(0) >= ML));
   const previousMiss = wasNotMateRel(0) && (previousPreviousMistake || pStd(1) === "blunder")
     && (pStd(0) === "blunder" || pStd(0) === "inacc") && (pLoss(0) != null && pLoss(1) != null && pLoss(0) <= pLoss(1) + MT);
 
@@ -1541,7 +1546,7 @@ function classifyMove(i, mover, isTop, book, std, loss, wpDrop, state = S) {
 
   // Great — an only-good move that capitalises on the opponent's mistake/blunder.
   if (!previousMiss && wasNotMateRel(0) && notMateRel && std[i] === "excellent"
-    && (previousMistake || pStd(0) === "blunder") && onlyGoodReply(i, state)) return "great";
+    && previousSlip && onlyGoodReply(i, state)) return "great";
 
   // Mate signs are relative to the mover. Reversing who wins is not delaying one's own mate;
   // already being mated supplies no expected-result reason to reward faster defeat.
@@ -3350,7 +3355,6 @@ async function requestLiveAnalysis() {
   for (let i = 0; i <= S.total; i++) {
     if (!S.evals[i] || !S.bests[i]) missing.push(i);
   }
-  if (!missing.length) { computeDerived(); renderLive(); return; }
   try {
     const eng = await ensureLiveEngine();
     if (!valid()) return;
@@ -3369,6 +3373,11 @@ async function requestLiveAnalysis() {
       // climb move by move instead of appearing only when the whole backlog is done.
       if (Date.now() - lastPaint > 120) { lastPaint = Date.now(); computeDerived(); renderLive(); }
     }
+    // Great and a won-position Brilliant compare the played move with the runner-up. The live search
+    // uses the panel's line count (usually 1), so fetch that second line for the few key moves only -
+    // exactly as the finished review does. Skipped when every position already has its evidence.
+    await annotateKeyMoves([eng], valid);
+    if (!valid()) return;
     computeDerived();
     renderLive();
   } catch (e) {
@@ -6879,15 +6888,22 @@ function currentGameId() {
   return canonicalGameId({ gameId: S.meta && S.meta.gameId, pgn: S.pgn });
 }
 
+// Version of the post-batch key-move annotation. A one-line review saved before it existed has no
+// runner-up evidence, so Great and a won-position Brilliant would silently stay Best/Excellent when
+// that old save is restored. Bumping the key makes those saves analyse once more instead of being
+// shown without the categories.
+const ANNOTATION_VERSION = 2;
 function analysisSettingsKey() {
   // Stockfish 19 builds are scored by one fixed-node protocol, so depth, hash and strength do not
   // change a finished review's scores (they only matter for the extra annotation lines, i.e. when
   // Analysis lines > 1). Leaving them out lets those settings change without re-running the game.
   const fixed = isSf19Build(S.settings.enginePath) && publicScoringApplies(S.settings.enginePath, S.settings)
     && (S.settings.classifyLines || 1) <= 1;
-  // The public model version is part of the key, so refreshed models never reuse older scores.
+  // The public model version is part of the key, so refreshed models never reuse older scores. A
+  // one-line review also records the annotation generation: it is what decides Great/Brilliant.
+  const annotated = (S.settings.classifyLines || 1) <= 1 ? ANNOTATION_VERSION : null;
   return JSON.stringify([S.settings.enginePath, fixed ? null : S.settings.engineDepth, S.settings.classifyLines,
-    fixed ? null : S.settings.engineHash, fixed ? null : S.settings.engineSkill, PUBLIC_CALIB?.version || null]);
+    fixed ? null : S.settings.engineHash, fixed ? null : S.settings.engineSkill, PUBLIC_CALIB?.version || null, annotated]);
 }
 // A saved review that was scored by a public model must still carry that model's observations (and,
 // when a rating needs them, the rating evidence) — otherwise it is re-analyzed rather than shown
@@ -7511,14 +7527,19 @@ const KEY_MOVE_SEARCH_MAX = 40;
 // Great and a won-position Brilliant compare the played move with the runner-up. A 1-line review has
 // none, so classify once, collect the plies that would be decided by it, and search only those roots
 // at 2 lines. Each result is validated (exact, one depth, legal, distinct) before it is used, and it
-// never replaces the scored best/played pair.
-async function annotateKeyMoves(engines, stillCurrent) {
+// never replaces the scored best/played pair. Shared by the review batch, the live board and a
+// restored review, so all three classify key moves the same way.
+async function annotateKeyMoves(engines, stillCurrent, max = KEY_MOVE_SEARCH_MAX) {
   classifyLine(S);
   const wanted = new Set(S.annotationWanted?.great || []);
   for (const i of S.annotationWanted?.brilliant || []) if (_sacAt(i, S)) wanted.add(i);
   const roots = [...wanted].filter((i) => i >= 1 && S.bests[i - 1] && !S.bests[i - 1].annotationSearch
-    && !_isCheckmate(i - 1, S)).sort((a, b) => a - b).slice(0, KEY_MOVE_SEARCH_MAX).map((i) => i - 1);
-  if (!roots.length) return;
+    && !S.bests[i - 1].annotationTried && !_isCheckmate(i - 1, S))
+    .sort((a, b) => a - b).slice(0, max).map((i) => i - 1);
+  if (!roots.length) return 0;
+  // Mark the attempt before searching: the live board calls this after every move, and a search that
+  // legitimately yields no usable runner-up must not be retried forever.
+  for (const i of roots) S.bests[i].annotationTried = true;
   let next = 0;
   await Promise.all(engines.map(async (eng) => {
     while (stillCurrent()) {
@@ -7535,6 +7556,7 @@ async function annotateKeyMoves(engines, stillCurrent) {
       }
     }
   }));
+  return roots.length;
 }
 
 // IndexedDB position cache for cross-game evaluation reuse
