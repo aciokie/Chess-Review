@@ -15,6 +15,7 @@ import { isSf19Build, SF19_NODES } from '../../lib/scoring-builds.js';
 import { NATIVE_SCORING_CAPABILITY } from '../../engine/native.js';
 import { matedKingSquare, mateMark } from '../../lib/mate-mark.js';
 import { rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY } from '../../lib/player-history.js';
+import { libraryFlip } from '../../lib/library-seat.js';
 
 // Execute the real application in a DOM, stubbing only browser/engine boundaries.
 // Automatic startup and imports are omitted; production needs no test exports.
@@ -50,7 +51,7 @@ export function app(t, { url = 'https://extension.test/analysis.html#explore', h
     publicGameAccuracy, sf19GameAccuracy, calibratedReview, scoringEvidenceComplete, analyseCalibratedPosition,
     isSf19Build, SF19_NODES, NATIVE_SCORING_CAPABILITY, expectedPoints, SF19_OUTCOME, moveGrade,
     matedKingSquare, mateMark,
-    rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY,
+    rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY, libraryFlip,
     Engine: class { constructor() { throw Error('Unexpected real engine'); } },
     fetch: async () => { throw Error('Unexpected network access'); },
     requestAnimationFrame: () => 0, cancelAnimationFrame() {},

@@ -20,6 +20,7 @@ import { isSf19Build, SF19_NODES } from "./lib/scoring-builds.js";
 import { moveGrade } from "./lib/move-grades.js";
 import { gameStatistics } from "./lib/game-statistics.js";
 import { rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY } from "./lib/player-history.js";
+import { libraryFlip } from "./lib/library-seat.js";
 
 // Development-only diagnostics for game identity / cache routing. Silent in production; enable by
 // opening the page with ?debug (analysis.html?debug#<job>) or setting globalThis.CHESS_REVIEW_DEBUG.
@@ -7000,10 +7001,10 @@ async function openLibraryGame(rec) {
   let analysis = null;
   try { const s = await browserAPI.storage.local.get(analysisCacheKey(rec.id)); analysis = s[analysisCacheKey(rec.id)] || null; } catch {}
   // Switch in place — no page reload, no black flash. The sidebar stays open (it only closes when
-  // the mouse leaves the library area), so you can pick another game right away. Reproduce the exact
-  // perspective the game was saved with: prefer a stored flip hint, else the saved meSide — so a
-  // re-opened game is never seated the wrong way up regardless of the current stored username.
-  const flip = (rec.meta && rec.meta.flip != null) ? rec.meta.flip : (rec.meSide === "b");
+  // the mouse leaves the library area), so you can pick another game right away. Seat it the same way
+  // the Progress page does (lib/library-seat.js): a record saved from the opponent's seat opens facing
+  // the tracked account, and everything else reproduces the exact perspective it was saved with.
+  const flip = libraryFlip(rec, S.username);
   applyGame({ pgn: rec.pgn, meta: { ...(rec.meta || {}), flip }, source: "library", analysis });
 }
 // Toggle a game's favorite flag and persist it.

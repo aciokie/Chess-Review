@@ -599,12 +599,13 @@ function inspectorPanel(records) {
 function dailyPanel(records) {
   const daily = dailyActivity(records, { days: 84 });
   if (!daily.games) {
-    return el("div", { class: "panel" },
-      el("h3", {}, "Daily tracker"),
-      // Not "carries no date": a future-dated PGN has one, it just cannot be a day you played on.
-      el("p", { class: "sub" }, daily.undated
-        ? `${daily.undated} saved ${daily.undated === 1 ? "game has" : "games have"} no usable date in ${daily.undated === 1 ? "its" : "their"} PGN — missing, unreadable, or set in the future — so ${daily.undated === 1 ? "it" : "they"} cannot be placed on a day.`
-        : "No games in the last 84 days."));
+    // Say which reason applies: an unusable date, a date past the window, or genuinely nothing.
+    const why = daily.undated
+      ? `${daily.undated} saved ${daily.undated === 1 ? "game has" : "games have"} no usable date in ${daily.undated === 1 ? "its" : "their"} PGN — missing, unreadable, or set in the future — so ${daily.undated === 1 ? "it" : "they"} cannot be placed on a day.`
+      : daily.later
+        ? `${daily.later} saved ${daily.later === 1 ? "game is" : "games are"} dated after this window (a PGN timezone ahead of yours). ${daily.later === 1 ? "It is" : "They are"} still counted by the cards and trends above.`
+        : "No games in the last 84 days.";
+    return el("div", { class: "panel" }, el("h3", {}, "Daily tracker"), el("p", { class: "sub" }, why));
   }
   const level = (n) => (!n ? 0
     : n >= Math.max(4, Math.ceil(daily.max * 0.75)) ? 4
@@ -617,14 +618,15 @@ function dailyPanel(records) {
     "data-level": String(level(cell.games)),
     "aria-label": `${dayLabel(cell.key)}: ${cell.games} games`,
     // A day with no games has nothing to scope to, so it is not a control: no click handler (clicking
-    // it used to filter every report down to an empty day) and no pressed state to announce. The
-    // tooltip still says "No games", which is the useful answer there.
+    // it used to filter every report down to an empty day), no pressed state to announce, and out of
+    // the tab order so the keyboard does not land on it. It stays a real element (not `disabled`) so
+    // the tooltip still answers "No games".
     ...(cell.games
       ? {
         "aria-pressed": String(cell.key === daySel),
         onclick: () => { daySel = daySel === cell.key ? "" : cell.key; rangeLast = 0; inspectKey = ""; render(); },
       }
-      : { "aria-disabled": "true" }),
+      : { "aria-disabled": "true", tabIndex: -1 }),
     onmousemove: (e) => showTip([
       el("b", {}, dayLabel(cell.key)),
       el("span", {}, cell.games
@@ -641,7 +643,8 @@ function dailyPanel(records) {
       `${daily.games} ${daily.games === 1 ? "game" : "games"} on ${daily.activeDays} ${daily.activeDays === 1 ? "day" : "days"} in the last ${daily.days}`
       + ` · current streak ${daily.streak} ${daily.streak === 1 ? "day" : "days"}`
       + ` · best run ${daily.best} ${daily.best === 1 ? "day" : "days"}`
-      + (daily.undated ? ` · ${daily.undated} without a usable date` : "")),
+      + (daily.undated ? ` · ${daily.undated} without a usable date` : "")
+      + (daily.later ? ` · ${daily.later} dated after this window` : "")),
     el("div", { class: "days" },
       ...Array.from({ length: lead }, () => el("span", { class: "day empty", "aria-hidden": "true" })),
       ...cells),
@@ -783,8 +786,18 @@ function phasePanel(records) {
 function bestsPanel(records, streakSource = null) {
   const byId = recordById();
   const rows = personalBests(records, { streakSource }).map((b) => el("tr",
-    // Only rows that point at a real game are clickable (and get the hover/pointer styling).
-    { class: b.id ? "" : "none", onclick: b.id ? () => openGame(b.id) : null, title: b.id ? "Open this game" : "" },
+    // Only rows that point at a real game are clickable (and get the hover/pointer styling). A streak
+    // is measured over every tracked game, so its row can name a game outside the active filters - say
+    // so, rather than letting the reader assume the link stays inside the window.
+    {
+      class: b.id ? "" : "none",
+      onclick: b.id ? () => openGame(b.id) : null,
+      title: b.id
+        ? (b.key === "winStreak" || b.key === "unbeaten"
+          ? "Open the last game of this run (streaks count every tracked game, not just this window)"
+          : "Open this game")
+        : "",
+    },
     el("td", {}, b.label),
     el("td", { class: "big" }, b.text ?? "–"),
     el("td", { class: "hint" }, b.id && byId.get(b.id) ? b.hint : ""),
@@ -875,7 +888,14 @@ function gamesPanel(records) {
       onclick: () => { gameSort = { key, dir: active && gameSort.dir === "desc" ? "asc" : "desc" }; render(); },
     }, label, el("span", { class: "caret" }, active ? (gameSort.dir === "asc" ? "▲" : "▼") : ""));
   };
-  const body = rows.map((row) => el("tr", { onclick: () => openGame(row.id), title: "Open this game" },
+  // The Errors column shows the count; the row's tooltip says what share of the game's moves that was,
+  // which is what makes a 12 in a 60-move game and a 12 in a 20-move game comparable at a glance.
+  const body = rows.map((row) => el("tr", {
+    onclick: () => openGame(row.id),
+    title: row.errorRate == null
+      ? "Open this game"
+      : `${row.errors} of ${row.moves} moves were errors (${Math.round(row.errorRate)}%). Open this game`,
+  },
     el("td", {}, row.date || "—"),
     el("td", {}, row.opponent || "—"),
     el("td", {}, row.colourLabel),

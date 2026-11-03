@@ -17,6 +17,7 @@ npm run start:chrome      # web-ext run --target=chromium (dev)
 npm run start:firefox     # web-ext run --target=firefox-desktop (dev)
 npm run test:browsers     # real-browser smoke; honors CHROME_PATH / FIREFOX_PATH env vars
 npm run test:native-host  # real-protocol test of the native host (Windows-only; skips elsewhere)
+npm run perf              # engine-free vm benchmark (open/step/flush/save/sidebar medians); docs/PERFORMANCE.md
 npm run update:dataset    # refresh the Lichess validation sample + lock (tools/calibration-experiments; not shipped)
 node tools/calibration/reproduce-public.mjs   # offline replay of the public scoring models (no engine, no network)
 ```
@@ -43,6 +44,7 @@ CI gate (`.github/workflows/verify.yml`, Node 22 — `package.json` declares no 
 - **Game identity & caching**: `gameid.js` owns what makes two games "the same" (platform id, else a PGN hash) and every `gamecache:` key; `gamecache.js` stores fetched PGNs locally (LRU-capped) so re-opening a seen game costs no API calls
 - **Concepts pipeline**: `lib/concepts/` runs detectors off the UI thread in `worker.js`; `runtime.js` executes them by group, then `lib/coach-insights.js` (`coachInsights`/`coachReply`/`playerText`/`tidyText`) phrases the findings. `controls.js` `CONCEPT_GROUPS` / `DEFAULT_CONCEPT_GROUPS` are implementation controls (cost-ordered, most heavy groups default off), not research acceptance
 - **No build step for source** — the extension loads raw JS/CSS; `npm run build` only packages for stores
+- **Reference docs**: `docs/MOVE_CLASSIFICATION.md` is the authoritative classifier policy (categories are annotations — they never move accuracy/rating); `docs/PERFORMANCE.md` records the baseline and how to compare `npm run perf` runs (only at a matching `--reps`)
 
 ## Key Files
 | File | Purpose |
@@ -70,13 +72,14 @@ CI gate (`.github/workflows/verify.yml`, Node 22 — `package.json` declares no 
 | `lib/chess.js` | Chess.js fork for move gen/validation |
 
 ## Concepts pipeline (lib/concepts)
-- `lib/concepts/detectors/E*.mjs` (297 files) are generated copies of the `research/` experiments; their bytes and a source fingerprint are recorded in `lib/concepts/integration-provenance.json`. **Do not hand-edit detectors.**
+- `lib/concepts/detectors/E*.mjs` (300 files) are generated copies of the `research/` experiments; their bytes and a source fingerprint are recorded in `lib/concepts/integration-provenance.json`. **Do not hand-edit detectors.**
 - Wording, scope phrasing and perspective belong in `lib/coach-insights.js`; `tests/concept-wording.test.mjs` exercises presentation on real detector output
 - Neither `scripts/promote-concept-integration.mjs` (the generator) nor `research/` exists in this checkout, so the hash/fingerprint assertions in `tests/concept-integration.test.mjs` self-skip — an accidental detector edit will not be caught by tests here
 
 ## Progress page & backup (fork-native, not upstream)
 - The Progress page reads only `browserAPI.storage.local["library"]`, and reports on **one account**: the handle in `storage.local.username` (popup → Manual setup → Username, the same value that seats a review). `ownGames()` in `lib/progress.js` keeps only that account's games and re-points the `my*` fields when a record was saved from the opponent's seat (swapping accuracy/rating/names, inverting `result`, dropping `myPhases` since the opponent's per-phase numbers are not stored). With no handle set the page shows the whole library **and says so** — never silently mixing other people's games into "my progress". `progress.js` follows `storage.onChanged` so saving a handle updates an open page
 - Per-phase accuracy and personal bests depend on records saved *after* `saveToLibrary` began writing `plies` + `myPhases`, so older records are skipped (the reports tolerate missing fields)
+- The seat/orientation rule is **shared**: `lib/library-seat.js` (`playerSide`, `libraryFlip`) is used by both `progress.js` `openGame` and the analyzer's `openLibraryGame`, so the two doors into a saved game seat it identically — a record saved from the opponent's seat opens facing the tracked account, which is what makes a `move N` link land on that account's move (the analyzer imports it, so `tests/helpers/app.mjs` must keep injecting it). `dailyActivity` splits the dated games that fall outside its window into `older` (ordinary history) and `later` (a PGN timezone ahead of this one) so the tracker can never say "no games" while the cards count one
 - Interactive layer: a KPI card that names a `metric` is a button that opens the evidence panel (`metricEvidence` in `lib/progress.js` — the rule, the statistics and the games behind the number). The daily tracker (`dailyActivity`) draws 12 weeks of day cells; clicking one scopes every report to that day (`filterGames({ day })`, shown as a clearable chip). Rows and cells deep-link through `openAnalysisTab`, and each saved game carries `myWorst`/`opWorst` (`{ ply, cat }`) so a row can open the review *at that move*: `applyGame` reads `meta.startPly` once and strips it, so it is never saved with the game or replayed from the tab session
 - Three more ways in, all through `scopeTo()` (set a filter + jump back to the overview) or `applyTarget()`: **What to work on** (`focusAreas` — weakest phase, costliest error type, weaker colour, losing opening, nemesis, each with a target: a review at a move, or the page scoped to that colour/rival/opening), **Head to head** (`opponentReport`, rows scope to an opponent) and **Every game** (`gameRows`, sortable, one row per game with a `move N` button). A rival/opening/day scope is just another filter, so each shows as a clearable chip and `Reset filters` clears all of them. Placeholder names (`White`/`Black`, the Live board's own seats) are counted as `unnamed` by `opponentKey`, never as a rival
 - `lib/library-backup.js` deliberately excludes the per-game analysis caches (`analysis:<id>`) and `gamecache:*` — they are large and rebuild on demand, keeping a 1000-game backup a few hundred KB
@@ -85,7 +88,7 @@ CI gate (`.github/workflows/verify.yml`, Node 22 — `package.json` declares no 
 - Two report invariants worth keeping: `progressPoints` reports **one** rating scale per window (`ratingScale` picks the review's estimate or the recorded Elo, whichever covers more games — the two are never averaged together, and `summarizeProgress` reports `missingRating`), and `personalBests` counts streaks over `streakSource` (every tracked game) so a Result/colour/format filter cannot turn unrelated wins into a run
 
 ## Packaging & lint
-- `scripts/package.mjs` uses an **explicit allowlist** — any new file that `popup.js`/`analysis.js` imports MUST be added or the store ZIPs break (this bit `recent-games.js`)
+- `scripts/package.mjs` uses an **explicit allowlist**: top-level files (`files`) and whole directories (`directories`: `lib`, `data`, `engine`, …) are copied by name, so a new **top-level** file a page/script imports MUST be added or the store ZIPs break (this bit `recent-games.js`); a new file under a listed directory ships automatically
 - `native/` goes into the **source snapshot only**, never the browser ZIPs; `scripts/lint.mjs` skips `.git`, `node_modules`, `web-ext-artifacts`, `calibration-runs`, `native`, `manifest.json`
 - `manifest.version` must equal `package.json` `version` or the build throws
 
@@ -127,6 +130,7 @@ CI gate (`.github/workflows/verify.yml`, Node 22 — `package.json` declares no 
 - **Lichess 404s `HeadlessChrome` user agents** on its API — set a normal Chrome `userAgent` in the test context or live fetches fail with "user not found"
 - MV3 service workers idle out (~30 s): seed storage through an extension **page** context, not a captured worker
 - `npm run test:browsers` uses packaged ZIPs + isolated profiles; it falls back to `C:\Program Files\Google\Chrome\Application\chrome.exe` / `C:\Program Files\Mozilla Firefox\firefox.exe` unless `CHROME_PATH` / `FIREFOX_PATH` is set. Ad-hoc tests should use their own profile dir per run
+- `tmp-ext-test/` is the gitignored scratch dir for ad-hoc unpacked-extension runs (`run.mjs`, `shots/`) — keep new throwaway scripts there (a plain `git add -A` once committed them)
 
 ## Porting upstream work
 - `upstream` remote = `T-Julsgaard/Chess-Review` (never push to it). It is far ahead of this fork and dominated by `research:` noise — filter by path (`analysis.js`, `engine/`, `lib/`) to find actual app work

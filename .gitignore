@@ -9,3 +9,6 @@ opencode.json
 # Local scratch folder for ad-hoc unpacked-extension runs (run.mjs, shots/): never shipped, never
 # committed - a plain `git add -A` used to pick it up.
 tmp-ext-test/
+
+# Session attachments imported by the editor tooling (conversation dumps). Private and never shipped.
+/.cloud-attachments/

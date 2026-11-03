@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { app, loadGame, deferred } from './helpers/app.mjs';
 import { analysisCacheKey } from '../gameid.js';
+import { libraryFlip } from '../lib/library-seat.js';
 
 // Two independent analysis tabs = two vm contexts with their own S.library snapshots, sharing one
 // browser storage and one Web Locks manager — exactly like two extension tabs sharing
@@ -190,6 +191,30 @@ test('14: a junk entry in stored library does not break a save', async t => {
   assert.ok(a.store.library.every((rec) => rec && typeof rec === 'object' && typeof rec.id === 'string'));
   assert.ok(a.store.library.some((rec) => rec.id === 'keep'), 'the real record survives');
   assert.equal(a.store.library.length, 2, 'the junk is dropped, the new game is added');
+});
+
+test('16: the library sidebar and the Progress page seat a saved game the same way', async t => {
+  // The two doors into a saved game used to disagree: Progress opened a record saved from the
+  // opponent's seat facing the tracked account, the analyzer's sidebar faced the seat it was saved
+  // for. Both now call the same rule (lib/library-seat.js).
+  const a = app(t);
+  const pgn = '[White "Carl"]\n[Black "Ann"]\n\n1. e4 e5';
+  loadGame(a, pgn);
+  a.state.username = 'Ann';
+  a.state.players = { w: { name: 'Carl' }, b: { name: 'Ann' } };
+  const rec = { id: 'saved-from-theirs', pgn, meta: {}, meSide: 'w', myName: 'Carl', opName: 'Ann' };
+  let payload = null;
+  a.replace('applyGame', (p) => { payload = p; });
+  await a.call('openLibraryGame', rec);
+  assert.equal(payload.meta.flip, true, 'seated as the tracked account (Black), not as the saved seat');
+  assert.equal(payload.meta.flip, libraryFlip(rec, 'Ann'), 'and it is the shared rule, not a second one');
+
+  // A game saved for this account keeps its own orientation, including a manual flip hint.
+  const mine = { ...rec, id: 'mine', meta: { flip: true }, meSide: 'b', myName: 'Ann', opName: 'Carl' };
+  payload = null;
+  await a.call('openLibraryGame', mine);
+  assert.equal(payload.meta.flip, true);
+  assert.equal(payload.meta.flip, libraryFlip(mine, 'Ann'));
 });
 
 test('15: a non-array stored library does not wipe the saved games', async t => {

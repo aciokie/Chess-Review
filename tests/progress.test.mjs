@@ -402,6 +402,18 @@ test("playedAt rejects a game dated in the future", () => {
   assert.equal(playedAt({ date: "2026.10.31" }, { now }), new Date(2026, 9, 31).getTime(), "the past is untouched");
 });
 
+test("dailyActivity separates a game dated after the window from ordinary older history", () => {
+  const now = new Date(2026, 10, 1, 12).getTime();          // 2026-11-01, midday
+  const base = { id: "a", savedAt: 1, meSide: "w", myName: "Ann", opName: "Bob", myAcc: 70, result: "win" };
+  const tomorrow = { ...base, id: "t", date: "2026.11.02" };  // tolerated for a timezone ahead of ours
+  const old = { ...base, id: "o", date: "2025.01.01" };
+  const daily = dailyActivity([tomorrow, old], { days: 84, now });
+  assert.equal(daily.games, 0, "neither is inside the window");
+  assert.equal(daily.later, 1, "the timezone-ahead game is the one the page has to mention");
+  assert.equal(daily.older, 1, "the past game is ordinary history");
+  assert.equal(daily.outside, 2, "outside stays the sum, for callers that only need the total");
+});
+
 test("dailyActivity counts a future-dated game as undated instead of dropping it", () => {
   const now = new Date(2026, 10, 1, 12).getTime();
   const daily = dailyActivity([
