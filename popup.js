@@ -189,6 +189,10 @@ $("analyzeManual").addEventListener("click", async () => {
 /* ---------------- Recent games by username ---------------- */
 
 const RECENT_KEY = (site) => `recentUser:${site}`;
+// The last name per site is what the field opens with; the *list* is what saves retyping every other
+// player. They are per site because a Lichess handle and a Chess.com handle are different accounts.
+const RECENT_LIST_KEY = (site) => `recentUsers:${site}`;
+const RECENT_LIST_MAX = 8;
 let recentSite = "lichess";
 let recentGames = [];
 let recentPager = null;   // pages through ALL of the user's games; null until a Fetch
@@ -210,12 +214,80 @@ function setRecentSite(site) {
   }
 }
 
+// The usernames this popup has fetched before, newest first. Typing one again is the thing this
+// avoids; the field also carries the list as a <datalist>, so the browser's own suggestion dropdown
+// offers them as you type.
+async function savedRecentUsers(site) {
+  try {
+    const key = RECENT_LIST_KEY(site);
+    const stored = await browserAPI.storage.local.get([key, RECENT_KEY(site)]);
+    const list = Array.isArray(stored[key]) ? stored[key].filter((name) => typeof name === "string" && name.trim()) : [];
+    // An install from before this list only has the one saved name. Carry it in rather than letting
+    // the first fetch of a new name quietly drop it.
+    const last = String(stored[RECENT_KEY(site)] || "").trim();
+    if (last && !list.some((name) => name.toLowerCase() === last.toLowerCase())) list.push(last);
+    return list;
+  } catch {}
+  return [];
+}
+
+// The names offered for the current site: the remembered list, with the site's last-used name in
+// front so it leads both the datalist and the chips even on an install that predates the list.
+function recentUserChoices(list, last) {
+  if (!last) return [...list];
+  return [last, ...list.filter((name) => name.toLowerCase() !== last.toLowerCase())];
+}
+
+function renderRecentUserChoice(names) {
+  const list = $("recentUserList");
+  if (list) list.replaceChildren(...names.map((name) => {
+    const option = document.createElement("option");
+    option.value = name;
+    return option;
+  }));
+  const chips = $("recentSaved");
+  if (!chips) return;
+  const label = names.length ? [Object.assign(document.createElement("span"), { className: "lbl", textContent: "Recent:" })] : [];
+  chips.replaceChildren(...label, ...names.map((name) => {
+    const button = document.createElement("button");
+    button.type = "button";       // inside the form's section: never submit it
+    button.textContent = name;
+    button.title = `Fetch ${name}'s games`;
+    button.addEventListener("click", () => {
+      $("recentUser").value = name;
+      fetchRecentGames();
+    });
+    return button;
+  }));
+}
+
+async function loadRecentUser(site) {
+  let stored = {};
+  try { stored = await browserAPI.storage.local.get([RECENT_KEY(site), "username"]); } catch {}
+  // Chess.com used to be the only site that fell back to the shared handle; keep that behaviour.
+  const last = stored[RECENT_KEY(site)] || (site === "chesscom" ? stored.username || "" : "");
+  renderRecentUserChoice(recentUserChoices(await savedRecentUsers(site), last));
+  return last;
+}
+
+// Remember a name the fetch actually succeeded with, so a typo is never offered back.
+async function rememberRecentUser(site, name) {
+  const clean = String(name || "").trim();
+  if (!clean) return;
+  const list = await savedRecentUsers(site);
+  const next = recentUserChoices(list, clean).slice(0, RECENT_LIST_MAX);
+  try {
+    await browserAPI.storage.local.set({ [RECENT_KEY(site)]: clean, [RECENT_LIST_KEY(site)]: next });
+  } catch {}
+  renderRecentUserChoice(next);
+}
+
 async function initRecent() {
   try {
-    const stored = await browserAPI.storage.local.get(["recentSite", RECENT_KEY("lichess"), RECENT_KEY("chesscom"), "username"]);
+    const stored = await browserAPI.storage.local.get("recentSite");
     setRecentSite(stored.recentSite || "lichess");
-    $("recentUser").value = stored[RECENT_KEY(recentSite)] || (recentSite === "chesscom" ? stored.username || "" : "");
   } catch {}
+  try { $("recentUser").value = await loadRecentUser(recentSite); } catch {}
   // Username → game list is the main path when the current tab is not a game, so open it there.
   let tab = null;
   try { [tab] = await browserAPI.tabs.query({ active: true, currentWindow: true }); } catch {}
@@ -227,10 +299,7 @@ for (const btn of document.querySelectorAll("#sitePicker .site-btn")) {
     setRecentSite(btn.dataset.site);
     resetRecentList();   // a list (and its Load more pager) belongs to one site
     try { await browserAPI.storage.local.set({ recentSite }); } catch {}
-    try {
-      const stored = await browserAPI.storage.local.get([RECENT_KEY(recentSite), "username"]);
-      $("recentUser").value = stored[RECENT_KEY(recentSite)] || (recentSite === "chesscom" ? stored.username || "" : "");
-    } catch {}
+    try { $("recentUser").value = await loadRecentUser(recentSite); } catch {}
     recentStatus("");
   });
 }
@@ -256,7 +325,7 @@ function recentCountStatus() {
     : `${n} games loaded. Click one to review it.`);
 }
 
-$("fetchRecent").addEventListener("click", async () => {
+async function fetchRecentGames() {
   const btn = $("fetchRecent");
   const user = $("recentUser").value.trim();
   const site = recentSite; // the site picker can change while the request is in flight
@@ -271,7 +340,8 @@ $("fetchRecent").addEventListener("click", async () => {
   recentPager = pager; recentViewer = user;
   try {
     const { games } = await pager.loadMore();
-    try { await browserAPI.storage.local.set({ [RECENT_KEY(site)]: user }); } catch {}
+    // Only a name that came back with games is worth offering again (a typo never is).
+    await rememberRecentUser(site, user);
     if (pager !== recentPager || site !== recentSite) return; // user switched site / fetched again meanwhile
     recentGames = games.slice();
     renderRecentRows(games, user);
@@ -282,6 +352,13 @@ $("fetchRecent").addEventListener("click", async () => {
   } finally {
     btn.disabled = false;
   }
+}
+
+// The field lives in a form so Enter fetches and so the browser sees a named username field it can
+// autofill; the submit is ours either way.
+$("recentForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  fetchRecentGames();
 });
 
 // "Load more games" at the bottom of the list: append the next (older) page, over and over,
