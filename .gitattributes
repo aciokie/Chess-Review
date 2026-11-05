@@ -1,7 +1,14 @@
+# The one-click installers are meant to be double-clicked on Windows: always hand them CRLF, so a
+# GitHub ZIP download (which does not run through core.autocrlf) cannot produce a .bat that cmd
+# mis-parses. See "Install Native Engine.bat" and "Update Extension.bat".
+*.bat text eol=crlf
+
 # Preserve official release checksums, including on Windows.
 engine/stockfish*.js -text
 engine/*.wasm binary
 native/engine/*.exe binary
+# The prebuilt helper is hash-pinned in native/host/checksums.json: never re-save or re-encode it.
+native/host/*.exe binary
 # The public scoring models are hashed over their LF bytes (tools/calibration/public/manifest.json).
 # Without this, core.autocrlf checks them out as CRLF on Windows and reproduce-public.mjs fails.
 tools/calibration/public/*.json text eol=lf

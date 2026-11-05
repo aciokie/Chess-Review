@@ -46,7 +46,15 @@ param(
   # engine), the helper checks the binary itself at every start, so "verified Stockfish 19" means a
   # hash match, not just the engine's own claim.
   # Get the hash with:  Get-FileHash "D:\Downlaods\Stockfish19\stockfish-windows-x86-64-*.exe" -Algorithm SHA256
-  [string]$ExpectedSha256 = ""
+  [string]$ExpectedSha256 = "",
+  # The repository normally carries the engine in native\engine. When that copy is missing (a source
+  # snapshot without it, or this script downloaded on its own), it is fetched from the official
+  # Stockfish release and verified against native\engine\checksums.json before anything is installed.
+  # Pass this switch to refuse the download and fail instead (offline / air-gapped installs).
+  [switch]$NoEngineDownload,
+  # Redo the whole install even when it is already in place and unchanged, including the self-test.
+  # Without it a second run is a no-op: nothing is compiled, copied or started.
+  [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -62,6 +70,58 @@ $FirefoxManifestPath = Join-Path $InstallDir "host-manifest.firefox.json"
 
 function Write-Utf8NoBom([string]$Path, [string]$Text) {
   [System.IO.File]::WriteAllText($Path, $Text, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+# The only engine this installer will fetch, and only when the repository does not already carry it.
+# The official Stockfish 19 Windows universal build: the same bytes native/engine/checksums.json pins,
+# verified below before use. Nothing here trusts the download.
+$OfficialEngineUrl = "https://github.com/official-stockfish/Stockfish/releases/download/sf_19/stockfish-windows-x86-64-universal.zip"
+
+function Get-OfficialStockfish([string]$EngineDir, [string]$ExeName) {
+  $zipPath = Join-Path ([System.IO.Path]::GetTempPath()) (Split-Path -Leaf $OfficialEngineUrl)
+  $extractDir = Join-Path ([System.IO.Path]::GetTempPath()) ("chess-review-sf19-" + [Guid]::NewGuid().ToString("n"))
+  Write-Host "The engine is not bundled in this copy; downloading the official Stockfish 19 (about 78 MB, one time)..."
+  Write-Host "  $OfficialEngineUrl"
+  # GitHub requires TLS 1.2, which Windows PowerShell 5.1 does not always negotiate on its own.
+  try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+  } catch { }
+  # The progress bar makes Invoke-WebRequest several times slower on PowerShell 5.1 for no benefit.
+  $previousProgress = $ProgressPreference
+  $ProgressPreference = "SilentlyContinue"
+  try {
+    Invoke-WebRequest -Uri $OfficialEngineUrl -OutFile $zipPath -UseBasicParsing
+  } finally {
+    $ProgressPreference = $previousProgress
+  }
+  try {
+    if (Test-Path -LiteralPath $extractDir) { Remove-Item -LiteralPath $extractDir -Recurse -Force }
+    Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
+    $found = Get-ChildItem -LiteralPath $extractDir -Recurse -File -Filter $ExeName | Select-Object -First 1
+    if (-not $found) { throw "The official archive did not contain $ExeName." }
+    if (-not (Test-Path -LiteralPath $EngineDir)) { New-Item -ItemType Directory -Path $EngineDir -Force | Out-Null }
+    $target = Join-Path $EngineDir $ExeName
+    Copy-Item -LiteralPath $found.FullName -Destination $target -Force
+    Unblock-File -LiteralPath $target -ErrorAction SilentlyContinue
+    Write-Host "Unpacked the official Stockfish 19 (its SHA-256 is checked next)."
+  } finally {
+    if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+    if (Test-Path -LiteralPath $extractDir) { Remove-Item -LiteralPath $extractDir -Recurse -Force }
+  }
+}
+
+# The recorded hash is what makes a download trustworthy; fetching the engine without it would be
+# asking the user to trust whatever arrived. Read it, and treat "no record" as a hard failure.
+function Get-RecordedEngineSha([string]$ChecksumsPath, [string]$ExeName) {
+  try {
+    $manifest = Get-Content -LiteralPath $ChecksumsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($entry in @($manifest)) {
+      if ($entry.file -eq $ExeName -and -not [String]::IsNullOrWhiteSpace([string]$entry.sha256)) {
+        return ([string]$entry.sha256).Trim().ToLowerInvariant()
+      }
+    }
+  } catch { }
+  return ""
 }
 
 function Assert-EnginePath([string]$Path) {
@@ -205,15 +265,103 @@ function Test-Helper([string]$Exe, [bool]$StartEngine) {
 
 Write-Host "== Chess Review native engine helper =="
 
+# 0. Is this install already in place and unchanged? ------------------------------------
+# A repeated run must not do any work. Compiling again produces a brand-new unsigned binary that no
+# antivirus has seen before (so every run is scanned from scratch, and may even be blocked), and the
+# self-test then launches it plus the 100 MB engine for nothing. Everything below is skipped when the
+# installed helper, its config and every browser registration already match this copy of the source.
+# -Force (or any explicit option) always does the full install.
+$PrebuiltExe = Join-Path $PSScriptRoot "host\ChessReviewHost.exe"
+$PrebuiltChecksums = Join-Path $PSScriptRoot "host\checksums.json"
+$ConfigPath = Join-Path $InstallDir "config.json"
+$RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$DesiredOrigins = @("chrome-extension://$StoreId/")
+foreach ($id in (@($ExtensionId) + @(Find-UnpackedExtensionIds $RepoRoot))) {
+  if ([String]::IsNullOrWhiteSpace($id)) { continue }
+  $clean = ([string]$id).Trim()
+  if ($clean -match '^[a-p]{32}$') {
+    $origin = "chrome-extension://$clean/"
+    if ($DesiredOrigins -notcontains $origin) { $DesiredOrigins += $origin }
+  }
+}
+
+# What a build from this folder would produce: the prebuilt binary's pinned bytes when it is present
+# and matches its record, otherwise the hash of the helper source.
+function Get-HelperIdentity {
+  if (Test-Path -LiteralPath $PrebuiltExe) {
+    $recorded = Get-RecordedEngineSha -ChecksumsPath $PrebuiltChecksums -ExeName (Split-Path -Leaf $PrebuiltExe)
+    if (-not [String]::IsNullOrWhiteSpace($recorded)) {
+      try {
+        if ((Get-FileHash -LiteralPath $PrebuiltExe -Algorithm SHA256).Hash.ToLowerInvariant() -eq $recorded) {
+          return "prebuilt:$recorded"
+        }
+      } catch { }
+    }
+  }
+  if (Test-Path -LiteralPath $Source) {
+    try { return "source:" + (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash.ToLowerInvariant() } catch { }
+  }
+  return ""
+}
+
+function Test-InstallCurrent([string]$HelperId, [string[]]$Origins) {
+  if ([String]::IsNullOrWhiteSpace($HelperId)) { return $false }
+  if (-not (Test-Path -LiteralPath $HostExe)) { return $false }
+  if (-not (Test-Path -LiteralPath $ConfigPath)) { return $false }
+  $config = $null
+  try { $config = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return $false }
+  # Built from the same source (or the same prebuilt binary) as this folder would build now.
+  if ([string]$config.helperId -ne $HelperId) { return $false }
+  # The engine it points at is still there, and still the bytes that were pinned for it.
+  $engine = [string]$config.enginePath
+  if ([String]::IsNullOrWhiteSpace($engine) -or -not (Test-Path -LiteralPath $engine -PathType Leaf)) { return $false }
+  $pin = ([string]$config.expectedSha256).Trim().ToLowerInvariant()
+  if (-not [String]::IsNullOrWhiteSpace($pin)) {
+    try { if ((Get-FileHash -LiteralPath $engine -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pin) { return $false } } catch { return $false }
+  }
+  # Every browser that must be able to reach the helper already can, at this exact path.
+  foreach ($manifestPath in @($ManifestPath, $FirefoxManifestPath)) {
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
+      if ($manifestPath -eq $FirefoxManifestPath) { continue }   # Firefox is opt-in
+      return $false
+    }
+    $manifest = $null
+    try { $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return $false }
+    if ([string]$manifest.path -ne $HostExe) { return $false }
+    foreach ($origin in $Origins) {
+      if (@($manifest.allowed_origins) -notcontains $origin) { return $false }
+    }
+  }
+  return $true
+}
+
+$helperId = Get-HelperIdentity
+$explicitChange = $Force -or $KeepConfig -or $NoCompile -or $NoEngineDownload -or $Firefox -or
+  (-not [String]::IsNullOrWhiteSpace($EnginePath)) -or
+  (-not [String]::IsNullOrWhiteSpace($ExpectedSha256)) -or
+  (@($ExtensionId).Count -gt 0)
+if (-not $explicitChange) {
+  $currentEngine = ""
+  try { $currentEngine = [string]((Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8) | ConvertFrom-Json).enginePath } catch { }
+  if (Test-InstallCurrent -HelperId $helperId -Origins $DesiredOrigins) {
+    Write-Host "Already installed and unchanged - nothing to do."
+    Write-Host "  Helper: $HostExe"
+    Write-Host "  Engine: $currentEngine"
+    Write-Host "  Registered for: $($DesiredOrigins -join ', ')"
+    Write-Host "Press Recheck in Settings > Engine > Build if the extension has not noticed it yet."
+    Write-Host "(Re-run with -Force to rebuild and self-test anyway.)"
+    exit 0
+  }
+}
+
 # 1. Install directory + helper executable -----------------------------------------------
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
-# The repo ships a PREBUILT helper (native/host/ChessReviewHost.exe, hash-recorded in
-# native/host/checksums.json): one stable binary and hash for every user, so antivirus reputation
-# accumulates instead of resetting on each install. It is used when its hash matches; compiling
-# locally with the in-box csc.exe is only the fallback (missing prebuilt, or hash mismatch).
-$PrebuiltExe = Join-Path $PSScriptRoot "host\ChessReviewHost.exe"
-$PrebuiltChecksums = Join-Path $PSScriptRoot "host\checksums.json"
+# A PREBUILT helper (native/host/ChessReviewHost.exe, hash-recorded in native/host/checksums.json) is
+# used when present and matching: one stable binary for every user, so antivirus reputation
+# accumulates instead of resetting on each install. Compiling locally with the in-box csc.exe is the
+# fallback (no prebuilt committed yet, or its bytes do not match the record). Both paths are resolved
+# at the top of this script; see Get-HelperIdentity.
 $compiled = $false
 $usedPrebuilt = $false
 if ($NoCompile -and (Test-Path -LiteralPath $HostExe)) {
@@ -261,32 +409,41 @@ if ($NoCompile -and (Test-Path -LiteralPath $HostExe)) {
 Unblock-File -LiteralPath $HostExe -ErrorAction SilentlyContinue
 
 # 1b. Engine ------------------------------------------------------------------------------
-# By default the helper runs the OFFICIAL Stockfish 19 build bundled in this repository, copied into
-# the install folder (so the install keeps working even if this repo folder is later moved or
-# deleted) and hash-pinned automatically. -EnginePath still selects a custom executable.
+# By default the helper runs the OFFICIAL Stockfish 19 build this repository carries, copied into the
+# install folder (so the install keeps working even if this repo folder is later moved or deleted) and
+# hash-pinned automatically. When the copy is missing, the same official build is downloaded and
+# verified against the recorded SHA-256 first - see Get-OfficialStockfish above. -EnginePath still
+# selects a custom executable.
 $BundledEngine = Join-Path $PSScriptRoot "engine\stockfish-windows-x86-64-universal.exe"
 $BundledChecksums = Join-Path $PSScriptRoot "engine\checksums.json"
 if ([String]::IsNullOrWhiteSpace($EnginePath)) {
+  $engineExe = Split-Path -Leaf $BundledEngine
+  $downloaded = $false
   if (-not (Test-Path -LiteralPath $BundledEngine)) {
-    throw "No -EnginePath given and the bundled engine is missing: $BundledEngine"
-  }
-  # The repo records the official binary's SHA-256 (native/engine/checksums.json). Never install a
-  # bundled engine whose bytes do not match that record.
-  $recorded = ""
-  try {
-    $manifest = Get-Content -LiteralPath $BundledChecksums -Raw -Encoding UTF8 | ConvertFrom-Json
-    foreach ($entry in @($manifest)) {
-      if ($entry.file -eq (Split-Path -Leaf $BundledEngine)) { $recorded = [string]$entry.sha256 }
+    if ($NoEngineDownload) {
+      throw "No -EnginePath given and the engine is not in this copy: $BundledEngine`n" +
+            "Re-run without -NoEngineDownload to fetch the official Stockfish 19 automatically, or pass -EnginePath."
     }
-  } catch { $recorded = "" }
+    Get-OfficialStockfish -EngineDir (Split-Path -Parent $BundledEngine) -ExeName $engineExe
+    $downloaded = $true
+  }
+  # The repo records the official binary's SHA-256 (native/engine/checksums.json). Never install an
+  # engine whose bytes do not match that record.
+  $recorded = Get-RecordedEngineSha -ChecksumsPath $BundledChecksums -ExeName $engineExe
+  if ($downloaded -and [String]::IsNullOrWhiteSpace($recorded)) {
+    # These bytes just came off the network. Without the record there is nothing to check them
+    # against, and installing an unverified engine is the one thing this installer must never do.
+    throw "Downloaded Stockfish, but $BundledChecksums records no SHA-256 for $engineExe, so the download cannot be verified.`n" +
+          "Refusing to install an unverified engine. Restore native\engine\checksums.json and try again."
+  }
   $bundledHash = (Get-FileHash -LiteralPath $BundledEngine -Algorithm SHA256).Hash.ToLowerInvariant()
   if (-not [String]::IsNullOrWhiteSpace($recorded)) {
-    if ($bundledHash -ne $recorded.ToLowerInvariant()) {
-      throw "The bundled Stockfish executable does not match the SHA-256 recorded in native\engine\checksums.json.`n" +
-            "  recorded: $($recorded.ToLowerInvariant())`n  actual:   $bundledHash`n" +
+    if ($bundledHash -ne $recorded) {
+      throw "The Stockfish executable does not match the SHA-256 recorded in native\engine\checksums.json.`n" +
+            "  recorded: $recorded`n  actual:   $bundledHash`n" +
             "Do not install it. Re-download the repository (or the official release) and try again."
     }
-    Write-Host "Bundled engine verified against native\engine\checksums.json"
+    Write-Host "Engine verified against native\engine\checksums.json"
   }
   $InstalledEngine = Join-Path $InstallDir "stockfish.exe"
   Copy-Item -LiteralPath $BundledEngine -Destination $InstalledEngine -Force
@@ -294,11 +451,12 @@ if ([String]::IsNullOrWhiteSpace($EnginePath)) {
   $EnginePath = $InstalledEngine
   # Pin automatically: "verified Stockfish 19" then means the official binary, byte for byte.
   if ([String]::IsNullOrWhiteSpace($ExpectedSha256)) { $ExpectedSha256 = $bundledHash }
-  Write-Host "Using the bundled official Stockfish 19 (installed to $InstalledEngine)"
+  $origin = if ($downloaded) { "downloaded" } else { "bundled" }
+  Write-Host "Using the official Stockfish 19 ($origin) - installed to $InstalledEngine"
 }
 
 # 2. Configuration -----------------------------------------------------------------------
-$ConfigPath = Join-Path $InstallDir "config.json"
+# ($ConfigPath, $PrebuiltExe and $PrebuiltChecksums are resolved in section 0 above.)
 # Normalise the pinned hash (accepts "SHA256:" prefixed output from Get-FileHash).
 $ExpectedSha = ""
 if (-not [String]::IsNullOrWhiteSpace($ExpectedSha256)) {
@@ -323,6 +481,7 @@ if ($KeepConfig -and (Test-Path -LiteralPath $ConfigPath)) {
     try {
       $existing = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
       $existing.expectedSha256 = $ExpectedSha
+      $existing.helperId = $helperId
       Write-Utf8NoBom $ConfigPath ($existing | ConvertTo-Json -Depth 5)
     } catch { Write-Warning "Could not record the pinned hash into the existing config.json: $($_.Exception.Message)" }
   }
@@ -347,6 +506,10 @@ if ($KeepConfig -and (Test-Path -LiteralPath $ConfigPath)) {
     hashMb = [Math]::Max(1, [Math]::Min(4096, $HashMb))
     searchTimeoutMs = 120000
     expectedSha256 = $ExpectedSha
+    # What produced the helper that is being installed (the prebuilt binary's hash, or the hash of the
+    # source that was compiled). A repeat run compares this to decide that nothing changed and skip
+    # the rebuild entirely - see section 0. The helper itself ignores unknown keys.
+    helperId = $helperId
     logFile = ""
   }
   Write-Utf8NoBom $ConfigPath ($config | ConvertTo-Json)
@@ -356,7 +519,8 @@ if (-not $compiled) { Write-Host "Helper already compiled; reusing $HostExe" }
 Write-Host "Config written to $ConfigPath"
 
 # 3. Host manifest + registration --------------------------------------------------------
-$RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+# ($RepoRoot and the detected extension ids are resolved in section 0 above; $origins here is the
+# same list in the order the manifest writes it.)
 $origins = @("chrome-extension://$StoreId/")
 $allowedIds = @()
 foreach ($id in $ExtensionId) {

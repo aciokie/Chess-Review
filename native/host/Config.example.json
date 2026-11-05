@@ -14,5 +14,7 @@
   "_hashMb": "UCI Hash in MB (1-4096). The extension's own Hash setting is applied on top of this, per engine.",
   "_searchTimeoutMs": "Watchdog (500-600000): if a searching engine produces no output for this long the helper reports a fatal error, reaps the engine and exits. The extension applies its own, independent timeouts and falls back to the bundled WASM engine.",
   "_logFile": "Optional absolute path to a diagnostic log. Diagnostics also always go to stderr; stdout is reserved for the Native Messaging protocol.",
+  "helperId": "",
+  "_helperId": "Written by native/install.ps1, not by you: identifies what built the installed helper (the prebuilt binary's SHA-256, or the hash of the source that was compiled). A repeat install compares it to skip the work - and the antivirus scan - when nothing changed. Ignored by the helper.",
   "note": "The helper also honours the CHESS_REVIEW_ENGINE_PATH environment variable as an override for enginePath (portable setups and testing)."
 }

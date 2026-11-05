@@ -586,23 +586,42 @@ test('the settings hint probes the helper once and never starts an engine', asyn
   assert.equal(a.state.nativeStatus.available, true);
 });
 
-test('a missing helper offers a small install button whose steps are the one thing the browser cannot do', async (t) => {
+test('a missing helper names the installer and offers no click that cannot work', (t) => {
   const a = app(t);
   a.context.probeNativeHost = () => Promise.resolve({ available: false, reason: 'disconnected' });
   a.state.settingsTab = 'engine';
   a.state.nativeStatus = { available: false, reason: 'disconnected' };
-  a.state.nativeInstallOpen = true; // as if the user pressed the button
   const row = a.call('nativeStatusRow', a.state.nativeStatus);
-  const text = row.textContent;
-  assert.match(text, /Install Native Engine\.bat/, 'the steps name the one-click installer');
-  assert.match(text, /rechecks by itself/, 'the user is told the tab rechecks on its own');
-  assert.ok(row.querySelector('button'), 'the row carries small buttons (install steps + Recheck)');
-  // Reset for the next probe (focus watcher does this).
-  a.state.nativeStatus = null;
+
+  // The one supported door is the .bat in the project folder, and the row says so in plain words.
+  assert.match(row.textContent, /Native helper not detected/);
+  assert.match(row.textContent, /Install Native Engine\.bat/, 'the row names the installer');
+  assert.match(row.textContent, /reviews use the bundled Stockfish 18 NNUE/, 'and what runs instead');
+
+  // Nothing here may open a download: the extension has no host to serve one from, and the old
+  // button pointed at a 404 for its entire life (upstream publishes no releases).
+  assert.equal(row.querySelectorAll('a[href]').length, 0, 'no links in the native row');
+  assert.equal(row.querySelectorAll('[onclick]').length, 0, 'the row carries no inline handlers');
+  const buttons = [...row.querySelectorAll('button')].map((b) => b.textContent);
+  assert.deepEqual(buttons, ['Recheck', 'Diagnostics'], 'only the two buttons that do real work');
+  for (const gone of ['NATIVE_ENGINE_DOWNLOAD_URL', 'openNativeDownload', 'watchNativeInstall', 'stopWatchNativeInstall', 'nativeInstallOpen']) {
+    assert.equal(a.run(`typeof ${gone}`), 'undefined', `${gone} must not come back`);
+  }
+});
+
+test('Recheck re-probes and flips the row once the helper is installed', async (t) => {
+  const a = app(t);
+  a.context.probeNativeHost = () => Promise.resolve({ available: false, reason: 'disconnected' });
+  a.state.settingsTab = 'engine';
+  a.state.nativeStatus = { available: false, reason: 'disconnected' };
+  assert.match(a.call('nativeStatusRow', a.state.nativeStatus).textContent, /not detected/);
+
   a.context.probeNativeHost = () => Promise.resolve({ available: true, engineConfigured: true, engine: { name: 'Stockfish 19', verified: true } });
-  a.call('ensureNativeStatus');
+  a.call('recheckNativeStatus');   // drops the cached verdict
+  a.call('ensureNativeStatus');    // the render path probes again
   await settle();
-  assert.equal(a.state.nativeStatus.available, true, 'coming back after installing flips the status without Recheck');
+  assert.equal(a.state.nativeStatus.available, true);
+  assert.match(a.call('nativeStatusRow', a.state.nativeStatus).textContent, /Native helper detected/);
 });
 
 test('a native review obeys the Depth setting like any other build', async (t) => {

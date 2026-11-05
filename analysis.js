@@ -778,8 +778,6 @@ const S = {
   // Native helper availability, for the Build row hint. `nativeStatus` is the last probe result
   // (null = not probed yet), `nativeProbe` the in-flight promise so we never probe twice.
   nativeStatus: null, nativeProbe: null,
-  // Open state of the "Install native engine" helper-steps card (transient).
-  nativeInstallOpen: false,
   // Circuit breaker for repeated native start failures in this session (reset by Recheck/success).
   nativeFailures: 0, nativeTripped: false,
   // Diagnostics self-test state (transient): { running, lines[], error }.
@@ -5915,13 +5913,14 @@ function nativeFailureHint(status, failure) {
 }
 // One hint line that states plainly what the user gets with the native build right now, including
 // when it ISN'T available, so we never imply native Stockfish is running when only WASM is.
-// When the helper is missing, a small "Install native engine" button opens the one step the browser
-// cannot do itself (Windows only lets a browser-launched helper register native messaging, so the
-// first install has to happen outside the page), then rechecks automatically on window focus.
-// The release asset users download to install the native helper. A browser page cannot run an
-// installer or register a native-messaging host itself, so the extension can only hand the user the
-// one file to double-click; the install-watch below then detects the helper the moment it registers.
-const NATIVE_ENGINE_DOWNLOAD_URL = "https://github.com/T-Julsgaard/Chess-Review/releases/latest/download/ChessReview-NativeEngine-Windows.zip";
+//
+// Installing is deliberately NOT offered here. A browser page cannot run an installer or register a
+// native-messaging host, and there is no release asset to hand out (upstream publishes no releases,
+// and this fork's native package is built on version tags), so a download button could only ever
+// point at a 404 — which is exactly what the old one did. The single supported door is the one
+// Install Native Engine.bat in the project folder: it fetches the official Stockfish 19, verifies
+// the pinned SHA-256, installs the helper and registers it for the installed browsers. The row
+// names that file and stops there; nothing here is clickable that cannot work.
 function nativeStatusRow(status) {
   const hint = nativeFailureHint(status, S.nativeFailure);
   let note = !status.available
@@ -5940,14 +5939,9 @@ function nativeStatusRow(status) {
   if (status.available && S.settings.enginePath === "native19" && !S.nativeTripped) note += " Native is much faster than WASM — 2-4 Workers are usually plenty.";
   const kids = [el("span", { class: "set-note" }, note)];
   if (!status.available) {
-    kids.push(el("button", {
-      class: "set-reset inline",
-      onclick: () => {
-        S.nativeInstallOpen = !S.nativeInstallOpen;
-        if (S.nativeInstallOpen) watchNativeInstall(); else stopWatchNativeInstall();
-        if (UI.settings && !UI.settings.hidden && S.settingsTab === "engine") { try { renderSettings(); } catch {} }
-      },
-    }, S.nativeInstallOpen ? "Hide install steps" : "Install native engine"));
+    kids.push(el("div", { class: "set-note" },
+      "To install it, double-click ", el("b", {}, "Install Native Engine.bat"),
+      " in the Chess Review folder — it downloads the official Stockfish 19, verifies its SHA-256, installs the helper and registers it for your browsers. Then press Recheck."));
   }
   kids.push(el("button", { class: "set-reset inline", onclick: recheckNativeStatus }, "Recheck"));
   kids.push(el("button", {
@@ -5956,23 +5950,6 @@ function nativeStatusRow(status) {
     // only covers a rejection from its cleanup, which a plain try/catch around the call would miss.
     onclick: () => { runNativeDiagnostics().catch((e) => console.error("Native diagnostics failed", e)); },
   }, S.nativeDiag && S.nativeDiag.running ? "Testing…" : "Diagnostics"));
-  if (!status.available && S.nativeInstallOpen) {
-    kids.push(el("div", { class: "set-note" },
-      "A browser is not allowed to start installers by itself, so this one step happens outside the page:",
-      el("div", { style: { margin: "8px 0 0 12px" } },
-        el("button", { class: "set-reset inline", onclick: openNativeDownload },
-          "⤓ Download installer (.zip)")),
-      el("div", { style: { margin: "8px 0 0 12px" } },
-        "1. Unzip it and double-click ", el("b", {}, "Install Native Engine.bat"),
-        " — it installs the official Stockfish 19 and registers the helper (per user, no admin rights)."),
-      el("div", { style: { margin: "3px 0 0 12px" } },
-        "2. Come back to this tab — it rechecks by itself and switches to Stockfish 19 (Native)."),
-      el("div", { style: { margin: "3px 0 0 12px" } },
-        el("span", { class: "set-note" }, "Already have the source folder? Double-click "),
-        el("b", {}, "Install Native Engine.bat"),
-        el("span", { class: "set-note" }, " in the folder you loaded.")),
-    ));
-  }
   if (S.nativeDiag) {
     kids.push(el("div", { class: "set-note" },
       el("b", {}, "Native diagnostics"),
@@ -5982,44 +5959,8 @@ function nativeStatusRow(status) {
   }
   return el("div", { class: "set-row hint" }, ...kids);
 }
-// While the install steps are open, re-probe whenever the user returns to this tab: after a
-// successful install the row flips to "detected" without them having to press Recheck.
-let _nativeInstallWatch = null;
-function watchNativeInstall() {
-  if (_nativeInstallWatch) return;
-  const onFocus = () => {
-    if (S.nativeStatus && S.nativeStatus.available) { stopWatchNativeInstall(); try { renderSettings(); } catch {} return; }
-    S.nativeStatus = null;
-    ensureNativeStatus();
-  };
-  window.addEventListener("focus", onFocus);
-  _nativeInstallWatch = { onFocus };
-}
-function stopWatchNativeInstall() {
-  if (!_nativeInstallWatch) return;
-  window.removeEventListener("focus", _nativeInstallWatch.onFocus);
-  _nativeInstallWatch = null;
-  S.nativeInstallOpen = false;
-}
 // One-shot self-test the user can paste into a bug report: helper version, engine identity, the
 // pinned-hash verdict and a real search with timings. Runs on a throwaway engine, changes nothing.
-// Opens the installer download page. It must not fail silently: if the browser refuses to open a tab
-// (tabs.create can reject asynchronously, which a plain try/catch would miss) fall back to window.open,
-// and if that is blocked too, show the link in the Diagnostics area so the user can copy it.
-function openNativeDownload() {
-  const showLink = () => {
-    S.nativeDiag = { running: false, lines: [`Couldn't open the download page. Copy this link into a new tab: ${NATIVE_ENGINE_DOWNLOAD_URL}`] };
-    if (UI.settings && !UI.settings.hidden && S.settingsTab === "engine") { try { renderSettings(); } catch {} }
-  };
-  const fallback = () => {
-    try {
-      const w = window.open(NATIVE_ENGINE_DOWNLOAD_URL, "_blank");
-      if (!w) showLink(); else { try { w.opener = null; } catch {} }
-    } catch { showLink(); }
-  };
-  try { Promise.resolve(browserAPI.tabs.create({ url: NATIVE_ENGINE_DOWNLOAD_URL })).catch(fallback); } catch { fallback(); }
-}
-
 async function runNativeDiagnostics() {
   if (S.nativeDiag && S.nativeDiag.running) return;
   const lines = [];
