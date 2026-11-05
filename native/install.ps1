@@ -176,7 +176,12 @@ function Find-UnpackedExtensionIds([string]$ExtensionDir) {
             if (-not ($entry -is [System.Collections.IDictionary])) { continue }
             if (-not $entry.ContainsKey("path")) { continue }
             $entryPath = [string]$entry["path"]
-            if ($entryPath.TrimEnd('\', '/') -ieq $wanted -and $id -match '^[a-p]{32}$') { $found += [string]$id }
+            # The folder this was run from, or any folder inside it: a packaged or worktree copy of
+            # the same project is still this project's own extension, and a dev load from such a
+            # folder would otherwise be refused by the browser for no good reason.
+            $candidate = $entryPath.TrimEnd('\', '/')
+            $sameProject = ($candidate -ieq $wanted) -or $candidate.StartsWith($wanted + '\', [System.StringComparison]::OrdinalIgnoreCase)
+            if ($sameProject -and $id -match '^[a-p]{32}$') { $found += [string]$id }
           }
         } catch { }
       }

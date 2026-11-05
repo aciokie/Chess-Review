@@ -5897,11 +5897,18 @@ function nativeFailureHint(status, failure) {
   if (reason === "unsupported") {
     return "This page has no Native Messaging access. Reload the extension on the browser's extensions page (the new version needs the \"nativeMessaging\" permission), then press Recheck.";
   }
+  // These diagnose, and where the fix is more than "run the installer" they carry the exact command.
+  // The row then skips its own installer line, so the same sentence never prints twice.
   if (text.includes("forbidden") || text.includes("does not have permission")) {
-    return "The browser refused the connection: this copy of the extension is not on the helper's allowed list. Re-run native\\install.ps1 (it now finds your extension id by itself), then press Recheck.";
+    // The browser knows this extension's id and the user cannot see it anywhere else, so hand them
+    // the one command that allows this exact copy (the installer finds it by itself only when the
+    // profile has already recorded where it was loaded from).
+    const id = browserAPI && browserAPI.runtime && browserAPI.runtime.id;
+    const allow = id ? `Install Native Engine.bat -ExtensionId ${id}` : "Install Native Engine.bat";
+    return `The browser refused the connection: this copy of the extension${id ? ` (${id})` : ""} is not allowed to talk to the helper yet. Run "${allow}", then press Recheck.`;
   }
   if (text.includes("not found") || text.includes("no such native application")) {
-    return "The helper is not registered for this browser. Run native\\install.ps1, then press Recheck.";
+    return "The helper is not registered for this browser.";
   }
   if (reason === "timeout" || text.includes("timed out")) {
     return "The helper did not answer in time — antivirus is probably scanning it. Allow it (or exclude %LOCALAPPDATA%\\ChessReview\\native-host), then press Recheck.";
@@ -5938,10 +5945,11 @@ function nativeStatusRow(status) {
   if (status.available && S.nativeTripped) note += " ⚠ Native failed repeatedly this session — WASM is used until you press Recheck.";
   if (status.available && S.settings.enginePath === "native19" && !S.nativeTripped) note += " Native is much faster than WASM — 2-4 Workers are usually plenty.";
   const kids = [el("span", { class: "set-note" }, note)];
-  if (!status.available) {
+  // When the diagnosis above already carries the exact command, that is the whole instruction.
+  if (!status.available && !hint.includes("Install Native Engine.bat")) {
     kids.push(el("div", { class: "set-note" },
       "To install it, double-click ", el("b", {}, "Install Native Engine.bat"),
-      " in the Chess Review folder — it downloads the official Stockfish 19, verifies its SHA-256, installs the helper and registers it for your browsers. Then press Recheck."));
+      " in the Chess Review folder — it fetches the official Stockfish 19, verifies its SHA-256, installs the helper and registers it for your browsers. Then press Recheck."));
   }
   kids.push(el("button", { class: "set-reset inline", onclick: recheckNativeStatus }, "Recheck"));
   kids.push(el("button", {

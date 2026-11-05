@@ -37,7 +37,7 @@ goto :install
 
 :bootstrap
 echo This copy is missing the installer files; fetching them from the project...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }; $ProgressPreference='SilentlyContinue'; $root='%~dp0'; $base='https://raw.githubusercontent.com/aciokie/Chess-Review/main/'; foreach ($rel in @('native/install.ps1','native/host/ChessReviewHost.cs','native/host/checksums.json','native/engine/checksums.json')) { $dest=Join-Path $root ($rel -replace '/','\'); $dir=Split-Path -Parent $dest; if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }; Write-Host ('  ' + $rel); Invoke-WebRequest -Uri ($base + $rel) -OutFile $dest -UseBasicParsing }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }; $ProgressPreference='SilentlyContinue'; $root='%~dp0'; $base='https://raw.githubusercontent.com/aciokie/Chess-Review/main/'; foreach ($rel in @('native/install.ps1','native/host/ChessReviewHost.cs','native/host/ChessReviewHost.exe','native/host/checksums.json','native/engine/checksums.json')) { $dest=Join-Path $root ($rel -replace '/','\'); $dir=Split-Path -Parent $dest; if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }; Write-Host ('  ' + $rel); Invoke-WebRequest -Uri ($base + $rel) -OutFile $dest -UseBasicParsing }"
 if errorlevel 1 (
   echo.
   echo Could not fetch the installer files. Check your internet connection, or download
@@ -52,7 +52,10 @@ echo.
 :install
 echo Installing the Chess Review native engine (Stockfish 19)...
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "native\install.ps1"
+rem Any arguments are passed straight through, e.g.:
+rem   "Install Native Engine.bat" -Force
+rem   "Install Native Engine.bat" -ExtensionId abcdefghijklmnopabcdefghijklmnop
+powershell -NoProfile -ExecutionPolicy Bypass -File "native\install.ps1" %*
 echo.
 if errorlevel 1 (
   echo Installation FAILED. Read the messages above.

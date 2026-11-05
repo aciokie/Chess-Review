@@ -672,11 +672,18 @@ test('a failed native start tells the user why, instead of silently falling back
 test('browser Native Messaging errors are turned into actionable hints', (t) => {
   const a = app(t);
   const hint = (status, failure = null) => a.call('nativeFailureHint', status, failure);
-  assert.match(hint({ available: false, reason: 'disconnected', message: 'Access to the specified native messaging host is forbidden.' }), /allowed list/);
+  assert.match(hint({ available: false, reason: 'disconnected', message: 'Access to the specified native messaging host is forbidden.' }), /is not allowed to talk to the helper/);
   assert.match(hint({ available: false, reason: 'disconnected', message: 'Specified native messaging host not found.' }), /not registered/);
   assert.match(hint({ available: false, reason: 'timeout' }), /antivirus/);
   assert.match(hint({ available: false, reason: 'unsupported' }), /nativeMessaging/);
   assert.equal(hint({ available: true }), '');
+  // A refusal names the installer, and the exact command when the extension can tell its own id:
+  // that id is the one thing a user cannot look up anywhere else.
+  assert.match(hint({ available: false, reason: 'disconnected', message: 'forbidden' }), /Install Native Engine\.bat/);
+  a.context.browserAPI.runtime.id = 'abcdefghijklmnopabcdefghijklmnop';
+  assert.match(hint({ available: false, reason: 'disconnected', message: 'forbidden' }),
+    /Install Native Engine\.bat -ExtensionId abcdefghijklmnopabcdefghijklmnop/);
+  delete a.context.browserAPI.runtime.id;
 });
 
 test('an engine that is not Stockfish 19 is never labelled "Stockfish 19 (Native)"', async (t) => {
