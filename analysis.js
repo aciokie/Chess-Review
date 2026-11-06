@@ -95,12 +95,27 @@ async function loadCalibration() {
   try { await pending; } finally { if (_calibrationPromise === pending) _calibrationPromise = null; }
   return CALIB;
 }
+// Can the native build run the Stockfish 19 scoring protocol right now? A helper that has started
+// answers for itself: S.nativeScoring is true when it reported the capability and false when it is
+// too old for it. Before any native start we only have the availability probe — and that must be
+// believed, because choosing Native without a helper means the review falls back to a bundled build,
+// which is scored by ITS OWN model. Treating "never started" as "can score" is what silently kept
+// depth/hash/strength out of the settings key while a WASM build (whose scores do depend on them)
+// actually did the review.
+function nativeScoringPossible() {
+  if (S.nativeScoring === false) return false;   // started, and too old for the protocol
+  if (S.nativeScoring === true) return true;     // started and reported the capability
+  // Never started: believe a probe that says the helper is not there. A working helper that has not
+  // been probed stays "possible", so the common path is unchanged.
+  return !(S.nativeStatus && S.nativeStatus.available === false);
+}
 // The public models exist for exactly these protocols. Anything else is scored by the legacy path.
 function publicScoringApplies(build, settings = S.settings) {
   if (!PUBLIC_CALIB) return false;
   // Every Stockfish 19 build (Full, Lite, Native) is scored by the same fixed 20,000-node protocol
-  // (lib/calibrated-search.js). A native helper older than 1.1 cannot run it, so it keeps the earlier path.
-  if (isSf19Build(build)) return build !== NATIVE_BUILD || S.nativeScoring !== false;
+  // (lib/calibrated-search.js), so depth/hash/strength do not affect its scores. That is only true
+  // of a native build that can actually run.
+  if (isSf19Build(build)) return build !== NATIVE_BUILD || nativeScoringPossible();
   return build === "nnue" && settings.engineDepth === 16 && settings.engineHash === 16
     && settings.engineSkill === 20 && (settings.classifyLines || 1) === 1;
 }
@@ -6389,7 +6404,10 @@ function scoringNote() {
       : "Accuracy and rating use the public Stockfish 18 NNUE model (depth 16, Hash 16 MB, full strength, 1 line).";
   }
   if (build === "nnue") return "These engine settings differ from the public Stockfish 18 model's protocol (depth 16, Hash 16 MB, full strength, 1 line), so the earlier accuracy and rating estimate is used. Reset to default to use the public model.";
-  if (build === NATIVE_BUILD && S.nativeScoring === false) return "The installed native helper is older than the Stockfish 19 scoring protocol, so accuracy and rating use the earlier estimate. Run Install Native Engine.bat again to update it.";
+  if (build === NATIVE_BUILD) {
+    if (S.nativeScoring === false) return "The installed native helper is older than the Stockfish 19 scoring protocol, so accuracy and rating use the earlier estimate. Run Install Native Engine.bat again to update it.";
+    if (!nativeScoringPossible()) return "The native helper is not available, so a review falls back to the bundled engine and is scored by that build's own model. Depth, hash and strength therefore still matter until it is installed.";
+  }
   return "This build has no public scoring model, so accuracy and rating use the earlier estimate.";
 }
 async function setEngineSetting(key, value) {
@@ -6874,9 +6892,20 @@ function completeAnalysis(saved, count) {
     && saved.evals.every(e => e && (Number.isFinite(e.cp) || Number.isFinite(e.mate)));
 }
 
+// A saved review may only be reused when it was scored by the build the user has selected *now*. The
+// settings key pins the chosen build, so the case this catches is the fallback: Native was selected
+// while no helper was installed, so the review really came from a bundled engine. Without this test
+// the key still matches after the helper is installed (the chosen build never changed), and reopening
+// the game would keep showing the WASM-scored review — with its accuracy and rating — instead of
+// finally using the native engine the user just installed.
+function savedReviewMatchesChosenBuild(saved) {
+  if (!saved.engineBuild) return true;                    // saved before builds were recorded
+  if (!isKnownEngineBuild(saved.engineBuild)) return false;
+  return saved.engineBuild === S.settings.enginePath;
+}
 function canRestoreAnalysis(saved) {
   if (!(completeAnalysis(saved, S.total + 1) && saved.pgn === S.pgn
-    && (!saved.engineBuild || isKnownEngineBuild(saved.engineBuild))
+    && savedReviewMatchesChosenBuild(saved)
     && saved.settingsKey === analysisSettingsKey())) return false;
   // A review made by a build that has a public model must carry that model's observations; a save
   // from before public scoring existed is re-analyzed instead of being shown with the earlier scores.

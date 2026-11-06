@@ -116,8 +116,19 @@ test('Fast narration follows navigation, variations and perspective using cached
 });
 
 test('Coach selection stays inexpensive and deterministic across repeated view and perspective changes',()=>{
- const started=performance.now();for(let i=0;i<100;i++)for(const r of rows)reply(r,i%2?'w':'b');
- assert.ok(performance.now()-started<3000,'Presentation unexpectedly performs expensive searches');
+  // Presentation must reuse the findings it is handed and never re-run a detector. That is a "did
+  // anything search-scale happen" guard, not a benchmark: the suite runs test files in parallel, so a
+  // fixed millisecond budget fails on a busy machine while the code is unchanged. Measure a trivial
+  // call in this same run and let the budget scale with it. A detector run on one of these positions
+  // costs tens of milliseconds, so anything search-scale still blows past any sane multiple of a
+  // no-findings reply.
+  const idleStart=performance.now();
+  for(let i=0;i<100;i++)coachReply([],{mover:'w',player:'w',input:rows[0].input});
+  const idle=performance.now()-idleStart;
+  const started=performance.now();for(let i=0;i<100;i++)for(const r of rows)reply(r,i%2?'w':'b');
+  const spent=performance.now()-started;
+  assert.ok(spent<Math.max(3000,idle*100),
+    `Presentation unexpectedly performs expensive searches (${spent.toFixed(0)}ms for ${rows.length*100} replies, ${idle.toFixed(1)}ms idle)`);
  const r=row('exd4');const first=reply(r);assert.deepEqual(reply(r),first);assert.deepEqual(r.result.errors,[]);
 });
 

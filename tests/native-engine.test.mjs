@@ -1,7 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { NativeEngine, probeNativeHost, nativeMessagingSupported, NATIVE_MAX_HISTORY_MOVES } from '../engine/native.js';
 import { app, loadGame, settle } from './helpers/app.mjs';
+
+// The public models decide which protocol scores a review; without them loaded everything reads as
+// "legacy" and the native/fallback distinction this suite is about disappears.
+function withPublicModels(a) {
+  a.context.__pc = JSON.parse(fs.readFileSync(new URL('../data/calibration.json', import.meta.url)));
+  a.run('PUBLIC_CALIB = __pc');
+  return a;
+}
 
 function quiet(a) {
   for (const name of ['paintBoard', 'renderEvalBar', 'renderMoves', 'renderPlayers', 'renderControls',
@@ -622,6 +631,90 @@ test('Recheck re-probes and flips the row once the helper is installed', async (
   await settle();
   assert.equal(a.state.nativeStatus.available, true);
   assert.match(a.call('nativeStatusRow', a.state.nativeStatus).textContent, /Native helper detected/);
+});
+
+test('a chosen native build that cannot run never claims the Stockfish 19 protocol', (t) => {
+  // The setting is "Native", the helper is not there, so the review will run on a bundled build and
+  // be scored by that build's model. Claiming the fixed-node SF19 protocol here would also drop
+  // depth/hash/strength out of the settings key while a depth-sensitive engine did the review, so a
+  // setting change would silently keep the old saved review.
+  const a = withPublicModels(app(t));
+  const S = a.state;
+  Object.assign(S.settings, { enginePath: 'native19', engineDepth: 12, engineHash: 16, engineSkill: 20, classifyLines: 1 });
+  S.nativeScoring = undefined;                                   // nothing has started yet
+  S.nativeStatus = { available: false, reason: 'disconnected' }; // and the probe says why
+
+  assert.equal(a.call('publicScoringApplies', 'native19', S.settings), false);
+  const key12 = a.call('analysisSettingsKey');
+  S.settings.engineDepth = 20;
+  assert.notEqual(a.call('analysisSettingsKey'), key12, 'depth must stay in the key while the engine is depth-sensitive');
+  assert.match(a.call('scoringNote'), /native helper is not available/i);
+  assert.match(a.call('scoringNote'), /Depth, hash and strength therefore still matter/i);
+});
+
+test('a native helper that is running still gets the fixed protocol, even if the probe is stale', (t) => {
+  // The guard must not talk a working helper out of the protocol it just reported: an old "not
+  // available" probe is worthless once a native engine has started and answered for itself.
+  const a = withPublicModels(app(t));
+  const S = a.state;
+  Object.assign(S.settings, { enginePath: 'native19', engineDepth: 12, engineHash: 16, engineSkill: 20, classifyLines: 1 });
+  S.nativeScoring = true;
+  S.nativeStatus = { available: false, reason: 'disconnected' };
+
+  assert.equal(a.call('publicScoringApplies', 'native19', S.settings), true);
+  const key12 = a.call('analysisSettingsKey');
+  S.settings.engineDepth = 20;
+  assert.equal(a.call('analysisSettingsKey'), key12, 'the fixed protocol ignores depth, so the key does too');
+  assert.match(a.call('scoringNote'), /public Stockfish 19 model/);
+
+  // A helper that started and is too old for the protocol keeps the earlier estimate.
+  S.nativeScoring = false;
+  assert.equal(a.call('publicScoringApplies', 'native19', S.settings), false);
+  assert.match(a.call('scoringNote'), /older than the Stockfish 19 scoring protocol/);
+
+  // Never probed and never started stays permissive, so the ordinary path is untouched.
+  S.nativeScoring = undefined;
+  S.nativeStatus = null;
+  assert.equal(a.call('publicScoringApplies', 'native19', S.settings), true);
+});
+
+test('a review scored by the fallback is not reused after the native engine is installed', (t) => {
+  // The settings key pins the build the user CHOSE, so it never changed when they installed the
+  // helper. Without comparing the build that actually scored the review, reopening the game would
+  // show the WASM-scored accuracy and rating for ever, even though Build says Native.
+  const a = withPublicModels(app(t));
+  const S = loadGame(a, '1. e4 e5 2. Nf3 Nc6');
+  Object.assign(S.settings, { enginePath: 'native19', engineDepth: 12, engineHash: 16, engineSkill: 20, classifyLines: 1 });
+
+  // Both sides need a rating, or the record must also carry the moves-only rating evidence; a
+  // public-scored review is only reusable when its evidence is complete.
+  S.players = { w: { name: 'W', rating: 2000 }, b: { name: 'B', rating: 2000 } };
+  const calib = a.context.__pc;
+  const saved = (engineBuild) => ({
+    pgn: S.pgn, engineBuild, settingsKey: a.call('analysisSettingsKey'),
+    evals: S.positions.map(() => ({ cp: 0 })),
+    bests: S.positions.map(() => ({
+      bestmove: 'e2e4', lines: [], score: { cp: 20 }, playedScore: { cp: 20 },
+      calibration: { version: calib.version, build: engineBuild, nodes: 20000 },
+      ratingEvidence: { candidateVersion: calib.movesOnly?.sf19?.candidateVersion },
+    })),
+    classif: S.positions.map(() => 'best'),
+  });
+  // Scored by the WASM fallback while Native was selected: it must be re-analysed, now natively.
+  assert.equal(a.call('canRestoreAnalysis', saved('nnue')), false);
+  // Scored by the build the user has selected: still reused, so nothing re-runs needlessly.
+  assert.equal(a.call('canRestoreAnalysis', saved('native19')), true);
+  // An unknown build is never trusted.
+  assert.equal(a.call('canRestoreAnalysis', saved('mystery')), false);
+  // A save from before engineBuild was recorded keeps working: it still carries the calibration its
+  // evidence came from, so the app has nothing to doubt.
+  const legacy = saved('native19');
+  delete legacy.engineBuild;
+  assert.equal(a.call('canRestoreAnalysis', legacy), true);
+
+  // And the other direction: a native-scored review is not reused while NNUE is selected.
+  S.settings.enginePath = 'nnue';
+  assert.equal(a.call('canRestoreAnalysis', saved('native19')), false);
 });
 
 test('a native review obeys the Depth setting like any other build', async (t) => {
