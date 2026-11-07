@@ -19,6 +19,7 @@ function key(a, input, value) {
 
 test('click-to-rename persists a display alias without altering classification or scores', t => {
   const a = review(t);
+  a.call('setAccuracyPage', 1);                       // the category rows live on the Quality page
   const before = JSON.stringify({ classif: a.state.classif, acc: a.state.acc, counts: a.state.counts });
   const input = edit(a, 'brilliant');
   assert.equal(a.dom.window.document.activeElement, input);
@@ -29,12 +30,13 @@ test('click-to-rename persists a display alias without altering classification o
   assert.equal(JSON.stringify({ classif: a.state.classif, acc: a.state.acc, counts: a.state.counts }), before);
   const reopened = review(t);
   reopened.state.settings = { ...reopened.state.settings, ...structuredClone(a.store.settings) };
-  reopened.call('renderStats');
+  reopened.call('setAccuracyPage', 1);
   assert.equal(reopened.dom.window.document.querySelector('[data-category="brilliant"] .nm').textContent, 'Inspired move');
 });
 
 test('Escape cancels, blur saves, and the reset control restores the default', t => {
   const a = review(t);
+  a.call('setAccuracyPage', 1);
   let input = edit(a, 'blunder'); input.value = 'Oops'; key(a, input, 'Escape');
   assert.equal(a.call('categoryName', 'blunder'), 'Blunder');
   assert.equal(a.writes.length, 0);
@@ -51,7 +53,7 @@ test('Escape cancels, blur saves, and the reset control restores the default', t
 });
 
 test('expanded categories are editable and renaming preserves count navigation', t => {
-  const a = review(t); a.state.qbreakExpanded = true; a.call('renderStats');
+  const a = review(t); a.state.qbreakExpanded = true; a.call('setAccuracyPage', 1);
   assert.equal(a.dom.window.document.querySelectorAll('[data-category]').length, 10);
   const input = edit(a, 'book'); input.value = 'Opening'; key(a, input, 'Enter');
   a.state.classif[1] = 'book'; a.state.counts.w.book = 1; a.call('renderStats');
@@ -63,7 +65,7 @@ test('expanded categories are editable and renaming preserves count navigation',
 
 test('renaming refreshes badge labels, tooltips, and cached move commentary', t => {
   const a = review(t); a.state.idx = 1; a.state.classif[1] = 'brilliant';
-  a.call('renderReview'); a.call('renderMoves');
+  a.call('renderReview'); a.call('renderMoves'); a.call('setAccuracyPage', 1);
   const input = edit(a, 'brilliant'); input.value = 'Inspired'; key(a, input, 'Enter');
   const badge = a.dom.window.document.querySelector('#movesBody .qb');
   assert.equal(badge.getAttribute('title'), 'Inspired');
@@ -78,7 +80,7 @@ test('aliases remain plain text and do not recurse through coach names or tokens
   const a = review(t);
   a.state.settings.categoryNames = { brilliant: 'Blunder', blunder: '<b>{move}</b>' };
   assert.equal(a.call('coachFill', 'Brilliant! Blunder. {label}', { label: 'Blunder' }), 'Blunder! <b>{move}</b>. Blunder');
-  a.call('renderStats');
+  a.call('setAccuracyPage', 1);
   const label = a.dom.window.document.querySelector('[data-category="blunder"] .nm');
   assert.equal(label.textContent, '<b>{move}</b>');
   assert.equal(label.querySelector('b'), null);

@@ -739,6 +739,34 @@ button { font-family: inherit; cursor: pointer; }
 .acc-bar i { display: block; height: 100%; border-radius: 4px; }
 .acc-vs { font-size: 11px; color: var(--ink-3); font-weight: 700; letter-spacing: .1em; }
 
+/* Accuracy pages, ported from upstream: Accuracy / Quality / Advanced share one retained rail. */
+.acc-page-count { margin-left: auto; font-family: var(--font-mono); color: var(--ink-3); font-size: 11.5px; }
+.accuracy-panel .acc-page { padding: 12px; }
+.acc-players { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 10px; flex: none; }
+.acc-player { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.acc-player:nth-child(2) { justify-content: flex-end; }
+.acc-side { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; border: 1px solid var(--ink-3); }
+.acc-side.w { background: #eee; }
+.acc-side.b { background: #292929; }
+.acc-note { font-size: 12px; color: var(--ink-3); line-height: 1.5; text-align: center; margin: 10px 0 0; }
+/* A quiet liquid surface: one selected destination, one passing wake. */
+.acc-navigation { position: relative; isolation: isolate; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  flex: none; gap: 0; margin: 8px 8px 0; padding: 4px; min-height: 36px; border: 1px solid var(--line-soft);
+  border-radius: 13px; background: color-mix(in srgb, var(--panel-2) 72%, var(--panel)); }
+.acc-navigation button { position: relative; z-index: 1; display: grid; place-items: center; min-width: 0; min-height: 28px;
+  padding: 6px 2px; border: 0; border-radius: 9px; background: transparent; color: var(--ink-3);
+  font: 650 11px/1.25 var(--font-ui); cursor: pointer; transition: color .18s ease; -webkit-tap-highlight-color: transparent; }
+.acc-navigation button:hover { color: var(--ink); }
+.acc-navigation button[aria-selected="true"] { color: var(--accent); }
+.acc-navigation:not([data-ready="true"]) button[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+.acc-navigation button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.acc-nav-current, .acc-nav-wake { position: absolute; z-index: 0; pointer-events: none; top: 4px; bottom: 4px; left: 0;
+  border-radius: 10px; transform-origin: left center; visibility: hidden; }
+.acc-navigation[data-ready="true"] :is(.acc-nav-current, .acc-nav-wake) { visibility: inherit; }
+.acc-nav-current { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+.acc-nav-wake { background: var(--accent); opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .acc-navigation button { transition: none; } }
+
 .ip-grade { font-family: var(--font-mono); font-size: 12px; font-weight: 700; margin-left: auto; padding: 1px 7px; border: 1px solid currentColor; border-radius: 999px; cursor: default; }
 .ip-grade + .ip-eval { margin-left: 8px; }
 .gstats { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
@@ -933,6 +961,10 @@ button { font-family: inherit; cursor: pointer; }
 .evalgraph svg { display: block; width: 100%; height: 120px; }
 .evalgraph.clickable-graph { cursor: pointer; }
 .evalgraph.clickable-graph:hover svg { filter: brightness(1.08); }
+/* "bars" (upstream's Move bars): one column per evaluated position, white when White is better. */
+.evalgraph .evaluation-column.white { fill: #e2dfd5; }
+.evalgraph .evaluation-column.black { fill: #77766d; }
+.evalgraph .evaluation-zero { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 4; }
 /* Live board, game over: the choice to spend the full review sits under the graph. Shown only while
    a finished live game has not been analysed yet, so nobody is dropped into a batch job unasked.
    Styled by id because `.mod … > .mod-inner > div` (see the module rules above) forces every module
@@ -1397,40 +1429,54 @@ button { font-family: inherit; cursor: pointer; }
   .stage.auto .player-strip .name { display: block; overflow: hidden; text-overflow: ellipsis; }
 }
 
-/* Desktop uses DEFAULT_LAYOUT from analysis.js as its single geometry source.
-   fitTabZoom selects this using the
-   unzoomed WINDOW size and scales the entire page uniformly, including type and spacing.
-   The grid above remains available on narrow windows and browsers without tab zoom APIs. */
-.stage.auto.desktop-layout {
-  position: relative; display: block; padding: 12px;
-  min-width: var(--desktop-width, 2126px); min-height: 960px;
+/* Automatic reference composition (lib/full-hd-layout.js). The stage fills the window under the
+   top bar and every module is placed from the computed boxes, so the board and panels grow with
+   the window instead of the page being fitted by browser zoom. The grid above remains available
+   when the window is too small for the composition. */
+.stage.auto.full-hd-reference {
+  position: relative; display: block; padding: 0; margin: 0; max-width: none;
+  width: 100%; height: calc(100dvh - var(--topbar-h, 60px)); min-height: 0;
+  --topbar-h: 60px;
+  --gap: 12px; --pad: 12px;
   --coach-clear: 194px; --coach-float-h: 47px;
 }
-.stage.auto.desktop-layout .player-strip { height: auto; }
-.stage.auto.desktop-layout .mod {
+.stage.auto.full-hd-reference .mod {
   position: absolute; margin: 0; min-height: 0; contain: none;
 }
-.stage.auto.desktop-layout .board-wrap {
+.stage.auto.full-hd-reference .board-wrap {
   flex: 1; min-height: 0; align-items: stretch; justify-content: center;
+  container-type: size;                       /* the board is min(100cqw, 100cqh) */
 }
-.stage.auto.desktop-layout .board {
-  flex: 0 1 auto; height: 100%; width: auto; aspect-ratio: 1; max-width: 100%; margin: auto;
+.stage.auto.full-hd-reference .board {
+  flex: none; height: min(100cqw, 100cqh); width: min(100cqw, 100cqh);
+  aspect-ratio: 1; max-width: 100%; margin: auto;
 }
-.stage.auto.desktop-layout .side,
-.stage.auto.desktop-layout .side-cols,
-.stage.auto.desktop-layout .side-a,
-.stage.auto.desktop-layout .side-b {
+.stage.auto.full-hd-reference .side,
+.stage.auto.full-hd-reference .side-cols,
+.stage.auto.full-hd-reference .side-a,
+.stage.auto.full-hd-reference .side-b {
   display: contents; position: static;
   padding: 0; contain: none; zoom: 1;
 }
-.stage.auto.desktop-layout .mod[data-mod="evalbar"] { margin: 0; }
-.stage.auto.desktop-layout .mod[data-mod="moves"],
-.stage.auto.desktop-layout .mod[data-mod="engine"] { min-height: 0; contain: none; }
-.stage.auto.desktop-layout .evalgraph svg { height: 120px; }
-.stage.auto.desktop-layout .mod[data-mod="coach"] { right: auto; margin: 0; }
-.stage.auto.desktop-layout.has-coach .insight-panel .ip-body { padding-right: var(--pad); }
+.stage.auto.full-hd-reference .mod[data-mod="evalbar"] { margin: 0; }
+.stage.auto.full-hd-reference .mod[data-mod="moves"],
+.stage.auto.full-hd-reference .mod[data-mod="engine"] { min-height: 0; contain: none; }
+.stage.auto.full-hd-reference .evalgraph svg { height: 120px; }
+/* The eval bar is a full module here, wide enough to read its score labels. */
+.stage.auto.full-hd-reference .evalbar { border-radius: 10px; clip-path: inset(0 round 10px); }
+.stage.auto.full-hd-reference .evalbar .score { font-size: 12.5px; }
+.stage.auto.full-hd-reference .mod[data-mod="coach"] { right: auto; margin: 0; }
+/* The portrait is clipped by its own box — it must never paint past the module's border. */
+.stage.auto.full-hd-reference .mod[data-mod="coach"] .mod-inner { overflow: hidden; }
+.stage.auto.full-hd-reference .coach-frame { display: block; width: 100%; height: 100%; }
+/* The engine panel's box is fixed by the composition; its lines scroll inside it. */
+.stage.auto.full-hd-reference .mod[data-mod="engine"] .engine-body {
+  flex: 1; height: auto; min-height: 0; overflow: auto;
+}
+.stage.auto.full-hd-reference .controls { justify-content: center; }
+.stage.auto.full-hd-reference.has-coach .insight-panel .ip-body { padding-right: var(--pad); }
 /* Match the free canvas: the evaluation stays at the right edge beside the coach. */
-.stage.auto.desktop-layout.has-coach .insight-panel .ip-head { padding-right: 0; }
+.stage.auto.full-hd-reference.has-coach .insight-panel .ip-head { padding-right: 0; }
 
 /* top bar and settings on small windows */
 @media (max-width: 760px) { .topbar-meta { display: none; } }

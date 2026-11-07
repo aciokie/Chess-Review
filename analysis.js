@@ -18,6 +18,8 @@ import { moveGrade } from "./lib/move-grades.js";
 import { gameStatistics } from "./lib/game-statistics.js";
 import { rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY } from "./lib/player-history.js";
 import { libraryFlip } from "./lib/library-seat.js";
+import { fullHdReferenceLayout, panelScale } from "./lib/full-hd-layout.js";
+import { createAccuracyNavigation } from "./lib/accuracy-navigation.js";
 
 // Development-only diagnostics for game identity / cache routing. Silent in production; enable by
 // opening the page with ?debug (analysis.html?debug#<job>) or setting globalThis.CHESS_REVIEW_DEBUG.
@@ -322,7 +324,7 @@ const DEFAULT_SETTINGS = {
   theme: "dark", accent: "#7fb45f", accentCustom: "#9b72d0", density: "compact",
   evalView: "both", mlStyle: "rows", badgeStyle: "icon", badgeScale: 1,
   // Eval-graph look (see renderGraph), eval-BAR look (see renderEvalBar) and the Insight-panel text size (px).
-  graphStyle: "area", barStyle: "gradient", insightFont: 18,
+  graphStyle: "bars", barStyle: "gradient", insightFont: 18,
   // Board coordinate labels (the a–h / 1–8 ticks in the squares' corners): on/off + size in px.
   showCoords: true, coordSize: 12,
   // App background: "color" (a tone picked with the HSL sliders), a bundled preset (slate / olive
@@ -770,7 +772,7 @@ const S = {
   // `progress` is the contiguous prefix that is safe to navigate to while a batch is
   // still running. `completed` is the total number of game plies already returned by
   // any worker. They differ when parallel workers finish out of order.
-  analyzing: true, progress: 0, completed: 0, analysisError: null, userArrows: [], userMarks: [], qbreakExpanded: false,
+  analyzing: true, progress: 0, completed: 0, analysisError: null, userArrows: [], userMarks: [], qbreakExpanded: false, accuracyPage: 0,
   // Collapsible settings sections: open/closed state, keyed by section title.
   setOpen: {},
   settings: { ...DEFAULT_SETTINGS },
@@ -2066,7 +2068,9 @@ function buildUI() {
   initBoardInput();
   renderCoachAvatar();     // mount the animated coach portrait for the active personality
   renderLibrary();
-  window.addEventListener("resize", () => { fitEnginePanel(); fitGraphFoot(); growCanvas(); alignPlayers(); positionSettings(); });
+  // The automatic composition depends on the viewport size, so it is rebuilt on resize too (cheap:
+  // it only computes boxes and writes module styles). initTabZoom adds its own debounced refit.
+  window.addEventListener("resize", () => { applyLayout(); growCanvas(); alignPlayers(); positionSettings(); });
 }
 
 /* ---------------- Loading indicator ----------------
@@ -2113,31 +2117,42 @@ function saveLayout() {
   clearTimeout(_saveLayoutT);
   _saveLayoutT = setTimeout(() => browserAPI.storage.local.set({ layout: layoutForSave(), layoutMode: S.layoutMode, layoutVersion: LAYOUT_VERSION }), 250);
 }
-// "auto" = the responsive layout in styles.css, which fits any window. "custom" = the free canvas the
-// user arranged in Reorganize mode, placed from S.layout and zoomed to fit the window.
+// "auto" = the composition computed for the viewport (lib/full-hd-layout.js), falling back to the
+// responsive CSS grid in small windows. "custom" = the free canvas the user arranged in Reorganize
+// mode, placed from S.layout and zoomed to fit the window.
 const isCustomLayout = () => S.layoutMode === "custom";
 function applyLayoutMode() {
-  const custom = isCustomLayout();
-  UI.canvas.classList.toggle("auto", !custom);
-  UI.canvas.classList.toggle("canvas", custom);
-  if (custom) UI.canvas.classList.remove("desktop-layout");
   applyLayout(); growCanvas();
+}
+// Place a module from a layout box. A box may be larger than its design size; its inner content is
+// then scaled instead of stretched, so rows keep their proportions (the same split upstream uses).
+function applyPanelBox(mod, b) {
+  mod.style.left = b ? b.x + "px" : ""; mod.style.top = b ? b.y + "px" : "";
+  mod.style.width = b ? b.w + "px" : ""; mod.style.height = b ? b.h + "px" : "";
+  const inner = mod.querySelector(".mod-inner");
+  if (!inner) return;
+  const scale = panelScale(b);
+  inner.style.flex = scale === 1 ? "" : "none";
+  inner.style.width = scale === 1 ? "" : b.w / scale + "px";
+  inner.style.height = scale === 1 ? "" : b.h / scale + "px";
+  inner.style.transform = scale === 1 ? "" : "scale(" + scale + ")";
+  inner.style.transformOrigin = scale === 1 ? "" : "top left";
+}
+// The automatic composition for this viewport (null on a custom canvas or a window too small for
+// it — the responsive CSS grid then takes over).
+function referenceLayout() {
+  return isCustomLayout() ? null : fullHdReferenceLayout(innerWidth, innerHeight);
 }
 function applyLayout() {
   const custom = isCustomLayout();
-  const desktop = !custom && UI.canvas.classList.contains("desktop-layout");
-  const collapse = desktop && !S.qbreakExpanded ? accuracyReflowInfo(DEFAULT_LAYOUT) : null;
-  UI.canvas.style.setProperty("--desktop-width", layoutPageSize(DEFAULT_LAYOUT).pageW + "px");
+  const reference = referenceLayout();
+  UI.canvas.classList.toggle("auto", !custom);
+  UI.canvas.classList.toggle("canvas", custom);
+  UI.canvas.classList.toggle("full-hd-reference", !!reference);
+  UI.canvas.classList.toggle("reference-components", !!reference);
   for (const mod of UI.canvas.querySelectorAll(".mod")) {
     const key = mod.getAttribute("data-mod");
-    const source = custom ? S.layout[key] : desktop ? DEFAULT_LAYOUT[key] : null;
-    const b = source && { ...source };
-    if (b && collapse) {
-      if (key === "accuracy") b.h = Math.max(MINH, b.h - collapse.delta);
-      if (collapse.belowKeys.includes(key)) b.y = Math.max(0, b.y - collapse.delta);
-    }
-    mod.style.left = b ? b.x + "px" : ""; mod.style.top = b ? b.y + "px" : "";
-    mod.style.width = b ? b.w + "px" : ""; mod.style.height = b ? b.h + "px" : "";
+    applyPanelBox(mod, custom ? S.layout[key] : reference ? reference[key] : null);
   }
   fitEnginePanel();
   fitGraphFoot();                       // a layout rebuild resets the module height; the footer row stays
@@ -2148,23 +2163,20 @@ function applyLayout() {
 function snapshotLayout() {
   const base = UI.canvas.getBoundingClientRect();
   const out = structuredClone(DEFAULT_LAYOUT);
-  const desktop = UI.canvas.classList.contains("desktop-layout");
+  const reference = referenceLayout();
   for (const mod of UI.canvas.querySelectorAll(".mod")) {
-    if (desktop) {
-      // These boxes already have exact geometry, including the collapsed Accuracy panel.
-      // Measuring at browser zoom can turn 294px into 293.993px; snapping down then
-      // shrinks the panel by 2px and introduces scrollbars when Reorganize is opened.
-      out[mod.getAttribute("data-mod")] = {
-        x: parseFloat(mod.style.left), y: parseFloat(mod.style.top),
-        w: parseFloat(mod.style.width), h: parseFloat(mod.style.height),
-      };
+    const key = mod.getAttribute("data-mod");
+    if (reference && reference[key]) {
+      // The reference boxes are exact; measuring at browser zoom can turn 294px into 293.993px,
+      // and snapping down would shrink the panel by 2px when Reorganize opens.
+      out[key] = { ...reference[key] };
       continue;
     }
     const r = mod.getBoundingClientRect();
     if (!r.width || !r.height) continue;
     // Round DOWN to the grid, so the canvas never needs more room than the screen it came from.
     const down = (v) => Math.floor(v / GRID) * GRID;
-    out[mod.getAttribute("data-mod")] = { x: down(r.left - base.left), y: down(r.top - base.top), w: down(r.width), h: down(r.height) };
+    out[key] = { x: down(r.left - base.left), y: down(r.top - base.top), w: down(r.width), h: down(r.height) };
   }
   return out;
 }
@@ -2189,9 +2201,11 @@ function accuracyReflowInfo(layout = S.layout) {
   const acc = layout.accuracy;
   const row = accMod && accMod.querySelector(".qbreak-row");
   const qb = accMod && accMod.querySelector(".qbreak");
-  const gap = qb ? (parseFloat(getComputedStyle(qb).rowGap) || 0) : 0;
-  const rowH = row ? row.offsetHeight : 24;
-  const delta = Math.round((QBREAK_FULL.length - QBREAK_SUMMARY.length) * (rowH + gap));
+  // The quality rows may live on another accuracy page (or not be mounted yet): fall back to the
+  // stylesheet's own row height and gap, so the reflow is identical whichever page is showing.
+  const gap = qb ? (parseFloat(getComputedStyle(qb).rowGap) || 0) : 7;
+  const rowH = row ? row.offsetHeight : 22;
+  const delta = Math.round((QBREAK_FULL.length - QBREAK_SUMMARY.length) * (rowH + gap) * panelScale(acc));
   const belowKeys = [];
   for (const [k, o] of Object.entries(layout)) {
     if (k === "accuracy") continue;
@@ -4469,6 +4483,25 @@ function categoryLabel(cls) {
   el("span", { class: "nm" }, categoryName(cls)));
   return label;
 }
+// The accuracy panel's three pages, ported from upstream: the Accuracy overview (scores, Elo and
+// phase lines), Move quality (the category breakdown) and Advanced (game statistics).
+const ACCURACY_PAGES = ["Accuracy", "Move quality", "Advanced"];
+let accuracyNavigation = null;
+function setAccuracyPage(page, focus = false) {
+  const next = ((page % ACCURACY_PAGES.length) + ACCURACY_PAGES.length) % ACCURACY_PAGES.length;
+  S.accuracyPage = next;
+  statsRefs = null;
+  renderStats();
+  if (focus) UI.stats.querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
+}
+// The retained navigation rail is created once and only synced afterwards, so result updates do not
+// reset its painted position (upstream's createAccuracyNavigation).
+function accuracyPager() {
+  accuracyNavigation ||= createAccuracyNavigation({ doc: document, el, names: ACCURACY_PAGES,
+    select: (page, focus = false) => setAccuracyPage(page, focus),
+    motion: () => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches });
+  return accuracyNavigation.element;
+}
 function renderStats() {
   const isExplore = S.meta?.explore === true;
   if (isExplore) {
@@ -4494,6 +4527,7 @@ function renderStats() {
     return;
   }
   const opSide = S.meSide === "w" ? "b" : "w";
+  const sides = [S.meSide, opSide];
   const meAcc = S.acc[S.meSide], opAcc = S.acc[opSide];
   // The Elo model is fit to reference accuracy values, so feed it our best estimate of that number:
   // the accBias-corrected win%-based accuracy (same quantity the displayed accuracy uses in
@@ -4501,9 +4535,11 @@ function renderStats() {
   // Compact list by default; the expander arrow unfolds the whole list (incl. book moves).
   const list = S.qbreakExpanded ? QBREAK_FULL : QBREAK_SUMMARY;
 
-  // In-place counter update during analysis (so the loader animation doesn't restart).
-  if (S.analyzing && statsRefs && statsRefs.expanded === S.qbreakExpanded) {
-    for (const k of list) {
+  const page = S.accuracyPage === 1 ? 1 : S.accuracyPage === 2 ? 2 : 0;
+  // In-place counter update during analysis on the quality page (so the loader animation doesn't
+  // restart); the other pages keep their built skeleton until the next full render.
+  if (S.analyzing && statsRefs && statsRefs.expanded === S.qbreakExpanded && statsRefs.page === page) {
+    if (page === 1) for (const k of list) {
       const r = statsRefs.rows[k]; if (!r) continue;
       const cMe = S.counts[S.meSide][k] || 0, cOp = S.counts[opSide][k] || 0;
       r.me.textContent = cMe; r.me.classList.toggle("zero", !cMe);
@@ -4556,37 +4592,53 @@ function renderStats() {
         el("b", {}, S.analyzing ? "·" : phaseVal(v)),
         S.publicScoring ? null : el("span", { class: "phase-elo", onmouseenter: (ev) => showInfoTip(ev.currentTarget, "Estimated Elo", ELO_INFO), onmouseleave: hideQTip }, S.analyzing ? "≈ ·" : (e == null ? "≈ —" : "≈ " + e)));
     }));
-  UI.stats.replaceChildren(el("div", { class: "panel" },
+  // Compact player row shown above the quality and advanced pages (the overview page carries its
+  // own full accuracy cells), so both names stay on screen while paging.
+  const players = el("div", { class: "acc-players" },
+    ...sides.map((side) => el("div", { class: "acc-player" },
+      el("span", { class: "acc-side " + side, "aria-label": side === "w" ? "White" : "Black" }),
+      el("span", { class: "acc-name" }, S.players[side].name))));
+  let content;
+  if (page === 0) {
+    content = el("div", { class: "acc-row" },
+      el("div", { class: "acc-cell" },
+        el("span", { class: "acc-name" }, S.players[S.meSide].name),
+        S.analyzing
+          ? loaderNode("acc-val", "var(--accent)")
+          : el("span", { class: "acc-val", style: { color: "var(--accent)" }, onmouseenter: (e) => showInfoTip(e.currentTarget, "Accuracy", ACCURACY_INFO), onmouseleave: hideQTip }, meAcc == null ? "—" : meAcc.toFixed(1)),
+        el("span", { class: "acc-bar" }, el("i", { style: { width: (S.analyzing ? 0 : (meAcc || 0)) + "%", background: "var(--accent)" } })),
+        el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", eloInfoText()), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (ratingEstimate(S.meSide) ?? "—") + " elo"),
+        phaseLine(S.meSide)),
+      el("span", { class: "acc-vs" }, "VS"),
+      el("div", { class: "acc-cell right" },
+        el("span", { class: "acc-name" }, S.players[opSide].name),
+        S.analyzing
+          ? loaderNode("acc-val", "var(--accent)")
+          : el("span", { class: "acc-val", style: { color: "var(--ink-2)" }, onmouseenter: (e) => showInfoTip(e.currentTarget, "Accuracy", ACCURACY_INFO), onmouseleave: hideQTip }, opAcc == null ? "—" : opAcc.toFixed(1)),
+        el("span", { class: "acc-bar" }, el("i", { style: { width: (S.analyzing ? 0 : (opAcc || 0)) + "%", background: "var(--ink-3)", marginLeft: (100 - (S.analyzing ? 100 : (opAcc || 0))) + "%" } })),
+        el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", eloInfoText()), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (ratingEstimate(opSide) ?? "—") + " elo"),
+        phaseLine(opSide)),
+    );
+  } else if (page === 1) {
+    content = qbreak;
+  } else {
+    content = gstats || el("p", { class: "acc-note" }, S.analyzing
+      ? "Stats appear when analysis finishes."
+      : "No game statistics for this review.");
+  }
+  UI.stats.replaceChildren(el("div", { class: "panel accuracy-panel accuracy-pages" },
     // The button is always rendered (disabled while analyzing or already practicing) so the
     // header height never changes between states.
     el("div", { class: "panel-head acc-head" }, el("h3", {}, "Accuracy"),
+      el("span", { class: "acc-page-count" }, (page + 1) + " / " + ACCURACY_PAGES.length),
       el("button", { class: "practice-btn", disabled: S.analyzing || !!S.practice, title: "Replay the game and re-solve every mistake you made", onclick: startPractice }, "Practice your mistakes")),
-    el("div", { class: "panel-body" },
-      el("div", { class: "acc-row" },
-        el("div", { class: "acc-cell" },
-          el("span", { class: "acc-name" }, S.players[S.meSide].name),
-          S.analyzing
-            ? loaderNode("acc-val", "var(--accent)")
-            : el("span", { class: "acc-val", style: { color: "var(--accent)" }, onmouseenter: (e) => showInfoTip(e.currentTarget, "Accuracy", ACCURACY_INFO), onmouseleave: hideQTip }, meAcc == null ? "—" : meAcc.toFixed(1)),
-          el("span", { class: "acc-bar" }, el("i", { style: { width: (S.analyzing ? 0 : (meAcc || 0)) + "%", background: "var(--accent)" } })),
-          el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", eloInfoText()), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (ratingEstimate(S.meSide) ?? "—") + " elo"),
-          phaseLine(S.meSide)),
-        el("span", { class: "acc-vs" }, "VS"),
-        el("div", { class: "acc-cell right" },
-          el("span", { class: "acc-name" }, S.players[opSide].name),
-          S.analyzing
-            ? loaderNode("acc-val", "var(--accent)")
-            : el("span", { class: "acc-val", style: { color: "var(--ink-2)" }, onmouseenter: (e) => showInfoTip(e.currentTarget, "Accuracy", ACCURACY_INFO), onmouseleave: hideQTip }, opAcc == null ? "—" : opAcc.toFixed(1)),
-          el("span", { class: "acc-bar" }, el("i", { style: { width: (S.analyzing ? 0 : (opAcc || 0)) + "%", background: "var(--ink-3)", marginLeft: (100 - (S.analyzing ? 100 : (opAcc || 0))) + "%" } })),
-          el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", eloInfoText()), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (ratingEstimate(opSide) ?? "—") + " elo"),
-          phaseLine(opSide)),
-      ),
-      qbreak,
-      gstats,
-    ),
+    accuracyPager(),
+    el("div", { class: "panel-body acc-page", id: "accuracy-page", role: "tabpanel", tabindex: 0 },
+      page === 0 ? null : players,
+      content),
   ));
-  statsRefs = S.analyzing ? { expanded: S.qbreakExpanded, rows } : null;
-  if (UI.canvas.classList.contains("desktop-layout")) applyLayout();
+  statsRefs = S.analyzing ? { expanded: S.qbreakExpanded, page, rows } : null;
+  accuracyNavigation?.sync(page);
 }
 
 /* ---------------- Eval graph ---------------- */
@@ -4614,17 +4666,20 @@ function fitGraphFoot() {
   const mod = UI.graph && UI.graph.closest(".mod");
   const foot = UI.graphFoot;
   if (!mod || !foot) return;
-  const custom = isCustomLayout();
-  const desktop = UI.canvas.classList.contains("desktop-layout");
-  if (!custom && !desktop) { mod.style.minHeight = ""; return; }
+  // The reference composition and the responsive grid own the module height; only the free canvas
+  // grows a panel so its footer row stays visible.
+  if (!isCustomLayout()) { mod.style.minHeight = ""; return; }
+  const scale = panelScale(S.layout.graph);
   const svg = UI.graph.querySelector(".evalgraph svg");
-  const graphH = svg ? Math.ceil(svg.getBoundingClientRect().height) : 0;
+  // The graph's rect arrives in screen pixels; convert it back to the canvas's own pixels so a
+  // scaled panel keeps its proportions when the footer row appears.
+  const graphH = svg ? svg.getBoundingClientRect().height / scale : 0;
   if (!graphH) return;
   const chrome = 38;                                   // module padding/head that the graph sits inside
-  const extra = foot.hidden ? 0 : Math.ceil((foot.offsetHeight + 22) / GRID) * GRID;
-  const base = custom ? Math.max(DEFAULT_LAYOUT.graph.h, graphH + chrome) : DEFAULT_LAYOUT.graph.h;
-  const h = Math.max(base, Math.ceil((graphH + chrome + extra) / GRID) * GRID);
-  if (custom && S.layout.graph && S.layout.graph.h !== h) { S.layout.graph.h = h; growCanvas(); }
+  const extra = foot.hidden ? 0 : foot.offsetHeight + 22;
+  const h = Math.max(Math.ceil(DEFAULT_LAYOUT.graph.h * scale / GRID) * GRID,
+    Math.ceil((graphH + chrome + extra) / GRID) * GRID * scale);
+  if (S.layout.graph && S.layout.graph.h !== h) { S.layout.graph.h = h; growCanvas(); }
   mod.style.height = h + "px";
 }
 function renderGraph() {
@@ -4644,11 +4699,12 @@ function renderGraph() {
   if (!show) { UI.graph.replaceChildren(); return; }
   const W = 384, H = 120, mid = H / 2;
   const maxPly = Math.max(1, S.total);
-  const toX = (p) => (p / maxPly) * W;
-  const toY = (cp) => { const c = Math.max(-500, Math.min(500, cp)); return mid - (c / 500) * (mid - 8); };
-  // The "color" style flips the y-axis (White advantage pushes the boundary DOWN); the hover marker
-  // re-uses whichever mapping the active style draws with, so the dot rides the visible curve.
-  const toYc = (cp) => { const c = Math.max(-500, Math.min(500, cp)); return mid + (c / 500) * (mid - 8); };
+  const style = S.settings.graphStyle || "bars";
+  // The upstream "bars" design (Move bars v3): one bar per evaluated position, centred in its own
+  // slot, so the x mapping differs from the curve styles.
+  const bars = style === "bars";
+  const toX = (p) => (bars ? ((p + .5) / (maxPly + 1)) * W : (p / maxPly) * W);
+  const fromFraction = (f) => (bars ? f * (maxPly + 1) - .5 : f * maxPly);
   // Workers finish out of order. Draw every evaluation that has come back, leaving gaps where a
   // position is still pending, so one slow search cannot hide the results behind it.
   const pts = [], runs = [];
@@ -4659,6 +4715,20 @@ function renderGraph() {
     runs.at(-1).push(point);
     pts.push(point);
   }
+  // Move bars fit the analyzed range (at least one pawn, at most ten). asinh is nearly linear near
+  // equality and compresses large advantages smoothly, keeping small changes legible; mate scores
+  // reach the edge without squeezing the finite evaluations.
+  const barLimit = pts.reduce((limit, p) => S.evals[p.ply].mate != null ? limit
+    : Math.max(limit, Math.min(1000, Math.abs(p.cp))), 100);
+  const toY = (cp) => {
+    const fraction = bars
+      ? Math.asinh(Math.max(-barLimit, Math.min(barLimit, cp)) / 100) / Math.asinh(barLimit / 100)
+      : Math.max(-500, Math.min(500, cp)) / 500;
+    return mid - fraction * (mid - 8);
+  };
+  // The "color" style flips the y-axis (White advantage pushes the boundary DOWN); the hover marker
+  // re-uses whichever mapping the active style draws with, so the dot rides the visible curve.
+  const toYc = (cp) => { const c = Math.max(-500, Math.min(500, cp)); return mid + (c / 500) * (mid - 8); };
   const pathFor = (run, y, closeY) => {
     let points = run.map((p) => ({ x: toX(p.ply), y: y(p.cp) }));
     if (points.length === 1) {
@@ -4675,12 +4745,20 @@ function renderGraph() {
   const markerX = toX(Math.min(S.idx, maxPly));
   const midLine = `<line x1="0" y1="${mid}" x2="${W}" y2="${mid}" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 3"/>`;
   const marker = `<line class="eg-pos" x1="${markerX}" y1="0" x2="${markerX}" y2="${H}" stroke="var(--accent)" stroke-width="1.5" opacity="0.7"/>`;
-  const style = S.settings.graphStyle || "area";
   // Classification dots are drawn on every style except the bare "minimal" one.
   const dotsSvg = style === "minimal" ? "" : dots.map((s) =>
     `<circle cx="${toX(s.ply)}" cy="${toY(s.cp)}" r="3.2" fill="${QUALITY[S.classif[s.ply]].color}" stroke="var(--panel)" stroke-width="1.4"/>`).join("");
   let inner;
-  if (style === "color") {
+  if (bars) {
+    // One bar per evaluated position: its height is the evaluation's own magnitude (compressed by
+    // the asinh mapping above), so every analyzed position keeps its place. Pending positions
+    // leave an empty slot; the bar is white when White is better, grey when Black is.
+    const unit = W / (maxPly + 1), width = Math.max(.25, unit * .72);
+    inner = pts.map((p) => {
+      const y = toY(p.cp), height = Math.max(.8, Math.abs(y - mid));
+      return `<rect class="evaluation-column ${p.cp >= 0 ? "white" : "black"}" x="${(p.ply * unit + (unit - width) / 2).toFixed(2)}" y="${(p.cp >= 0 ? mid - height : mid).toFixed(2)}" width="${width.toFixed(2)}" height="${height.toFixed(2)}" rx="${Math.min(1.5, width / 3).toFixed(2)}"/>`;
+    }).join("") + `<line class="evaluation-zero" x1="0" y1="${mid}" x2="${W}" y2="${mid}"/>` + marker;
+  } else if (style === "color") {
     // Black/White: the graph is split into a white field (top) and a black field (bottom) by the
     // eval curve, so a single glance tells you who's ahead — when White is winning the white field
     // swells downward and dominates the chart, and vice-versa. (Uses its own y-mapping where a White
@@ -4724,14 +4802,14 @@ function renderGraph() {
     const r = e.currentTarget.getBoundingClientRect();
     if (!r.width || !pts.length) return null;
     // Only positions that actually have an evaluation answer; a pending gap reads as no reading.
-    const ply = Math.max(0, Math.min(pts.at(-1).ply, Math.round(((e.clientX - r.left) / r.width) * maxPly)));
+    const ply = Math.max(0, Math.min(pts.at(-1).ply, Math.round(fromFraction((e.clientX - r.left) / r.width))));
     return S.evals[ply] ? ply : null;
   };
   // Click anywhere on the graph → jump straight to that move (instant, no stepping through).
   const jumpFromEvent = (e) => {
     const r = e.currentTarget.getBoundingClientRect();
     if (!r.width) return;
-    const ply = Math.max(0, Math.min(S.total, Math.round(((e.clientX - r.left) / r.width) * S.total)));
+    const ply = Math.max(0, Math.min(S.total, Math.round(fromFraction((e.clientX - r.left) / r.width))));
     gotoMainline(ply);
   };
   // Move the hover marker to the pointed ply and float its eval value above the dot.
@@ -5082,15 +5160,19 @@ function fitEnginePanel() {
   const head = UI.engine?.querySelector('.panel-head');
   const body = UI.engine?.querySelector('.engine-body');
   if (!mod || !head || !body) return;
-  const height = Math.max(DEFAULT_LAYOUT.engine.h,
-    Math.ceil((head.getBoundingClientRect().height + body.scrollHeight + 4) / GRID) * GRID);
+  // The reference composition and the responsive grid own the module height; only the free canvas
+  // grows the engine panel so its candidate lines and the action stay visible.
+  if (!isCustomLayout()) { mod.style.minHeight = ""; return; }
+  const scale = panelScale(S.layout.engine);
+  // Measurements arrive in screen pixels (the panel's content is scaled); convert them back to the
+  // canvas's own pixels so a scaled panel keeps its proportions when it grows.
+  const need = Math.ceil(((head.getBoundingClientRect().height / scale) + body.scrollHeight + 4) * scale / GRID) * GRID;
+  const height = Math.max(Math.ceil(DEFAULT_LAYOUT.engine.h * scale / GRID) * GRID, need);
   mod.style.minHeight = height + "px";
-  if (isCustomLayout() && S.layout.engine) {
+  if (S.layout.engine) {
     S.layout.engine.h = Math.max(S.layout.engine.h, height);
     mod.style.height = S.layout.engine.h + "px";
     growCanvas();
-  } else if (UI.canvas.classList.contains("desktop-layout")) {
-    mod.style.height = height + "px";
   }
 }
 function renderEngine(lines, padFromCache = false) {
@@ -5681,7 +5763,7 @@ function visualSettings() {
     section("Layout",
       seg("Eval", "evalView", ["both", "bar", "graph"]),
       seg("Bar", "barStyle", ["classic", "gradient", "mono", "accent"]),
-      seg("Graph", "graphStyle", ["area", "line", "color", "minimal"]),
+      seg("Graph", "graphStyle", ["bars", "area", "line", "color", "minimal"]),
       el("button", { class: "set-reset reorg-toggle-btn", onclick: toggleReorganize }, S.reorganize ? "Done reorganizing" : "Reorganize panels"),
       el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Reorganize lets you drag and resize the panels, and your arrangement is saved. Reset layout goes back to the automatic layout that fits any window.")),
       el("button", { class: "set-reset", onclick: resetLayout }, "Reset layout"),
@@ -7477,14 +7559,16 @@ async function applyGame(payload) {
 }
 
 /* ---------------- Start ---------------- */
-// Desktop auto layout preserves the v7 composition; narrow windows use the responsive grid.
-// Desktop and custom layouts are fitted as a whole under the 60 px top bar to the WINDOW. Not the
-// monitor (screen.*): a monitor-based zoom cuts off the right column as soon as the window isn't
-// maximized, or is dragged to a smaller monitor after opening.
+// The automatic layout composes itself for the current viewport (lib/full-hd-layout.js) at the
+// browser's own zoom — it is never fitted by changing the tab zoom, so enlarging the window enlarges
+// the board and panels instead of just rescaling them. Only the custom canvas the user arranged in
+// Reorganize mode is fitted as a whole with real tab zoom. Not the monitor (screen.*): a
+// monitor-based zoom cuts off the right column as soon as the window isn't maximized, or is dragged
+// to a smaller monitor after opening.
 //
 // The viewport is measured in device-independent pixels (innerWidth × current zoom), since
-// innerWidth alone shrinks and grows with the zoom we are about to set. We use real Chrome zoom (not
-// CSS zoom, which would throw off the pointer-coordinate maths the panel dragging relies on).
+// innerWidth alone shrinks and grows with a zoom change; the CSS-grid fallback and the custom fit
+// both need the DIP size.
 const TOPBAR_H = 60;                 // .topbar height in styles.css
 const MIN_ZOOM = 0.5, MAX_ZOOM = 2;  // below 50% the text is unreadable; above 200% it balloons
 let _zoomTabId = null;
@@ -7492,12 +7576,6 @@ let _defaultZoom = 1;
 let _fittedDip = null;               // viewport size (device-independent px) the zoom was last fitted to
 let _zoomFitQueue = Promise.resolve();
 let _zoomInit = null;
-function desktopLayoutFor(dipW, dipH) {
-  return dipW / _defaultZoom >= 1100 && dipH / _defaultZoom >= 520;
-}
-function desktopZoomFor(dipW, dipH) {
-  return fittedZoomFor(DEFAULT_LAYOUT, dipW, dipH);
-}
 function layoutPageSize(layout) {
   const { maxR, maxB } = layoutExtent(layout);
   const defaults = layoutExtent(DEFAULT_LAYOUT);
@@ -7533,13 +7611,18 @@ async function performTabZoomFit(force) {
   // Same device-pixel size as last time → this resize came from a zoom change (the user's Ctrl+/-,
   // our own setZoom, or another tab sharing the origin zoom), not from the window. Leave it.
   if (!force && _fittedDip && Math.abs(w - _fittedDip.w) < 3 && Math.abs(h - _fittedDip.h) < 3) return;
-  const desktop = !isCustomLayout() && desktopLayoutFor(w, h);
-  UI.canvas.classList.toggle("desktop-layout", desktop);
   applyLayout();
   requestAnimationFrame(alignPlayers);
-  const target = isCustomLayout() ? targetZoomFor(w, h) : desktop ? desktopZoomFor(w, h) : _defaultZoom;
+  // The automatic composition is built for the browser's default zoom; a leftover fitted zoom from
+  // an older version is given back once. Only the custom canvas keeps a fitted tab zoom.
+  const target = isCustomLayout() ? targetZoomFor(w, h) : _defaultZoom;
   // Only set it when it's off, so an unchanged window never triggers Chrome's zoom bubble.
-  if (Math.abs(z - target) > 0.005) await browserAPI.tabs.setZoom(_zoomTabId, target);
+  if (Math.abs(z - target) > 0.005) {
+    await browserAPI.tabs.setZoom(_zoomTabId, target);
+    // The CSS viewport changed with the zoom; recompose for it.
+    applyLayout();
+    requestAnimationFrame(alignPlayers);
+  }
   _fittedDip = { w, h };
 }
 // Isolate zoom before fitting, so two analysis windows on different monitors keep their own fit.
