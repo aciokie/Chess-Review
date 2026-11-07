@@ -324,7 +324,7 @@ const DEFAULT_SETTINGS = {
   theme: "dark", accent: "#7fb45f", accentCustom: "#9b72d0", density: "compact",
   evalView: "both", mlStyle: "rows", badgeStyle: "icon", badgeScale: 1,
   // Eval-graph look (see renderGraph), eval-BAR look (see renderEvalBar) and the Insight-panel text size (px).
-  graphStyle: "bars", barStyle: "gradient", insightFont: 18,
+  graphStyle: "area", graphDesign: "bars3", barStyle: "gradient", insightFont: 18,
   // Panel area width as a percentage of the board in the automatic layout (two columns). 75 keeps
   // the board dominant; raising it lets the panels take the window's leftover width.
   panelSizePct: 75,
@@ -4721,6 +4721,38 @@ function fitGraphFoot() {
   if (S.layout.graph && S.layout.graph.h !== h) { S.layout.graph.h = h; growCanvas(); }
   mod.style.height = h + "px";
 }
+// Upstream's graph designs (lib/panel-designs.js): "original" keeps the classic curve (graphStyle:
+// area / line / color / minimal); the modern designs replace it with their own drawing — the Move
+// bars (v1–v4) and the timeline fields whose HTML overlay keeps the move dots round.
+const GRAPH_DESIGNS = ["original", "timeline", "bars", "bars2", "bars3", "bars4", "minimal"];
+function graphDesign() {
+  const value = S.settings.graphDesign;
+  return GRAPH_DESIGNS.includes(value) ? value : "bars3";
+}
+function graphPositionText(ply) {
+  if (!ply) return "Starting position";
+  return `${Math.ceil(ply / 2)}${ply % 2 ? "." : "…"} ${S.positions[ply]?.san || ""}`.trim();
+}
+// The score readout above the plot, plus the plot's slider semantics for keyboard users.
+function updateGraphReadout(refs) {
+  if (!refs.chart) return;
+  const e = S.evals[S.idx], cp = e == null ? null : scoreToCp(e);
+  const rounded = cp == null ? null : Math.abs(cp / 100).toFixed(1);
+  const side = cp > 0 ? "White" : "Black";
+  const label = e == null ? (S.total < 1 ? "Load a game" : "Calculating…")
+    : e.mate != null ? `${side} mates` : rounded === "0.0" ? "Equal position" : `${side} ahead`;
+  if (refs.readout) {
+    refs.readout.textContent = e == null ? "—" : e.mate != null ? "M" + Math.abs(e.mate) : rounded === "0.0" ? "0.0" : evalText(e);
+    refs.readout.dataset.side = cp == null || (rounded === "0.0" && e.mate == null) ? "equal" : cp > 0 ? "white" : "black";
+  }
+  const description = e == null ? label : e.mate != null ? `${side} has mate in ${Math.abs(e.mate)}`
+    : rounded === "0.0" ? label : `${side} is ahead by ${rounded} pawns`;
+  const category = !["original", "minimal"].includes(graphDesign()) && S.idx > 0 && e && S.classif[S.idx]
+    ? ` ${categoryName(S.classif[S.idx])}.` : "";
+  refs.chart.setAttribute("aria-valuenow", Math.min(S.idx, refs.lastPly));
+  refs.chart.setAttribute("aria-valuetext", `${graphPositionText(S.idx)}. ${description}.${category} Positive scores favor White; negative scores favor Black.`);
+  refs.chart.setAttribute("aria-disabled", String(!!S.practice || refs.lastPly === 0));
+}
 function renderGraph() {
   renderGraphFoot();
   const isExplore = S.meta?.explore === true;
@@ -4736,12 +4768,14 @@ function renderGraph() {
   // waiting there, which must stay reachable however the graph itself is configured.
   if (mod) mod.hidden = !(show || liveFinishPending());
   if (!show) { UI.graph.replaceChildren(); return; }
+  const restoreFocus = document.activeElement === UI.graphRefs?.chart;
+  const design = graphDesign();
+  const modern = design !== "original";
+  const compact = design === "minimal";
+  const bars = ["bars", "bars2", "bars3", "bars4"].includes(design);
   const W = 384, H = 120, mid = H / 2;
   const maxPly = Math.max(1, S.total);
-  const style = S.settings.graphStyle || "bars";
-  // The upstream "bars" design (Move bars v3): one bar per evaluated position, centred in its own
-  // slot, so the x mapping differs from the curve styles.
-  const bars = style === "bars";
+  // Move bars centre each ply's bar in its own slot; the curve styles map ply to the plot edge.
   const toX = (p) => (bars ? ((p + .5) / (maxPly + 1)) * W : (p / maxPly) * W);
   const fromFraction = (f) => (bars ? f * (maxPly + 1) - .5 : f * maxPly);
   // Workers finish out of order. Draw every evaluation that has come back, leaving gaps where a
@@ -4781,23 +4815,28 @@ function renderGraph() {
   const line = runs.map((run) => pathFor(run, toY)).join(" ");
   const fill = runs.map((run) => pathFor(run, toY, mid)).join(" ");
   const dots = pts.filter((s) => ["blunder", "mistake", "miss", "brilliant", "great"].includes(S.classif[s.ply]));
+  const lastPly = mainlineNavigationLimit();
   const markerX = toX(Math.min(S.idx, maxPly));
+  const markerVisible = modern ? !!S.evals[S.idx] : S.idx > 0 && S.idx < S.total;
   const midLine = `<line x1="0" y1="${mid}" x2="${W}" y2="${mid}" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 3"/>`;
-  const marker = `<line class="eg-pos" x1="${markerX}" y1="0" x2="${markerX}" y2="${H}" stroke="var(--accent)" stroke-width="1.5" opacity="0.7"/>`;
+  const marker = `<line class="eg-pos" x1="${markerX}" y1="0" x2="${markerX}" y2="${H}" stroke="var(--accent)" stroke-width="1.5" opacity="0.7" style="display:${markerVisible ? "" : "none"}"/>`;
   // Classification dots are drawn on every style except the bare "minimal" one.
-  const dotsSvg = style === "minimal" ? "" : dots.map((s) =>
+  const dotsSvg = style => style === "minimal" ? "" : dots.map((s) =>
     `<circle cx="${toX(s.ply)}" cy="${toY(s.cp)}" r="3.2" fill="${QUALITY[S.classif[s.ply]].color}" stroke="var(--panel)" stroke-width="1.4"/>`).join("");
+  const style = S.settings.graphStyle || "area";
+  // Stop the v3 guide at the bar's tip, including the minimum-height equal bar.
+  const barTip = (cp) => cp >= 0 ? Math.min(mid - .8, toY(cp)) : Math.max(mid + .8, toY(cp));
+  const updateBarGuide = (chart) => {
+    const guide = chart.querySelector(".evaluation-position-guide");
+    if (!guide) return;
+    const x = toX(Math.min(S.idx, maxPly));
+    guide.setAttribute("x1", x); guide.setAttribute("x2", x);
+    if (markerVisible) guide.setAttribute("y1", barTip(scoreToCp(S.evals[S.idx])));
+    guide.style.display = markerVisible ? "" : "none";
+  };
+  // The classic curve (design "original"); the modern designs replace it below.
   let inner;
-  if (bars) {
-    // One bar per evaluated position: its height is the evaluation's own magnitude (compressed by
-    // the asinh mapping above), so every analyzed position keeps its place. Pending positions
-    // leave an empty slot; the bar is white when White is better, grey when Black is.
-    const unit = W / (maxPly + 1), width = Math.max(.25, unit * .72);
-    inner = pts.map((p) => {
-      const y = toY(p.cp), height = Math.max(.8, Math.abs(y - mid));
-      return `<rect class="evaluation-column ${p.cp >= 0 ? "white" : "black"}" x="${(p.ply * unit + (unit - width) / 2).toFixed(2)}" y="${(p.cp >= 0 ? mid - height : mid).toFixed(2)}" width="${width.toFixed(2)}" height="${height.toFixed(2)}" rx="${Math.min(1.5, width / 3).toFixed(2)}"/>`;
-    }).join("") + `<line class="evaluation-zero" x1="0" y1="${mid}" x2="${W}" y2="${mid}"/>` + marker;
-  } else if (style === "color") {
+  if (style === "color") {
     // Black/White: the graph is split into a white field (top) and a black field (bottom) by the
     // eval curve, so a single glance tells you who's ahead — when White is winning the white field
     // swells downward and dominates the chart, and vice-versa. (Uses its own y-mapping where a White
@@ -4820,7 +4859,7 @@ function renderGraph() {
       + dotsC + marker;
   } else if (style === "line") {
     // Just the evaluation curve (no fill) + dots.
-    inner = midLine + (line ? `<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>` : "") + dotsSvg + marker;
+    inner = midLine + (line ? `<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>` : "") + dotsSvg(style) + marker;
   } else if (style === "minimal") {
     // Thin, quiet curve — no fill, no dots.
     inner = midLine + (line ? `<path d="${line}" fill="none" stroke="color-mix(in oklab, var(--accent) 80%, var(--ink-3))" stroke-width="1.4" stroke-linejoin="round"/>` : "") + marker;
@@ -4830,14 +4869,42 @@ function renderGraph() {
       + (fill ? `<path d="${fill}" fill="color-mix(in oklab, var(--accent) 22%, transparent)"/>` : "")
       + midLine
       + (line ? `<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>` : "")
-      + dotsSvg + marker;
+      + dotsSvg(style) + marker;
+  }
+  if (modern) {
+    const guides = `<line x1="0" y1="${mid}" x2="${W}" y2="${mid}" class="evaluation-zero"/>`;
+    if (compact) {
+      // White grows downward as its advantage increases. Leave pending positions empty.
+      const whiteArea = runs.map((run) => pathFor(run, toYc, 0)).join(" ");
+      const blackArea = runs.map((run) => pathFor(run, toYc, H)).join(" ");
+      inner = pts.length
+        ? `<path class="evaluation-field-white" d="${whiteArea}" fill="#fff"/>`
+          + `<path class="evaluation-field-black" d="${blackArea}" fill="#000"/>` + marker
+        : marker;
+    } else if (design === "timeline") {
+      inner = guides + (fill ? `<path d="${fill}" class="evaluation-area"/>` : "")
+        + (line ? `<path d="${line}" class="evaluation-curve" vector-effect="non-scaling-stroke"/>` : "")
+        + dotsSvg(style) + marker;
+    } else {
+      // Keep every analyzed position: a bar represents its evaluation, not a score change.
+      const unit = W / (maxPly + 1), width = Math.max(.25, unit * .72);
+      inner = pts.map((p) => {
+        const y = toY(p.cp), height = Math.max(.8, Math.abs(y - mid));
+        const category = design === "bars4" && p.ply > 0 && QUALITY[S.classif[p.ply]] ? S.classif[p.ply] : null;
+        const color = category ? ` data-category="${category}" style="fill:${QUALITY[category].color}"` : "";
+        return `<rect class="evaluation-column ${p.cp >= 0 ? "white" : "black"}"${color} x="${(p.ply * unit + (unit - width) / 2).toFixed(2)}" y="${(p.cp >= 0 ? mid - height : mid).toFixed(2)}" width="${width.toFixed(2)}" height="${height.toFixed(2)}" rx="${Math.min(1.5, width / 3).toFixed(2)}"/>`;
+      }).join("") + guides + marker;
+      if (design === "bars3") inner += `<line class="evaluation-position-guide" x1="${markerX}" y1="${mid}" x2="${markerX}" y2="${mid}" vector-effect="non-scaling-stroke" style="display:${markerVisible ? "" : "none"}"/>`;
+    }
   }
   // Hover marker: a vertical guide + a dot that rides the curve, both hidden until the mouse enters.
-  const hoverY = style === "color" ? toYc : toY;
-  const hover = `<g class="eval-hover" style="display:none"><line class="eval-hover-line" x1="0" y1="0" x2="0" y2="${H}" vector-effect="non-scaling-stroke"/><circle class="eval-hover-dot" cx="0" cy="0" r="4.7"/></g>`;
+  const hoverY = compact || (!modern && style === "color") ? toYc : toY;
+  const hover = `<g class="eval-hover" style="display:none">${bars ? "" : `<line class="eval-hover-line" x1="0" y1="0" x2="0" y2="${H}" vector-effect="non-scaling-stroke"/>`}<circle class="eval-hover-dot" cx="0" cy="0" r="4.7"/></g>`;
   const svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${inner}${hover}</svg>`;
   // Map a pointer event to the nearest plotted ply (0..last ply that has an eval).
   const plyFromEvent = (e) => {
+    const badge = e.target.closest?.(".evaluation-move-badge");
+    if (badge) return Number(badge.dataset.ply);
     const r = e.currentTarget.getBoundingClientRect();
     if (!r.width || !pts.length) return null;
     // Only positions that actually have an evaluation answer; a pending gap reads as no reading.
@@ -4863,8 +4930,8 @@ function renderGraph() {
     const x = toX(ply), y = hoverY(scoreToCp(S.evals[ply]));
     const g = e.currentTarget.querySelector(".eval-hover");
     if (g) {
-      g.querySelector(".eval-hover-line").setAttribute("x1", x);
-      g.querySelector(".eval-hover-line").setAttribute("x2", x);
+      const guide = g.querySelector(".eval-hover-line");
+      if (guide) { guide.setAttribute("x1", x); guide.setAttribute("x2", x); }
       const dot = g.querySelector(".eval-hover-dot");
       dot.setAttribute("cx", x); dot.setAttribute("cy", y);
       g.style.display = "";
@@ -4876,23 +4943,67 @@ function renderGraph() {
     t.style.top = (r.top + (y / H) * r.height - 10) + "px";
     t.classList.add("show");
   };
+  // Keyboard navigation without leaving the plot (role=slider).
+  const onkey = (e) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) return;
+    e.preventDefault(); e.stopPropagation();
+    if (S.practice || S.total < 1) return;
+    const target = e.key === "Home" ? 0 : e.key === "End" ? lastPly
+      : S.idx + (["ArrowLeft", "ArrowDown"].includes(e.key) ? -1 : 1);
+    gotoMainline(Math.max(0, Math.min(lastPly, target)));
+  };
   // The graph is re-rendered on every analysis flush and on every navigation, but almost all of those
   // draws are identical: only the position marker moves. Rebuilding the SVG (and the panel around it)
   // invalidated layout for nothing, so an unchanged plot is kept and just the marker is moved.
-  const graphKey = JSON.stringify([style, W, H, S.total, pts, S.classif]);
-  const refs = UI.graphRefs;
-  if (refs && refs.key === graphKey && refs.svg.isConnected && refs.marker) {
-    const mx = toX(Math.min(S.idx, maxPly));
-    refs.marker.setAttribute("x1", mx); refs.marker.setAttribute("x2", mx);
+  const graphKey = JSON.stringify([design, style, W, H, S.total, pts, S.classif, lastPly]);
+  const retained = UI.graphRefs;
+  if (retained && retained.key === graphKey && retained.svg?.isConnected && retained.marker) {
+    const x = toX(Math.min(S.idx, maxPly));
+    retained.marker.setAttribute("x1", x); retained.marker.setAttribute("x2", x);
+    retained.marker.style.display = markerVisible ? "" : "none";
+    if (retained.htmlMarker) retained.htmlMarker.style.left = (x / W * 100) + "%";
+    if (design === "bars3") updateBarGuide(retained.chart);
+    updateGraphReadout(retained);
     return;
   }
-  const panel = el("div", { class: "panel eval-side" },
-    el("div", { class: "panel-head" }, el("h3", {}, "Evaluation")),
-    el("div", { class: "panel-body", style: { paddingTop: "8px", paddingBottom: "8px" } },
-      el("div", { class: "evalgraph clickable-graph", title: "Click to jump to a move", html: svg, onclick: jumpFromEvent, onmousemove: hoverMove, onmouseleave: hideHover })),
-  );
-  UI.graphRefs = { key: graphKey, svg: panel.querySelector(".evalgraph svg"), marker: panel.querySelector(".eg-pos") };
-  UI.graph.replaceChildren(panel);
+  const chart = el("div", { class: "evalgraph clickable-graph", html: svg, role: "slider", tabindex: 0,
+    title: "Click to jump to a move", "aria-label": "Game evaluation. Use arrow keys to explore moves.",
+    "aria-valuemin": 0, "aria-valuemax": lastPly,
+    onclick: jumpFromEvent, onmousemove: hoverMove, onmouseleave: hideHover, onblur: hideHover, onkeydown: onkey });
+  // Fixed-size HTML circles keep the move dots round even when the SVG stretches to fit the panel.
+  if (modern) {
+    for (const p of dots.filter((p) => design !== "bars4" && p.ply > 0 && (design !== "bars" || S.classif[p.ply] !== "mistake"))) {
+      chart.append(el("span", { class: "evaluation-move-dot", "data-ply": p.ply, "data-category": S.classif[p.ply], "aria-hidden": "true",
+        style: { left: `clamp(3.5px, ${toX(p.ply) / W * 100}%, calc(100% - 3.5px))`,
+          top: `clamp(3.5px, ${toY(p.cp) / H * 100}%, calc(100% - 3.5px))`,
+          background: QUALITY[S.classif[p.ply]].color } }));
+    }
+  }
+  const htmlMarker = bars
+    ? el("span", { class: "evaluation-position-marker", "aria-hidden": "true",
+        style: { left: (markerX / W * 100) + "%", display: markerVisible ? "" : "none" } })
+    : null;
+  if (htmlMarker) chart.append(htmlMarker);
+  const refs = { key: graphKey, svg: chart.querySelector("svg"), marker: chart.querySelector(".eg-pos"),
+    chart, htmlMarker, readout: null, lastPly };
+  if (compact) {
+    UI.graph.replaceChildren(el("div", { class: "panel eval-side evaluation-panel evaluation-minimal", "data-design": design, "aria-label": "Evaluation" },
+      chart,
+      !pts.length ? el("span", { class: "evaluation-empty" }, S.total < 1 ? "Load a game to see its evaluation" : "Waiting for analysis…") : null));
+    UI.graphRefs = refs;
+    updateGraphReadout(refs);
+    if (restoreFocus) chart.focus({ preventScroll: true });
+    return;
+  }
+  const readout = el("strong", { class: "evaluation-score", title: "Positive favors White; negative favors Black. M means mate." });
+  refs.readout = readout;
+  UI.graph.replaceChildren(el("div", { class: "panel eval-side evaluation-panel evaluation-" + design + (bars && design !== "bars" ? " evaluation-bars" : ""), "data-design": design, "aria-label": "Evaluation" },
+    readout,
+    el("div", { class: "evaluation-plot" }, chart,
+      !pts.length ? el("span", { class: "evaluation-empty" }, S.total < 1 ? "Load a game to see its evaluation" : "Waiting for analysis…") : null)));
+  UI.graphRefs = refs;
+  updateGraphReadout(refs);
+  if (restoreFocus) chart.focus({ preventScroll: true });
 }
 
 /* ---------------- Move list ---------------- */
@@ -5668,7 +5779,7 @@ const ARROW_SETTING_KEYS = ["bestArrow", "showThreat", "bestArrowColor", "arrowO
 const BACKGROUND_SETTING_KEYS = ["bg", "bgFit", "bgTile", "bgCustom", "bgHue", "bgSat", "bgLight"];
 const VISUAL_SETTING_KEYS = [
   "theme", "accent", "accentCustom", "density", "evalView", "mlStyle", "badgeStyle", "badgeScale",
-  "graphStyle", "barStyle", "insightFont", "panelSizePct", "showCoords", "coordSize", "boardFrame", "coordsOutside",
+  "graphStyle", "graphDesign", "barStyle", "insightFont", "panelSizePct", "showCoords", "coordSize", "boardFrame", "coordsOutside",
   ...BACKGROUND_SETTING_KEYS,
   "coach", "coachPlain", "boardTheme", "pieceStyle", "boardCustomLight", "boardCustomDark",
   "sound", "soundVolume", "soundFx", ...ARROW_SETTING_KEYS,
@@ -5802,7 +5913,8 @@ function visualSettings() {
     section("Layout",
       seg("Eval", "evalView", ["both", "bar", "graph"]),
       seg("Bar", "barStyle", ["classic", "gradient", "mono", "accent"]),
-      seg("Graph", "graphStyle", ["bars", "area", "line", "color", "minimal"]),
+      seg("Design", "graphDesign", ["original", "timeline", "bars", "bars2", "bars3", "bars4", "minimal"]),
+      seg("Curve", "graphStyle", ["area", "line", "color", "minimal"]),
       slider("Panels", "panelSizePct", 40, 120, 5, { fmt: (v) => v + "% of the board", onChange: () => applyLayout() }),
       el("button", { class: "set-reset reorg-toggle-btn", onclick: toggleReorganize }, S.reorganize ? "Done reorganizing" : "Reorganize panels"),
       el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Reorganize lets you drag and resize the panels, and your arrangement is saved. Reset layout goes back to the automatic layout that fits any window.")),
@@ -6252,7 +6364,7 @@ async function setSetting(key, value) {
   applySettings();
   if (key === "pieceStyle") buildBoard();
   if (key === "mlStyle" || key === "badgeStyle") renderMoves();
-  if (key === "evalView" || key === "graphStyle" || key === "barStyle") { renderEvalBar(); renderGraph(); }
+  if (key === "evalView" || key === "graphStyle" || key === "graphDesign" || key === "barStyle") { renderEvalBar(); renderGraph(); }
   if (key === "bestArrow") renderBestArrow();
   if (key === "showThreat") renderThreatArrow();
   if (key === "loaderStyle") { renderReview(); renderStats(); }
@@ -7736,6 +7848,9 @@ async function resetLegacyZoom() {
     }
     delete S.settings.wrongSound; // older selectable mistake cues were removed
     { const lm = { prikker: "dots", hop: "bounce", "bølge": "wave" }; if (lm[S.settings.loaderStyle]) S.settings.loaderStyle = lm[S.settings.loaderStyle]; } // migrate renamed loader keys
+    // The graph's look moved to a design setting (upstream's Move bars are "bars3"); the old
+    // `graphStyle: "bars"` value was this fork's stand-in for it.
+    if (S.settings.graphStyle === "bars") { S.settings.graphStyle = "area"; S.settings.graphDesign = "bars3"; }
     if (S.settings.bg === "default" || S.settings.bg === "ember") S.settings.bg = "color";
     if (S.settings.coach === "old_soviet_rework") S.settings.coach = "old_soviet"; // the rework became the canonical "Old Soviet"
     S.settings.density = "compact"; // density picker removed — compact is the only layout now

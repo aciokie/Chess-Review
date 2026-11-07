@@ -978,9 +978,47 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ---------- EVAL GRAPH ---------- */
 .evalgraph { position: relative; }
-.evalgraph svg { display: block; width: 100%; height: 120px; }
+.evalgraph svg { display: block; width: 100%; height: 100%; min-height: 0; overflow: visible; }
 .evalgraph.clickable-graph { cursor: pointer; }
 .evalgraph.clickable-graph:hover svg { filter: brightness(1.08); }
+/* Evaluation panel (ported from upstream's lib/evaluation-panel.css): the score readout sits above a
+   plot that fills its module, and the HTML overlay keeps the move dots round when the SVG stretches. */
+.stage .evaluation-panel { display: flex; flex-direction: column; height: 100%; min-height: 0;
+  padding: 6px; gap: 4px; overflow: hidden; container: evaluation / inline-size; }
+.evaluation-score { align-self: flex-end; flex: none; font: 650 21px/1 var(--font-mono); letter-spacing: -.7px;
+  font-variant-numeric: tabular-nums; color: var(--ink); }
+.evaluation-plot { display: flex; position: relative; flex: 1 1 60px; min-height: 35px; }
+.evaluation-panel .evalgraph { flex: 1; min-width: 0; min-height: 0; border-radius: 4px; }
+.evaluation-panel .evalgraph:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.evaluation-bars .evalgraph:focus-visible, .evaluation-bars2 .evalgraph:focus-visible { outline: none; }
+.evaluation-zero { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 4; }
+.evaluation-area { fill: color-mix(in oklab, var(--accent) 12%, transparent); }
+.evaluation-curve { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.evaluation-column.white { fill: #e2dfd5; }
+.evaluation-column.black { fill: #77766d; }
+.evaluation-position-marker { position: absolute; top: 100%; width: 8px; height: 6px;
+  transform: translate(-50%, -100%); background: var(--ink);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%); pointer-events: none; }
+.evaluation-position-guide { stroke: var(--ink-3); stroke-width: 1; opacity: .45; pointer-events: none; }
+.evaluation-bars .eval-hover-dot, .evaluation-bars2 .eval-hover-dot { fill: var(--ink); stroke: var(--panel); }
+.evaluation-bars .evalgraph { position: relative; }
+.evaluation-move-dot { position: absolute; width: 5px; height: 5px; border-radius: 50%;
+  transform: translate(-50%, -50%); box-shadow: 0 0 0 1px var(--panel); pointer-events: none; }
+.evaluation-bars .evaluation-score { padding: 5px 7px; border-radius: 5px; font-size: 16px; letter-spacing: -.3px; background: var(--panel-3); }
+.evaluation-bars .evaluation-score[data-side="white"] { background: #e2dfd5; color: #252629; }
+.evaluation-bars .evaluation-score[data-side="black"] { background: #3b3c3e; color: #f0ede5; }
+.evaluation-empty { position: absolute; inset: 0; display: grid; place-items: center;
+  pointer-events: none; font-size: 11px; color: var(--ink-3); text-align: center; }
+.stage .evaluation-panel.evaluation-minimal { position: relative; padding: 0; gap: 0; max-height: 96px; border-color: #000; }
+.evaluation-minimal .evalgraph { border-radius: inherit; overflow: hidden; }
+.evaluation-minimal .evalgraph.clickable-graph:hover svg { filter: none; }
+.evaluation-minimal .eg-pos, .evaluation-minimal .eval-hover-line {
+  stroke: #fff; stroke-width: 1; opacity: 1;
+  filter: drop-shadow(1px 0 0 #000) drop-shadow(-1px 0 0 #000); }
+.evaluation-minimal .eval-hover-dot { fill: #fff; stroke: #000; }
+.evaluation-minimal .evalgraph:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
+.evaluation-minimal .evaluation-empty { inset: 0; padding: 6px; }
+@container evaluation (max-width: 215px) { .evaluation-score { font-size: 18px; } }
 /* "bars" (upstream's Move bars): one column per evaluated position, white when White is better. */
 .evalgraph .evaluation-column.white { fill: #e2dfd5; }
 .evalgraph .evaluation-column.black { fill: #77766d; }
@@ -1345,7 +1383,8 @@ button { font-family: inherit; cursor: pointer; }
 .stage.auto .mod[data-mod="controls"] { grid-area: controls; }
 .stage.auto .mod[data-mod="accuracy"] { grid-area: acc; }
 .stage.auto .mod[data-mod="engine"] { grid-area: engine; }
-.stage.auto .evalgraph svg { height: clamp(64px, 11vh, 120px); }
+/* The responsive grid has no fixed module height: give the plot one so the graph still shows. */
+.stage.auto:not(.full-hd-reference) .evaluation-panel .evaluation-plot { min-height: clamp(64px, 11vh, 120px); }
 /* The coach portrait sits in the insight panel's top-right corner. The opening and move rows stop
    short of it, and a float beside the first lines of commentary keeps the text clear of it; the
    lines below the portrait run the full width. The portrait is ~1:1 and its rig draws its own
@@ -1481,7 +1520,7 @@ button { font-family: inherit; cursor: pointer; }
 .stage.auto.full-hd-reference .mod[data-mod="evalbar"] { margin: 0; }
 .stage.auto.full-hd-reference .mod[data-mod="moves"],
 .stage.auto.full-hd-reference .mod[data-mod="engine"] { min-height: 0; contain: none; }
-.stage.auto.full-hd-reference .evalgraph svg { height: 120px; }
+.stage.auto.full-hd-reference .evaluation-panel .evaluation-plot { min-height: 35px; }
 /* The eval bar is a full module here, wide enough to read its score labels. */
 .stage.auto.full-hd-reference .evalbar { border-radius: 10px; clip-path: inset(0 round 10px); }
 .stage.auto.full-hd-reference .evalbar .score { font-size: 12.5px; }
