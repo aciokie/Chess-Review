@@ -3948,11 +3948,94 @@ let _coachId = null;           // which rig is currently mounted
 let _coachIdleT = null, _coachGlanceT = null, _coachIdleStarted = false;
 let _coachGlanceUntil = 0;     // suppress idle look-around until this timestamp (board glance in progress)
 let _coachTalking = false;
+let _coachPointerActive = false, _coachPointerRAF = null, _coachPointerPoint = null, _coachPointerBound = false;
 
 function coachSend(cmd) {
   if (_coachFrame && _coachReady && _coachFrame.contentWindow) {
     try { _coachFrame.contentWindow.postMessage(cmd, "*"); } catch {}
   }
+}
+// Stop every pending animation when the portrait is removed or replaced (upstream's reset).
+function resetCoachAnimation() {
+  clearCoachPointer();
+  for (const timer of [_coachIdleT, _coachGlanceT, _coachSpecialT, _coachCupT]) clearTimeout(timer);
+  _coachIdleT = _coachGlanceT = _coachSpecialT = _coachCupT = null;
+  _coachIdleStarted = false; _coachGlanceUntil = 0; _coachCupUp = false;
+  _coachTalking = false;
+}
+// The portrait lets clicks pass through, so observe the pointer in the parent document.
+// Coalesce movement into one message per paint, using the current scaled frame bounds.
+function clearCoachPointer() {
+  if (_coachPointerRAF !== null) cancelAnimationFrame(_coachPointerRAF);
+  _coachPointerRAF = null; _coachPointerPoint = null;
+  if (_coachPointerActive) coachSend({ coachCmd: "pointer", value: null });
+  _coachPointerActive = false;
+}
+function coachHitTest(x, y) {
+  if (!_coachReady || !_coachFrame || S.reorganize) return false;
+  const rect = _coachFrame.getBoundingClientRect();
+  if (!rect.width || !rect.height || x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) return false;
+  try {
+    // Probe the stacking order without letting the otherwise transparent iframe capture input.
+    const previous = _coachFrame.style.pointerEvents;
+    try {
+      _coachFrame.style.pointerEvents = "auto";
+      if (document.elementFromPoint(x, y) !== _coachFrame) return false;
+    } finally { _coachFrame.style.pointerEvents = previous; }
+    // Use the rig's painted SVG shapes; its empty background must still pass clicks through.
+    const target = _coachFrame.contentDocument?.elementFromPoint(
+      (x - rect.left) * _coachFrame.clientWidth / rect.width,
+      (y - rect.top) * _coachFrame.clientHeight / rect.height);
+    return !!target?.closest("#figure");
+  } catch { return false; }
+}
+// Pressing the painted figure reacts (a small shake) instead of swallowing the click; moving the
+// pointer near the portrait follows it with the head/eyes (one message per paint, ~100px reach).
+function bindCoachPointer() {
+  if (_coachPointerBound) return;
+  _coachPointerBound = true;
+  let pressedPointer = null, suppressClick = false;
+  const consume = (ev) => { ev.preventDefault(); ev.stopImmediatePropagation(); };
+  document.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0 || ev.isPrimary === false) return;
+    pressedPointer = null; suppressClick = false;
+    if (!coachHitTest(ev.clientX, ev.clientY)) return;
+    pressedPointer = ev.pointerId; suppressClick = true;
+    consume(ev);
+    coachSend({ coachCmd: "shake" });
+  }, true);
+  document.addEventListener("pointerup", (ev) => {
+    if (pressedPointer === null || ev.pointerId !== pressedPointer) return;
+    pressedPointer = null; consume(ev);
+  }, true);
+  document.addEventListener("click", (ev) => {
+    if (!suppressClick) return;
+    suppressClick = false; consume(ev);
+  }, true);
+  const cancelPress = () => { pressedPointer = null; suppressClick = false; };
+  document.addEventListener("pointercancel", cancelPress);
+  window.addEventListener("blur", cancelPress);
+  document.addEventListener("pointermove", (ev) => {
+    if (ev.pointerType === "touch" || !_coachReady || document.hidden) return;
+    _coachPointerPoint = { x: ev.clientX, y: ev.clientY };
+    if (_coachPointerRAF !== null) return;
+    _coachPointerRAF = requestAnimationFrame(() => {
+      _coachPointerRAF = null;
+      if (!_coachFrame || !_coachReady || !_coachPointerPoint) return;
+      const rect = _coachFrame.getBoundingClientRect(), p = _coachPointerPoint;
+      const dx = Math.max(rect.left - p.x, 0, p.x - rect.right);
+      const dy = Math.max(rect.top - p.y, 0, p.y - rect.bottom);
+      if (!rect.width || !rect.height || Math.hypot(dx, dy) > 100) { clearCoachPointer(); return; }
+      _coachPointerActive = true;
+      coachSend({ coachCmd: "pointer", value: { x: (p.x - rect.left) / rect.width, y: (p.y - rect.top) / rect.height } });
+    });
+  }, { passive: true });
+  document.addEventListener("pointerleave", clearCoachPointer);
+  document.addEventListener("pointercancel", clearCoachPointer);
+  document.addEventListener("scroll", clearCoachPointer, { capture: true, passive: true });
+  document.addEventListener("visibilitychange", clearCoachPointer);
+  window.addEventListener("blur", clearCoachPointer);
+  window.addEventListener("resize", clearCoachPointer);
 }
 // (Re)mount the iframe for the active personality. Reuses the frame if the coach hasn't changed.
 function renderCoachAvatar() {
@@ -3962,24 +4045,29 @@ function renderCoachAvatar() {
   const mod = UI.coach.closest(".mod");
   UI.canvas.classList.toggle("has-coach", !!rig);   // the insight text leaves room for the portrait
   if (!rig) {                                   // "Off" or no rig built yet → hide the module entirely
+    resetCoachAnimation();
     _coachFrame = null; _coachReady = false; _coachId = null;
     UI.coach.replaceChildren();
     if (mod) mod.hidden = true;
     return;
   }
   if (mod) mod.hidden = false;
+  bindCoachPointer();                           // the portrait reacts to presses and follows the pointer
   if (id === _coachId && _coachFrame) return;   // same coach already mounted → keep it (no fl/reset)
+  resetCoachAnimation();
   _coachId = id; _coachReady = false;
   const frame = el("iframe", {
     class: "coach-frame", title: "Coach", scrolling: "no",
     src: browserAPI.runtime.getURL(COACH_RIG_DIR + rig),
   });
   frame.addEventListener("load", () => {
+    if (_coachFrame !== frame) return;   // a removed portrait may finish loading after a switch
     _coachReady = true;
     frame.classList.add("ready");   // fade the portrait in now that its document has loaded
 
     _coachCupUp = false; clearTimeout(_coachCupT);   // fresh rig → its cup is down; keep our flag in sync
     coachSend({ coachCmd: "look", value: "center" });
+    coachSend({ coachCmd: "talk", value: _coachTalking });
     coachReactPly(S.idx);          // react to wherever we currently are in the game
     startCoachIdle();
   });
