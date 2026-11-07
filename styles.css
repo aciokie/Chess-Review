@@ -741,6 +741,26 @@ button { font-family: inherit; cursor: pointer; }
 
 /* Accuracy pages, ported from upstream: Accuracy / Quality / Advanced share one retained rail. */
 .acc-page-count { margin-left: auto; font-family: var(--font-mono); color: var(--ink-3); font-size: 11.5px; }
+/* Quality page: upstream's category-distribution bars (each row paints its side's share behind the
+   count) plus the summary totals and per-category spectrum. */
+.accuracy-panel .acc-quality.quality-distribution { display: flex; flex-direction: column; gap: 10px; }
+.quality-summary { display: flex; flex-direction: column; gap: 8px; padding: 0 0 10px; border-bottom: 1px solid var(--line-soft); }
+.quality-totals { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; text-align: center; }
+.quality-totals strong { font: 750 22px/1 var(--font-mono); letter-spacing: -1px; color: var(--ink); }
+.quality-totals span { font-size: 10px; letter-spacing: .04em; color: var(--ink-3); }
+.quality-spectrums { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.quality-spectrum { display: flex; height: 5px; overflow: hidden; border-radius: 4px; background: var(--panel-3); }
+.quality-spectrum i { height: 100%; flex: none; }
+.accuracy-panel .quality-distribution .qbreak { gap: 3px; margin-top: 0; }
+.accuracy-panel .quality-distribution .qbreak-row { grid-template-columns: minmax(32px, 1fr) minmax(100px, 1.8fr) minmax(32px, 1fr); min-height: 23px; gap: 8px; border-radius: 5px; }
+.accuracy-panel .quality-distribution .qbreak-row .qlabel { width: 100%; justify-self: stretch; transform: none; gap: 7px; padding: 2px 0; font-size: 12px; }
+.accuracy-panel .quality-distribution .qbreak-row .qsym { width: 18px; height: 18px; flex-basis: 18px; filter: none; }
+.accuracy-panel .quality-distribution .ct { position: relative; min-height: 23px; padding: 2px; border-radius: 4px;
+  display: grid; place-items: center; font-size: 16px; line-height: 19px; color: var(--quality-color); isolation: isolate; }
+.quality-distribution .ct::before { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--share-right, 0%); z-index: -1;
+  border-radius: inherit; background: color-mix(in srgb, var(--quality-color) 12%, transparent); }
+.quality-distribution .ct.left::before { left: auto; right: 0; width: var(--share-left, 0%); }
+.accuracy-panel .quality-distribution .ct.zero { color: var(--ink-3); opacity: .4; }
 .accuracy-panel .acc-page { padding: 12px; }
 .acc-players { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 10px; flex: none; }
 .acc-player { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; font-weight: 600; color: var(--ink-2); }

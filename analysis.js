@@ -4506,6 +4506,25 @@ function accuracyPager() {
     motion: () => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches });
   return accuracyNavigation.element;
 }
+// The Quality page's share bars (ported from upstream's "distribution" design): each category row
+// paints its side's share of that side's classified moves behind the count, and the summary carries
+// both totals plus a per-category spectrum. Safe to run on a fresh or mounted page.
+function updateQualityShares(root, sides) {
+  if (!root) return;
+  const totals = sides.map((side) => QBREAK_FULL.reduce((sum, k) => sum + (S.counts[side][k] || 0), 0));
+  sides.forEach((side, i) => {
+    for (const node of root.querySelectorAll('[data-quality-total="' + side + '"]')) {
+      node.textContent = totals[i];
+      node.setAttribute("aria-label", S.players[side].name + ": " + totals[i] + " moves classified" + (S.analyzing ? " so far" : ""));
+    }
+    for (const k of QBREAK_FULL) {
+      const share = totals[i] ? (S.counts[side][k] || 0) / totals[i] * 100 : 0;
+      root.querySelector('[data-quality-segment="' + side + "-" + k + '"]')?.style.setProperty("width", share + "%");
+      root.querySelector('.qbreak-row[data-quality-cat="' + k + '"]')
+        ?.style.setProperty(i === 0 ? "--share-left" : "--share-right", share + "%");
+    }
+  });
+}
 function renderStats() {
   const isExplore = S.meta?.explore === true;
   if (isExplore) {
@@ -4543,11 +4562,14 @@ function renderStats() {
   // In-place counter update during analysis on the quality page (so the loader animation doesn't
   // restart); the other pages keep their built skeleton until the next full render.
   if (S.analyzing && statsRefs && statsRefs.expanded === S.qbreakExpanded && statsRefs.page === page) {
-    if (page === 1) for (const k of list) {
-      const r = statsRefs.rows[k]; if (!r) continue;
-      const cMe = S.counts[S.meSide][k] || 0, cOp = S.counts[opSide][k] || 0;
-      r.me.textContent = cMe; r.me.classList.toggle("zero", !cMe);
-      r.op.textContent = cOp; r.op.classList.toggle("zero", !cOp);
+    if (page === 1) {
+      for (const k of list) {
+        const r = statsRefs.rows[k]; if (!r) continue;
+        const cMe = S.counts[S.meSide][k] || 0, cOp = S.counts[opSide][k] || 0;
+        r.me.textContent = cMe; r.me.classList.toggle("zero", !cMe);
+        r.op.textContent = cOp; r.op.classList.toggle("zero", !cOp);
+      }
+      updateQualityShares(UI.stats, sides);
     }
     return;
   }
@@ -4558,7 +4580,7 @@ function renderStats() {
     const meCt = el("span", { class: "ct left " + (cMe ? "" : "zero"), onclick: () => jumpToCategory(S.meSide, k) }, cMe);
     const opCt = el("span", { class: "ct " + (cOp ? "" : "zero"), onclick: () => jumpToCategory(opSide, k) }, cOp);
     rows[k] = { me: meCt, op: opCt };
-    return el("div", { class: "qbreak-row" },
+    return el("div", { class: "qbreak-row", "data-quality-cat": k, style: { "--quality-color": QUALITY[k].color } },
       meCt,
       // The category explainer tooltip lives on the label only — hovering the counts (which are
       // clickable jump targets) must not trigger it.
@@ -4573,6 +4595,19 @@ function renderStats() {
     onclick: () => { S.qbreakExpanded = !S.qbreakExpanded; renderStats(); reflowAccuracy(S.qbreakExpanded); },
   }, icon("chevron"));
   const qbreak = el("div", { class: "qbreak" }, ...qrows, expander);
+  // Upstream's quality summary: both sides' classified-move totals above a coloured spectrum of the
+  // categories (each segment is that category's share of the side's classified moves).
+  const quality = el("div", { class: "acc-quality quality-distribution" },
+    el("div", { class: "quality-summary" },
+      el("div", { class: "quality-totals" },
+        el("strong", { "data-quality-total": S.meSide }),
+        el("span", {}, "Moves classified"),
+        el("strong", { "data-quality-total": opSide })),
+      el("div", { class: "quality-spectrums", "aria-hidden": "true" },
+        ...sides.map((side) => el("div", { class: "quality-spectrum" },
+          ...QBREAK_FULL.map((k) => el("i", { "data-quality-segment": side + "-" + k, style: { background: QUALITY[k].color } })))))),
+    qbreak);
+  updateQualityShares(quality, sides);
   // Game statistics (public scoring only): one row per measure, the two players either side.
   const gs = !S.analyzing && S.gameStats ? [S.gameStats[S.meSide], S.gameStats[opSide]] : null;
   const moveNo = (ply) => Math.ceil(ply / 2);
@@ -4624,7 +4659,7 @@ function renderStats() {
         phaseLine(opSide)),
     );
   } else if (page === 1) {
-    content = qbreak;
+    content = quality;
   } else {
     content = gstats || el("p", { class: "acc-note" }, S.analyzing
       ? "Stats appear when analysis finishes."
