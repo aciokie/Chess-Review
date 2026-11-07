@@ -14,6 +14,7 @@ import { matedKingSquare, mateMark } from '../../lib/mate-mark.js';
 import { rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY } from '../../lib/player-history.js';
 import { libraryFlip } from '../../lib/library-seat.js';
 import { fullHdReferenceLayout, panelScale } from '../../lib/full-hd-layout.js';
+import { panelGroupBounds, scalePanelGroup, movePanelGroup } from '../../lib/panel-layout.js';
 import { createAccuracyNavigation } from '../../lib/accuracy-navigation.js';
 
 // Execute the real application in a DOM, stubbing only browser/engine boundaries.
@@ -50,7 +51,7 @@ export function app(t, { url = 'https://extension.test/analysis.html#explore', h
     isSf19Build, SF19_NODES, NATIVE_SCORING_CAPABILITY, expectedPoints, SF19_OUTCOME, moveGrade,
     matedKingSquare, mateMark,
     rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY, libraryFlip,
-    fullHdReferenceLayout, panelScale, createAccuracyNavigation,
+    fullHdReferenceLayout, panelScale, panelGroupBounds, scalePanelGroup, movePanelGroup, createAccuracyNavigation,
     Engine: class { constructor() { throw Error('Unexpected real engine'); } },
     fetch: async () => { throw Error('Unexpected network access'); },
     requestAnimationFrame: () => 0, cancelAnimationFrame() {},

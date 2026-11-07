@@ -19,6 +19,7 @@ import { gameStatistics } from "./lib/game-statistics.js";
 import { rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY } from "./lib/player-history.js";
 import { libraryFlip } from "./lib/library-seat.js";
 import { fullHdReferenceLayout, panelScale } from "./lib/full-hd-layout.js";
+import { panelGroupBounds, scalePanelGroup, movePanelGroup } from "./lib/panel-layout.js";
 import { createAccuracyNavigation } from "./lib/accuracy-navigation.js";
 
 // Development-only diagnostics for game identity / cache routing. Silent in production; enable by
@@ -328,6 +329,9 @@ const DEFAULT_SETTINGS = {
   // Panel area width as a percentage of the board in the automatic layout (two columns). 75 keeps
   // the board dominant; raising it lets the panels take the window's leftover width.
   panelSizePct: 75,
+  // Snap grid for Reorganize drags/resizes (px): 16 = Standard, 8 = Fine, 2 = Extra fine. Chosen
+  // from the layout toolbar and validated through layoutGridSize().
+  layoutGridSize: 16,
   // Board coordinate labels (the a–h / 1–8 ticks in the squares' corners): on/off + size in px.
   showCoords: true, coordSize: 12,
   // App background: "color" (a tone picked with the HSL sliders), a bundled preset (slate / olive
@@ -465,7 +469,10 @@ const DEFAULT_LAYOUT = {
 const GRIP_SVG = `<svg viewBox="0 0 12 12" width="12" height="12"><path d="M11 4 4 11M11 8 8 11" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></svg>`;
 const HANDLE_SVG = `<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><circle cx="5" cy="4" r="1.3"/><circle cx="11" cy="4" r="1.3"/><circle cx="5" cy="8" r="1.3"/><circle cx="11" cy="8" r="1.3"/><circle cx="5" cy="12" r="1.3"/><circle cx="11" cy="12" r="1.3"/></svg>`;
 // Engine depth/lines are now controlled via S.settings (engineDepth/engineLines).
-const GRID = 2;          // fine snap grid for modules (px) — small, so placement feels free
+const GRID = 2;          // rounding grid when freezing the automatic layout into a canvas (px)
+// Grid spacing the Reorganize toolbar offers for drags/resizes (upstream's three steps); the
+// setting itself is validated by layoutGridSize() so a hand-edited storage value cannot go loose.
+const LAYOUT_GRIDS = [[16, "Standard"], [8, "Fine"], [2, "Extra fine"]];
 const MINW = 170;        // minimum module width (px)
 const MINH = 56;         // minimum module height (px)
 // Per-module width floors that override MINW — the eval bar is a thin strip, so it may go narrow.
@@ -2101,7 +2108,11 @@ function makeMod(key, ...inner) {
   const gripE = el("div", { class: "mod-resize e", title: "Drag to change width" });
   const gripS = el("div", { class: "mod-resize s", title: "Drag to change height" });
   const gripSE = el("div", { class: "mod-resize se", title: "Drag to resize", html: GRIP_SVG });
-  const mod = el("div", { class: "mod", "data-mod": key }, handle, innerWrap, gripE, gripS, gripSE);
+  // The selection toggle (upstream): select several panels, then drag or resize any of them to
+  // move/scale the whole group. Hidden outside Reorganize mode by the stylesheet.
+  const select = el("button", { type: "button", class: "mod-select", "aria-label": "Select " + key + " panel",
+    "aria-pressed": "false", onclick: (e) => { e.stopPropagation(); togglePanelSelection(key); } }, "✓");
+  const mod = el("div", { class: "mod", "data-mod": key }, handle, select, innerWrap, gripE, gripS, gripSE);
   makeMovable(mod, handle, { e: gripE, s: gripS, se: gripSE }, key);
   return mod;
 }
@@ -2243,74 +2254,131 @@ function reflowAccuracy(expanded) {
   }
   applyLayout(); growCanvas();
 }
-// Snap only to a fine grid — no magnetic pull toward neighbor modules' edges, so a panel goes
-// exactly where you drop it. The 2px grid just avoids sub-pixel positions.
-function snapGrid(v) { return Math.round(v / GRID) * GRID; }
-function snapDrag(b) {
-  return { x: Math.max(0, snapGrid(b.x)), y: Math.max(0, snapGrid(b.y)) };
+/* ---------------- Reorganize: panel selection + grid ---------------- */
+const selectedPanels = new Set();
+let cancelPanelGesture = null;      // set while a drag/resize runs, so it can be ended before a new one
+function visiblePanelKeys() {
+  return [...UI.canvas.querySelectorAll(".mod")]
+    .filter((mod) => !mod.hidden && getComputedStyle(mod).display !== "none" && S.layout[mod.dataset.mod])
+    .map((mod) => mod.dataset.mod);
 }
-function snapResize(b, mw = MINW) {
-  return { w: Math.max(mw, snapGrid(b.w)), h: Math.max(MINH, snapGrid(b.h)) };
+function selectedPanelKeys() { return visiblePanelKeys().filter((key) => selectedPanels.has(key)); }
+function togglePanelSelection(key) {
+  if (!S.reorganize) return;
+  if (selectedPanels.has(key)) selectedPanels.delete(key); else selectedPanels.add(key);
+  syncPanelSelection();
+}
+// Reflect the selection on the modules (outline + pressed toggle + group-aware tooltips) and let the
+// toolbar update its count. Runs on every selection change, including while rearranging.
+function syncPanelSelection() {
+  const group = selectedPanelKeys().length > 1;
+  for (const mod of UI.canvas.querySelectorAll(".mod")) {
+    const selected = S.reorganize && selectedPanels.has(mod.dataset.mod);
+    mod.classList.toggle("panel-selected", selected);
+    mod.querySelector(".mod-select")?.setAttribute("aria-pressed", String(selected));
+    mod.querySelector(".mod-handle").title = selected && group ? "Drag to move selected panels" : "Drag to move";
+    for (const grip of mod.querySelectorAll(".mod-resize")) {
+      grip.title = selected && group ? "Drag to scale selected panels"
+        : grip.classList.contains("e") ? "Drag to change width"
+        : grip.classList.contains("s") ? "Drag to change height" : "Drag to resize";
+    }
+  }
+  renderReorgBanner();
+}
+function selectPanels(keys) {
+  selectedPanels.clear();
+  for (const key of keys) selectedPanels.add(key);
+  syncPanelSelection();
+}
+// "Right panels" selects everything sitting right of the board — the usual side-column block.
+function selectRightPanels() {
+  const board = S.layout.board; if (!board) return;
+  selectPanels(visiblePanelKeys().filter((key) => S.layout[key].x >= board.x + board.w - 2));
+}
+// Snap only to the grid the toolbar shows — no magnetic pull toward neighbour modules' edges, so a
+// panel goes exactly where you drop it. The spacing is validated, not trusted: a hand-edited storage
+// value falls back to the default.
+function layoutGridSize() {
+  return LAYOUT_GRIDS.some(([size]) => size === S.settings.layoutGridSize) ? S.settings.layoutGridSize : DEFAULT_SETTINGS.layoutGridSize;
+}
+function snapGrid(v) { const size = layoutGridSize(); return Math.round(v / size) * size; }
+// Where a resize edge lands: the grid line nearest the dragged edge, never closer to the origin
+// than the module's minimum size (rounded up to the grid, so the line it picks is on-grid).
+function snapPanelEdge(origin, size, delta, minimum) {
+  if (!delta) return size;
+  const grid = layoutGridSize(), edge = Math.max(snapGrid(origin + size + delta), Math.ceil((origin + minimum) / grid) * grid);
+  return edge - origin;
+}
+function setLayoutGridSize(value) {
+  cancelPanelGesture?.();
+  S.settings.layoutGridSize = Number(value);
+  S.settings.layoutGridSize = layoutGridSize();
+  renderReorgBanner();
+  return browserAPI.storage.local.set({ settings: S.settings });
 }
 function makeMovable(mod, handle, grips, key) {
-  // Move the module (drag the handle in the top-left).
-  handle.addEventListener("pointerdown", (e) => {
+  // One gesture engine for both kinds: it freezes the boxes when the drag begins and re-applies the
+  // pure group transform on every move, so a group can be moved or scaled as one. Ctrl/Cmd/Shift on
+  // a handle toggles the panel in the selection instead of dragging, which is how a group is built.
+  const begin = (kind, target) => (e) => {
+    if (!S.reorganize || e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
-    const b = S.layout[key];
-    const sx = e.clientX, sy = e.clientY, ox = b.x, oy = b.y;
-    try { handle.setPointerCapture(e.pointerId); } catch {}
-    mod.classList.add("dragging");
-    const move = (ev) => {
-      const s = snapDrag({ x: Math.max(0, ox + (ev.clientX - sx)), y: Math.max(0, oy + (ev.clientY - sy)), w: b.w, h: b.h });
-      b.x = s.x; b.y = s.y;
-      mod.style.left = b.x + "px"; mod.style.top = b.y + "px";
-    };
-    const up = (ev) => {
-      handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("pointerup", up);
-      try { handle.releasePointerCapture(ev.pointerId); } catch {}
-      const s = snapDrag({ x: b.x, y: b.y, w: b.w, h: b.h }); // settle on the grid
-      b.x = s.x; b.y = s.y;
-      mod.style.left = b.x + "px"; mod.style.top = b.y + "px";
-      mod.classList.remove("dragging");
-      growCanvas(); saveLayout();
-      if (key === "board") alignPlayers();
-    };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", up);
-  });
-  // Resize. dir = "e" (width), "s" (height) or "se" (both).
-  const startResize = (dir, gripEl) => (e) => {
-    e.preventDefault(); e.stopPropagation();
-    const b = S.layout[key];
-    const sx = e.clientX, sy = e.clientY, ow = b.w, oh = b.h;
-    try { gripEl.setPointerCapture(e.pointerId); } catch {} // reliable tracking even over the board/other modules
-    mod.classList.add("resizing");
+    cancelPanelGesture?.();
+    if (e.ctrlKey || e.metaKey || e.shiftKey) { togglePanelSelection(key); return; }
+    if (!selectedPanels.has(key)) selectPanels([key]);
+    const keys = selectedPanelKeys(), group = keys.length > 1;
+    const start = structuredClone(S.layout);
+    const bounds = panelGroupBounds(start, keys), box = start[key];
+    if (!bounds || !box) return;
+    const sx = e.clientX, sy = e.clientY;
+    clearTimeout(_saveLayoutT);   // this gesture owns the autosave from here on
+    for (const name of keys) UI.canvas.querySelector('[data-mod="' + name + '"]').classList.add(kind === "move" ? "dragging" : "resizing");
+    try { target.setPointerCapture(e.pointerId); } catch {}
     const apply = (ev) => {
-      const w = dir.includes("e") ? Math.max(modMinW(key), ow + (ev.clientX - sx)) : ow;
-      const h = dir.includes("s") ? Math.max(MINH, oh + (ev.clientY - sy)) : oh;
-      const s = snapResize({ x: b.x, y: b.y, w, h }, modMinW(key));
-      if (dir.includes("e")) { b.w = s.w; mod.style.width = b.w + "px"; }
-      if (dir.includes("s")) { b.h = s.h; mod.style.height = b.h + "px"; }
-      if (key === "engine") fitEnginePanel();
-      if (key === "board") alignPlayers();
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      if (kind === "move") {
+        // Snap the group's own bounds, so the whole cluster lands on the grid regardless of where
+        // inside it the handle was grabbed.
+        S.layout = movePanelGroup(start, keys, dx ? snapGrid(bounds.x + dx) - bounds.x : 0, dy ? snapGrid(bounds.y + dy) - bounds.y : 0);
+      } else if (group) {
+        // Scale about the group's top-left: the east grip reads the widest member, the south grip
+        // the tallest and the corner both, so the pointer stays near the edge it grabbed.
+        const rx = box.x + box.w - bounds.x, ry = box.y + box.h - bounds.y;
+        const factor = kind === "e" ? 1 + dx / rx : kind === "s" ? 1 + dy / ry : 1 + (dx * rx + dy * ry) / (rx * rx + ry * ry);
+        S.layout = scalePanelGroup(start, keys, factor);
+      } else {
+        const b = { ...box };
+        if (kind.includes("e")) b.w = snapPanelEdge(box.x, box.w, dx, modMinW(key));
+        if (kind.includes("s")) b.h = snapPanelEdge(box.y, box.h, dy, MINH);
+        S.layout = { ...start, [key]: b };
+      }
+      applyLayout(); growCanvas();
+      if (keys.includes("board")) alignPlayers();
     };
-    const move = (ev) => apply(ev);
-    const up = (ev) => {
-      gripEl.removeEventListener("pointermove", move);
-      gripEl.removeEventListener("pointerup", up);
-      try { gripEl.releasePointerCapture(ev.pointerId); } catch {}
-      apply(ev); // settle on the grid
-      mod.classList.remove("resizing");
-      growCanvas(); saveLayout();
-      if (key === "board") alignPlayers();
+    const move = (ev) => { if (ev.pointerId === e.pointerId) apply(ev); };
+    const finish = (cancelled, ev) => {
+      if (ev && ev.pointerId !== e.pointerId) return;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("blur", blur);
+      try { target.releasePointerCapture(e.pointerId); } catch {}
+      cancelPanelGesture = null;
+      if (cancelled) { S.layout = start; applyLayout(); growCanvas(); }
+      else if (ev) apply(ev);
+      for (const name of keys) UI.canvas.querySelector('[data-mod="' + name + '"]').classList.remove("dragging", "resizing");
+      saveLayout();
+      if (keys.includes("board")) alignPlayers();
     };
-    gripEl.addEventListener("pointermove", move);
-    gripEl.addEventListener("pointerup", up);
+    const up = (ev) => finish(false, ev), cancel = (ev) => finish(true, ev), blur = () => finish(true);
+    cancelPanelGesture = blur;
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("blur", blur);
   };
-  grips.e.addEventListener("pointerdown", startResize("e", grips.e));
-  grips.s.addEventListener("pointerdown", startResize("s", grips.s));
-  grips.se.addEventListener("pointerdown", startResize("se", grips.se));
+  handle.addEventListener("pointerdown", begin("move", handle));
+  for (const dir of ["e", "s", "se"]) grips[dir].addEventListener("pointerdown", begin(dir, grips[dir]));
 }
 // Back to the automatic layout and its window-dependent fit.
 function resetLayout() {
@@ -2338,22 +2406,122 @@ function toggleReorganize() {
     // The snapshot already fits at the current zoom. Refitting here would change
     // every panel's apparent size just for unlocking its drag handles.
   }
+  cancelPanelGesture?.();
   S.reorganize = !S.reorganize;
+  if (!S.reorganize) selectedPanels.clear();
   UI.canvas.classList.toggle("reorganizing", S.reorganize);
   if (S.reorganize && UI.settings) UI.settings.hidden = true; // move the settings panel out of the way
-  renderReorgBanner();
+  syncPanelSelection();                                       // updates the modules and the toolbar
   if (UI.settings && !UI.settings.hidden) renderSettings();   // refresh the button label if open
 }
+// The Reorganize toolbar (upstream): a movable bar with the grid spacing, the selection actions and
+// the layout export, plus a minimise toggle so it can shrink to the drag handle while inspecting.
+let reorgToolbarPosition = null, reorgToolbarMinimized = false, cleanupReorgToolbar = null;
+function positionReorgToolbar(banner, x, y) {
+  const rect = banner.getBoundingClientRect(), margin = 8;
+  const left = Math.max(margin, Math.min(x, window.innerWidth - rect.width - margin));
+  const top = Math.max(margin, Math.min(y, window.innerHeight - rect.height - margin));
+  reorgToolbarPosition = { x: left, y: top };
+  Object.assign(banner.style, { left: left + "px", top: top + "px", bottom: "auto", transform: "none" });
+}
+function makeReorgToolbarMovable(banner) {
+  const handle = banner.querySelector(".reorg-drag");
+  let cancelDrag = null;
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation(); cancelDrag?.();
+    const rect = banner.getBoundingClientRect(), previous = reorgToolbarPosition && { ...reorgToolbarPosition };
+    try { handle.setPointerCapture(e.pointerId); } catch {}
+    banner.classList.add("toolbar-dragging");
+    const move = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      positionReorgToolbar(banner, rect.left + ev.clientX - e.clientX, rect.top + ev.clientY - e.clientY);
+    };
+    const finish = (cancelled, ev) => {
+      if (ev && ev.pointerId !== e.pointerId) return;
+      if (!cancelled && ev) move(ev);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("blur", blur);
+      try { handle.releasePointerCapture(e.pointerId); } catch {}
+      banner.classList.remove("toolbar-dragging"); cancelDrag = null;
+      if (cancelled) {
+        reorgToolbarPosition = previous;
+        if (previous) positionReorgToolbar(banner, previous.x, previous.y);
+        else for (const key of ["left", "top", "bottom", "transform"]) banner.style[key] = "";
+      }
+    };
+    const up = (ev) => finish(false, ev), cancel = (ev) => finish(true, ev), blur = () => finish(true);
+    cancelDrag = blur;
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("blur", blur);
+  });
+  // The drag handle is keyboard-reachable too: arrows nudge the bar, Shift moves it faster.
+  handle.addEventListener("keydown", (e) => {
+    const direction = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (!direction) return;
+    e.preventDefault(); e.stopPropagation();
+    const rect = banner.getBoundingClientRect(), step = e.shiftKey ? 10 : 1;
+    positionReorgToolbar(banner, rect.left + direction[0] * step, rect.top + direction[1] * step);
+  });
+  const resize = () => { cancelDrag?.(); if (reorgToolbarPosition) positionReorgToolbar(banner, reorgToolbarPosition.x, reorgToolbarPosition.y); };
+  window.addEventListener("resize", resize);
+  return () => { cancelDrag?.(); window.removeEventListener("resize", resize); };
+}
+// The exported layout: what is saved (the expanded baseline), what is on screen right now, which
+// panels were visible and on which viewport — so a layout can be read back or filed with a report.
+function panelLayoutExport() {
+  return { schema: "chess-review-layout-v1", layoutVersion: LAYOUT_VERSION, layoutMode: S.layoutMode,
+    layout: structuredClone(layoutForSave()), displayedLayout: structuredClone(isCustomLayout() ? S.layout : snapshotLayout()),
+    accuracyExpanded: S.qbreakExpanded, visiblePanels: visiblePanelKeys(),
+    viewport: { width: window.innerWidth, height: window.innerHeight, devicePixelRatio: window.devicePixelRatio || 1 } };
+}
+function exportPanelLayout() {
+  const blob = new window.Blob([JSON.stringify(panelLayoutExport(), null, 2) + "\n"], { type: "application/json" });
+  const url = window.URL.createObjectURL(blob), link = el("a", { href: url, download: "chess-review-layout.json" });
+  document.body.append(link); link.click(); link.remove(); setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+}
 function renderReorgBanner() {
-  let b = document.querySelector(".reorg-banner");
-  if (!S.reorganize) { if (b) b.remove(); return; }
-  if (b) return;
-  // Just a "Done" button to leave reorganize mode — dragging the handle / edges is self-explanatory,
-  // so no instruction bar. (Settings is hidden while reorganizing, so this is the way back out.)
-  b = el("div", { class: "reorg-banner" },
-    el("button", { class: "reorg-done", onclick: toggleReorganize }, "Done"),
-  );
-  document.body.append(b);
+  let banner = document.querySelector(".reorg-banner");
+  if (!S.reorganize) { cleanupReorgToolbar?.(); cleanupReorgToolbar = null; banner?.remove(); return; }
+  if (!banner) {
+    banner = el("div", { class: "reorg-banner", role: "toolbar", "aria-label": "Reorganize panels" },
+      el("div", { class: "reorg-bar" },
+        el("button", { type: "button", class: "reorg-drag", "aria-label": "Move layout toolbar",
+          title: "Drag to move the toolbar, or use arrow keys. Select panels to move or scale them together." },
+          el("span", { "aria-hidden": "true", html: HANDLE_SVG }), el("span", {}, "Layout")),
+        el("label", { class: "reorg-grid" }, "Grid",
+          el("select", { "aria-label": "Layout grid spacing", onchange: (e) => setLayoutGridSize(e.target.value) },
+            ...LAYOUT_GRIDS.map(([size, name]) => el("option", { value: String(size) }, name + " · " + size + " px")))),
+        el("button", { type: "button", class: "reorg-minimize", onclick: () => { reorgToolbarMinimized = !reorgToolbarMinimized; renderReorgBanner(); } }),
+        el("button", { type: "button", class: "reorg-done", onclick: toggleReorganize }, "Done")),
+      el("div", { class: "reorg-actions" },
+        el("button", { type: "button", "data-reorg": "right", onclick: selectRightPanels }, "Right panels"),
+        el("button", { type: "button", "data-reorg": "all", onclick: () => selectPanels(visiblePanelKeys()) }, "All"),
+        el("button", { type: "button", "data-reorg": "clear", onclick: () => selectPanels([]) }, "Clear"),
+        el("span", { class: "reorg-count", role: "status" }),
+        el("button", { type: "button", "data-reorg": "export", onclick: exportPanelLayout }, "Export")));
+    document.body.append(banner);
+    cleanupReorgToolbar = makeReorgToolbarMovable(banner);
+  }
+  banner.classList.toggle("is-minimized", reorgToolbarMinimized);
+  banner.querySelector(".reorg-grid").hidden = reorgToolbarMinimized;
+  banner.querySelector(".reorg-actions").hidden = reorgToolbarMinimized;
+  const minimize = banner.querySelector(".reorg-minimize"), label = reorgToolbarMinimized ? "Expand layout toolbar" : "Minimize layout toolbar";
+  minimize.textContent = reorgToolbarMinimized ? "+" : "−";
+  minimize.setAttribute("aria-label", label); minimize.title = label;
+  minimize.setAttribute("aria-expanded", String(!reorgToolbarMinimized));
+  if (reorgToolbarPosition) positionReorgToolbar(banner, reorgToolbarPosition.x, reorgToolbarPosition.y);
+  const count = selectedPanelKeys().length, grid = layoutGridSize();
+  // The visible grid follows the selection: the spacing the user picked paints the canvas.
+  UI.canvas.style.setProperty("--layout-grid-size", grid + "px");
+  UI.canvas.style.setProperty("--layout-grid-major", grid * 4 + "px");
+  banner.querySelector(".reorg-grid select").value = String(grid);
+  banner.querySelector(".reorg-count").textContent = count + " panel" + (count === 1 ? "" : "s") + " selected";
+  banner.querySelector("[data-reorg=clear]").disabled = !count;
 }
 
 /* ---------------- Board ---------------- */
@@ -5870,7 +6038,7 @@ const ARROW_SETTING_KEYS = ["bestArrow", "showThreat", "bestArrowColor", "arrowO
 const BACKGROUND_SETTING_KEYS = ["bg", "bgFit", "bgTile", "bgCustom", "bgHue", "bgSat", "bgLight"];
 const VISUAL_SETTING_KEYS = [
   "theme", "accent", "accentCustom", "density", "evalView", "mlStyle", "badgeStyle", "badgeScale",
-  "graphStyle", "graphDesign", "barStyle", "insightFont", "panelSizePct", "showCoords", "coordSize", "boardFrame", "coordsOutside",
+  "graphStyle", "graphDesign", "barStyle", "insightFont", "panelSizePct", "layoutGridSize", "showCoords", "coordSize", "boardFrame", "coordsOutside",
   ...BACKGROUND_SETTING_KEYS,
   "coach", "coachPlain", "boardTheme", "pieceStyle", "boardCustomLight", "boardCustomDark",
   "sound", "soundVolume", "soundFx", ...ARROW_SETTING_KEYS,
@@ -6008,7 +6176,7 @@ function visualSettings() {
       seg("Curve", "graphStyle", ["area", "line", "color", "minimal"]),
       slider("Panels", "panelSizePct", 40, 120, 5, { fmt: (v) => v + "% of the board", onChange: () => applyLayout() }),
       el("button", { class: "set-reset reorg-toggle-btn", onclick: toggleReorganize }, S.reorganize ? "Done reorganizing" : "Reorganize panels"),
-      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Reorganize lets you drag and resize the panels, and your arrangement is saved. Reset layout goes back to the automatic layout that fits any window.")),
+      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Reorganize lets you drag and resize the panels, and your arrangement is saved. The layout bar's ✓ selects several panels to move or scale them together, and can export the arrangement. Reset layout goes back to the automatic layout that fits any window.")),
       el("button", { class: "set-reset", onclick: resetLayout }, "Reset layout"),
     ),
     section("Move list",
