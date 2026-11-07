@@ -2057,20 +2057,23 @@ function buildUI() {
     if (!e.target.closest(".lib-dd-field")) document.querySelectorAll(".lib-dd-field.open").forEach((d) => d.classList.remove("open"));
   });
 
-  root.append(el("div", { class: "app" }, topbar, canvas, settings, libRail));
+  // Floating "a review has not been saved" status with its retry button (see saveToLibrary).
+  const saveStatus = el("div", { class: "review-save-status", hidden: true, "aria-live": "polite" });
+  root.append(el("div", { class: "app" }, topbar, canvas, settings, libRail, saveStatus));
 
   UI = {
     meta: document.getElementById("meta"), settings, canvas, boardWrap,
     playerTop, playerBot, controls, coach: coachMount, evalbar: evalbarMount,
     review: reviewMount, movesBody, movesCount, movesFoot,
     graph: graphMount, graphFoot, stats: statsMount, engine: engineMount,
-    libRail, libControls, libList, libCount,
+    libRail, libControls, libList, libCount, saveStatus,
   };
 
   applyLayoutMode();
   initBoardInput();
   renderCoachAvatar();     // mount the animated coach portrait for the active personality
   renderLibrary();
+  renderReviewSaveStatus();
   // The automatic composition depends on the viewport size, so it is rebuilt on resize too (cheap:
   // it only computes boxes and writes module styles). initTabZoom adds its own debounced refit.
   window.addEventListener("resize", () => { applyLayout(); growCanvas(); alignPlayers(); positionSettings(); });
@@ -6939,7 +6942,59 @@ function updateLibrary(update, analysisWrites = {}) {
   const task = navigator.locks?.request
     ? navigator.locks.request(LIBRARY_LOCK, commit)
     : (_libraryWriteQueue = _libraryWriteQueue.catch(() => {}).then(commit));
-  return task.catch((error) => console.warn("library save failed", error));
+  // true / false tells the review-save retry whether the write landed.
+  return task.then(() => true).catch((error) => { console.warn("library save failed", error); return false; });
+}
+
+/* ---------------- Review-save protection (ported from upstream) ----------------
+   A failed library write must never lose an analysed review silently. The snapshot is kept until it
+   is written: the top bar shows a retry button, and the tab warns before closing while a review is
+   still unsaved. */
+const _pendingReviewSaves = new Map();
+const _savingReviewSnapshots = new WeakMap();
+let _reviewSaveRetry = null;
+let _reviewSaveWarning = false;
+function warnUnsavedReview(event) { if (_pendingReviewSaves.size) { event.preventDefault(); event.returnValue = ""; } }
+function renderReviewSaveStatus() {
+  if (_pendingReviewSaves.size && !_reviewSaveWarning) { window.addEventListener("beforeunload", warnUnsavedReview); _reviewSaveWarning = true; }
+  if (!_pendingReviewSaves.size && _reviewSaveWarning) { window.removeEventListener("beforeunload", warnUnsavedReview); _reviewSaveWarning = false; }
+  if (!UI.saveStatus) return;
+  const failures = [..._pendingReviewSaves.values()].filter((snapshot) => snapshot.failed);
+  const hadFocus = UI.saveStatus.contains(document.activeElement);
+  UI.saveStatus.hidden = failures.length === 0;
+  if (!failures.length) {
+    UI.saveStatus.replaceChildren();
+    if (hadFocus) UI.controls?.querySelector("button")?.focus({ preventScroll: true });
+    return;
+  }
+  const busy = !!_reviewSaveRetry || failures.some((snapshot) => _savingReviewSnapshots.has(snapshot));
+  if (!UI.saveStatus.firstChild) UI.saveStatus.append(el("span"), el("button", { type: "button", onclick: retryReviewSaves }));
+  UI.saveStatus.firstChild.textContent = failures.length === 1 ? "1 review has not been saved." : failures.length + " reviews have not been saved.";
+  const retry = UI.saveStatus.querySelector("button");
+  retry.textContent = busy ? "Saving…" : "Retry saving";
+  retry.setAttribute("aria-disabled", String(busy));
+}
+async function retryReviewSaves() {
+  if (_reviewSaveRetry) return _reviewSaveRetry;
+  _reviewSaveRetry = (async () => { for (const snapshot of [..._pendingReviewSaves.values()]) await persistReviewSnapshot(snapshot); })();
+  renderReviewSaveStatus();
+  try { await _reviewSaveRetry; } finally { _reviewSaveRetry = null; renderReviewSaveStatus(); }
+}
+function persistReviewSnapshot(snapshot) {
+  if (_savingReviewSnapshots.has(snapshot)) return _savingReviewSnapshots.get(snapshot);
+  const pending = (async () => {
+    const saved = await updateLibrary((library) => {
+      const prev = library.find((game) => game.id === snapshot.id);
+      return [{ ...snapshot.rec, fav: !!prev?.fav, solved: snapshot.noMistakes || !!prev?.solved },
+        ...library.filter((game) => game.id !== snapshot.id)];
+    }, snapshot.writes);
+    snapshot.failed = !saved;
+    if (saved) _pendingReviewSaves.delete(snapshot.pendingKey);
+    return saved;
+  })();
+  _savingReviewSnapshots.set(snapshot, pending);
+  pending.finally(() => { _savingReviewSnapshots.delete(snapshot); renderReviewSaveStatus(); });
+  return pending;
 }
 
 function saveToLibrary() {
@@ -7021,11 +7076,13 @@ function saveToLibrary() {
       pgn: S.pgn, settingsKey: analysisSettingsKey(), engineBuild: S.activeEngineBuild,
       evals: S.evals, bests: S.bests, multipv: S.analyzedMultipv,
     } };
-    return updateLibrary((library) => {
-      const prev = library.find((game) => game.id === id);
-      return [{ ...rec, fav: !!prev?.fav, solved: noMistakes || !!prev?.solved },
-        ...library.filter((game) => game.id !== id)];
-    }, writes);
+    // Keep the snapshot before writing: if the write fails, the review is not lost — the top bar
+    // offers a retry and closing the tab warns that a review is still unsaved.
+    const pendingKey = S.meta?.gameId ? "game:" + id : "pgn:" + S.pgn;
+    const snapshot = { id, pendingKey, rec, writes, noMistakes, failed: false };
+    _pendingReviewSaves.set(pendingKey, snapshot);
+    renderReviewSaveStatus();
+    return persistReviewSnapshot(snapshot);
   } catch (e) { console.warn("library save failed", e); }
 }
 async function openLibraryGame(rec) {
