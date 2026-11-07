@@ -5035,8 +5035,14 @@ function renderGraph() {
   const W = 384, H = 120, mid = H / 2;
   const maxPly = Math.max(1, S.total);
   // Move bars centre each ply's bar in its own slot; the curve styles map ply to the plot edge.
-  const toX = (p) => (bars ? ((p + .5) / (maxPly + 1)) * W : (p / maxPly) * W);
-  const fromFraction = (f) => (bars ? f * (maxPly + 1) - .5 : f * maxPly);
+  // The slot span never drops below BAR_SLOTS, so a nearly empty game cannot stretch its few
+  // columns into slabs: on a freshly started live board one +0.3 position used to fill a third of
+  // the plot as a white block that read as a big White advantage. Eight slots keep a bar a bar
+  // (at most 9% of the width) and the rest of the plot stays empty until the game fills it.
+  const BAR_SLOTS = 8;
+  const slots = Math.max(maxPly + 1, BAR_SLOTS);
+  const toX = (p) => (bars ? ((p + .5) / slots) * W : (p / maxPly) * W);
+  const fromFraction = (f) => (bars ? f * slots - .5 : f * maxPly);
   // Workers finish out of order. Draw every evaluation that has come back, leaving gaps where a
   // position is still pending, so one slow search cannot hide the results behind it.
   const pts = [], runs = [];
@@ -5146,7 +5152,7 @@ function renderGraph() {
         + dotsSvg(style) + marker;
     } else {
       // Keep every analyzed position: a bar represents its evaluation, not a score change.
-      const unit = W / (maxPly + 1), width = Math.max(.25, unit * .72);
+      const unit = W / slots, width = Math.max(.25, unit * .72);
       inner = pts.map((p) => {
         const y = toY(p.cp), height = Math.max(.8, Math.abs(y - mid));
         const category = design === "bars4" && p.ply > 0 && QUALITY[S.classif[p.ply]] ? S.classif[p.ply] : null;

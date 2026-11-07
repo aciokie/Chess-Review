@@ -59,6 +59,49 @@ test('the default design is the Move bars: one column per evaluated position plu
   assert.ok(a.dom.window.document.querySelector('.evaluation-position-marker'), 'the bars position marker is mounted');
 });
 
+// A live game starts with a single evaluated position. The bar designs fit the analysed range, so
+// without a floor on the slot span that one position filled a third of the plot as a white slab.
+function liveStart(t, cps) {
+  const a = app(t);
+  loadGame(a, '1. e4 e5 2. Nf3 Nc6');
+  const S = a.state;
+  S.total = cps.length - 1;
+  S.evals = cps.map((cp) => (cp == null ? null : { cp }));
+  S.bests = S.positions.map(() => ({ bestmove: 'a1a1', score: { cp: 0 }, lines: [] }));
+  S.settings.graphDesign = 'bars3';
+  a.call('computeDerived');
+  a.call('buildUI');
+  a.call('renderGraph');
+  const svg = a.dom.window.document.querySelector('#graphMount .evalgraph svg');
+  return { a, svg, bars: [...svg.querySelectorAll('rect.evaluation-column')] };
+}
+
+test('a freshly started game draws a bar, not a slab, for its first evaluated position', t => {
+  const { svg, bars } = liveStart(t, [35]);
+  assert.equal(bars.length, 1);
+  const width = +bars[0].getAttribute('width');
+  assert.ok(width <= 36, `one position must stay a bar of the 384-unit plot (got ${width})`);
+  assert.match(bars[0].getAttribute('class'), /\bwhite\b/);
+  // The position marker sits on the bar's own centre, so the readout and the bar agree.
+  const marker = svg.querySelector('.eg-pos');
+  const centre = +bars[0].getAttribute('x') + width / 2;
+  assert.ok(Math.abs(+marker.getAttribute('x1') - centre) < 0.01, 'the marker is on the bar centre');
+});
+
+test('the bar heights follow the evals: sign picks the side, a pawn reaches the top', t => {
+  const FULL = 52;                                   // mid - 8: a one-pawn advantage's full height
+  const { bars } = liveStart(t, [0, 100, -35, -100]);
+  assert.equal(bars.length, 4);
+  const [zero, pawn, minus, minusPawn] = bars.map((b) => ({ y: +b.getAttribute('y'), h: +b.getAttribute('height'), cls: b.getAttribute('class') }));
+  assert.equal(zero.h, 0.8, 'an equal position keeps the minimum-height bar');
+  assert.equal(pawn.y, 8);
+  assert.ok(Math.abs(pawn.h - FULL) < 0.01, 'a +1.00 reaches the plot edge');
+  assert.equal(minus.y, 60, 'a black bar hangs from the middle line');
+  assert.ok(Math.abs(minus.h - (Math.asinh(.35) / Math.asinh(1)) * FULL) < 0.1, 'small advantages are near-linear');
+  assert.match(minus.cls, /\bblack\b/);
+  assert.ok(Math.abs(minusPawn.h - FULL) < 0.01);
+});
+
 test('bars4 colours the columns by move category', t => {
   const { a, svg } = graph(t, { design: 'bars4', evals: [{ cp: 0 }, { cp: 50 }, { cp: -20 }, { cp: 10 }, { cp: 0 }] });
   a.state.classif = { 1: 'brilliant', 2: 'mistake' };
