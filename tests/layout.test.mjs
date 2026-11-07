@@ -157,7 +157,7 @@ test('saved desktop layouts reopen at the reset scale across typical screen size
   for (const [w, h, initial, expected] of [
     [1280, 600, 1.25, .56], [1366, 648, .91, .61], [1536, 744, 1, .70],
     [1920, 916, .91, .86], [1920, 920, .89, .87],
-    [2560, 1320, 1.25, 1.20], [3840, 2040, 2, 1.8],
+    [2560, 1320, 1, 1.25], [3840, 2040, 2, 1.93],
   ]) {
     const a = layout(t, initial);
     a.state.layoutMode = 'custom'; a.call('applyLayoutMode');

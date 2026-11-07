@@ -4,9 +4,6 @@ import { JSDOM } from 'jsdom';
 import { Chess } from '../../lib/chess.js';
 import { flagCodeForCountryId, countryNameForId } from '../../flags.js';
 import { canonicalGameId, analysisCacheKey, simpleHash } from '../../gameid.js';
-import { CONCEPT_GROUPS, DEFAULT_CONCEPT_GROUPS, normalizeConceptGroups, FAST_CONCEPT_REMOVALS, CONCEPT_ITEMS, normalizeDisabledConcepts } from '../../lib/concepts/controls.js';
-import { ConceptSession, conceptKey } from '../../lib/concepts/session.js';
-import { coachInsights, coachReply } from '../../lib/coach-insights.js';
 import { publicGameAccuracy, sf19GameAccuracy, expectedPoints, SF19_OUTCOME } from '../../lib/public-scoring.js';
 import { moveGrade } from '../../lib/move-grades.js';
 import { calibratedReview, scoringEvidenceComplete } from '../../lib/calibrated-review.js';
@@ -46,8 +43,6 @@ export function app(t, { url = 'https://extension.test/analysis.html#explore', h
     getComputedStyle: dom.window.getComputedStyle, performance, structuredClone,
     URL, TextEncoder, btoa, console, Chess, flagCodeForCountryId, countryNameForId, browserAPI,
     canonicalGameId, analysisCacheKey, simpleHash,
-    ConceptSession, conceptKey, coachInsights, coachReply, CONCEPT_GROUPS, DEFAULT_CONCEPT_GROUPS,
-    normalizeConceptGroups, FAST_CONCEPT_REMOVALS, CONCEPT_ITEMS, normalizeDisabledConcepts,
     publicGameAccuracy, sf19GameAccuracy, calibratedReview, scoringEvidenceComplete, analyseCalibratedPosition,
     isSf19Build, SF19_NODES, NATIVE_SCORING_CAPABILITY, expectedPoints, SF19_OUTCOME, moveGrade,
     matedKingSquare, mateMark,

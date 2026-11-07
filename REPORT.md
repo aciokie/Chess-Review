@@ -1,5 +1,9 @@
 # Audit & fix report — Chess Review
 
+> **Later note (2026-11-07):** the Concepts feature was removed from this fork. The
+> Concepts investigations and test references below are kept as a record of that audit;
+> they describe code that no longer exists. The rest of the report is unchanged history.
+
 Date: 2026-10-28
 Branch: `main` (pushed directly, per repo convention)
 Base commit at start: `dd1e669` (`origin/main`, clean, nothing uncommitted)

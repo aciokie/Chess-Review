@@ -997,15 +997,6 @@ button { font-family: inherit; cursor: pointer; }
   scrollbar-gutter: stable;
 }
 .settings-pop[hidden] { display: none; }
-.concepts-panel { overflow-wrap: anywhere; }
-.concepts-panel p { margin: 0; }
-.concepts-panel .concept-group-row { flex-direction: row; align-items: center; justify-content: space-between; cursor: pointer; gap: 12px; }
-.concept-group-row input { flex: 0 0 auto; width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
-.concept-group-copy .set-lbl { font-size: 12px; font-weight: 600; color: var(--ink-2); }
-.concept-group-copy { display: grid; gap: 4px; min-width: 0; }
-.concept-cost { color: var(--ink-3); font-size: 10px; letter-spacing: .04em; }
-.concepts-panel summary { cursor: pointer; font-size: 12px; }
-.concepts-panel details p { font-size: 11px; margin-top: 6px; color: var(--ink-3); }
 
 
 /* ---------- CREDITS & ATTRIBUTIONS ---------- */
@@ -1205,27 +1196,6 @@ button { font-family: inherit; cursor: pointer; }
 .mod[data-mod="engine"] .panel .engine-body { flex: none; height: auto; overflow: visible; }
 .engine-body > * { flex-shrink: 0; }
 .mod[data-mod="engine"] .engine-bestwalk { white-space: normal; }
-.coach-insights-body { padding: 10px 12px; overflow-wrap: anywhere; }
-.coach-insights-body p { margin: 0 0 8px; }
-.coach-position { font-weight: 600; }
-.coach-move-quality, .coach-status, .coach-perspective { color: var(--ink-2); font-size: 12px; line-height: 1.5; }
-.coach-insights-list { list-style: none; padding: 0; margin: 12px 0; }
-.coach-insight { padding: 12px 0; border-top: 1px solid var(--line); line-height: 1.55; }
-.coach-insight + .coach-insight { margin-top: 12px; }
-.coach-insight > strong, .coach-perspective { display: block; }
-.coach-perspective { margin: 3px 0 7px; }
-.coach-insight details { font-size: 11px; color: var(--ink-2); }
-.coach-insight summary { cursor: pointer; }
-.coach-insight details p { margin: 6px 0; }
-.coach-reply-body .coach-insights-list { margin: 8px 0 12px; }
-.coach-reply-body .coach-insight { border-top: 0; padding: 4px 0; }
-.coach-reply-body .coach-insight > strong { margin-bottom: 8px; }
-.coach-reply-body .coach-takeaway { padding: 10px 12px; border-left: 2px solid var(--accent); background: rgba(128,128,128,.06); border-radius: 0 6px 6px 0; }
-.coach-takeaway > span { display: block; color: var(--ink-2); font-size: 10px; font-weight: 600; margin-bottom: 4px; }
-.coach-analysis-notes { border-top: 1px solid var(--line); padding-top: 8px; color: var(--ink-2); font-size: 11px; }
-.coach-analysis-notes summary { cursor: pointer; }
-.coach-analysis-notes p { margin: 6px 0; }
-.stage.auto:not(.desktop-layout) .mod[data-mod="concepts"] { height: 420px; min-height: 320px; }
 .mod .moves-panel .ml-scroll { max-height: none; overflow: visible; }
 .mod:not([data-mod="board"]):not([data-mod="controls"]) > .mod-inner > div { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 
@@ -1323,7 +1293,6 @@ button { font-family: inherit; cursor: pointer; }
 .stage.auto .mod[data-mod="controls"] { grid-area: controls; }
 .stage.auto .mod[data-mod="accuracy"] { grid-area: acc; }
 .stage.auto .mod[data-mod="engine"] { grid-area: engine; }
-.stage.auto .mod[data-mod="concepts"] { grid-area: concepts; }
 .stage.auto .evalgraph svg { height: clamp(64px, 11vh, 120px); }
 /* The coach portrait sits in the insight panel's top-right corner. The opening and move rows stop
    short of it, and a float beside the first lines of commentary keeps the text clear of it; the
@@ -1347,7 +1316,7 @@ button { font-family: inherit; cursor: pointer; }
        (89px into the insight panel) */
     --coach-float-h: max(0px, calc(99px - var(--side-top)));
     grid-template-columns: var(--eb-w) var(--board) var(--side-w);
-    grid-template-areas: "eval board side" "concepts concepts concepts";
+    grid-template-areas: "eval board side";
   }
   /* The side column is exactly as tall as the board block (contain: size keeps the long move list
      from stretching the row) and starts level with the board, under the top player strip, so the
@@ -1370,16 +1339,6 @@ button { font-family: inherit; cursor: pointer; }
   .stage.auto .mod[data-mod="engine"] { flex: 1 1 0; min-height: 140px; }
   /* at the top of the side column, so the head leans up into the strip beside the board */
   .stage.auto .mod[data-mod="coach"] { position: absolute; top: 0; right: 16px; width: 184px; height: 188px; }
-}
-/* A separate right-hand concepts column when the unzoomed grid has room. */
-@media (min-width: 1500px) and (min-height: 600px) {
-  .stage.auto:not(.desktop-layout) {
-    --concepts-w: 294px;
-    --board-wmax: calc(100vw - var(--sb) - var(--pad-l) - var(--gap) - var(--eb-w) - var(--side-w) - var(--concepts-w) - 3 * var(--gap));
-    grid-template-columns: var(--eb-w) var(--board) var(--side-w) var(--concepts-w);
-    grid-template-areas: "eval board side concepts";
-  }
-  .stage.auto:not(.desktop-layout) .mod[data-mod="concepts"] { margin-top: var(--side-top); }
 }
 /* short but wide windows (laptops): the side column starts with the top strip, for more room, and
    the coach then covers the insight panel's whole right side */
@@ -1406,8 +1365,7 @@ button { font-family: inherit; cursor: pointer; }
       "eval  board moves"
       "eval  board controls"
       "graph graph graph"
-      "acc   acc   engine"
-      "concepts concepts concepts";
+      "acc   acc   engine";
   }
   /* the move list fills whatever the board leaves, without its length stretching the row */
   .stage.auto .mod[data-mod="moves"] { align-self: stretch; contain: size; min-height: 120px; }
@@ -1433,7 +1391,7 @@ button { font-family: inherit; cursor: pointer; }
     --board: min(var(--board-wmax), max(var(--board-min), var(--board-hmax)));
     --review-h: 190px;
     grid-template-columns: var(--eb-w) var(--board);
-    grid-template-areas: "eval board" "controls controls" "review review" "moves moves" "graph graph" "acc acc" "engine engine" "concepts concepts";
+    grid-template-areas: "eval board" "controls controls" "review review" "moves moves" "graph graph" "acc acc" "engine engine";
   }
   .stage.auto .mod[data-mod="moves"] { height: min(420px, 60dvh); }
   .stage.auto .player-strip .name { display: block; overflow: hidden; text-overflow: ellipsis; }
@@ -1750,24 +1708,3 @@ button.set-reset.inline { margin-top: 0; align-self: flex-start; padding: 3px 10
 .lc-status.solved { color: var(--q-best); }
 .lc-status.unsolved { color: color-mix(in oklab, var(--q-blunder) 65%, var(--ink-3)); }
 @media (prefers-reduced-motion: reduce) { .lib-panel { transition: none; } }
-
-.concept-view-switch { display: flex; gap: 3px; padding: 3px; margin: 9px 12px 0; border: 1px solid var(--line); border-radius: 9px; background: rgba(0,0,0,.12); flex-shrink: 0; }
-.concept-view-switch button { flex: 1; border: 0; border-radius: 6px; padding: 7px 4px; background: transparent; color: var(--ink-2); font: inherit; font-size: 11px; cursor: pointer; white-space: nowrap; }
-.concept-view-switch button[aria-pressed="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 5px rgba(0,0,0,.22); }
-.concept-view-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.coach-insights-panel .coach-status { font-size: 11px; color: var(--ink-2); }
-.concept-evidence-data { font-size: 10px; white-space: pre-wrap; max-height: 200px; overflow: auto; background: rgba(0,0,0,.1); padding: 8px; border-radius: 6px; }
-
-/* Individual concept controls share the normal compact settings rhythm. */
-.concepts-panel .concept-group { border-bottom:1px solid var(--line); }
-.concepts-panel .concept-group > summary { list-style:none; position:relative; padding-left:16px; }
-.concepts-panel .concept-group > summary::-webkit-details-marker { display:none; }
-.concepts-panel .concept-group > summary::before { content:'›'; position:absolute; left:0; top:12px; color:var(--ink-3); }
-.concepts-panel .concept-group[open] > summary::before { transform:rotate(90deg); }
-.concepts-panel .concept-item-row { display:flex; flex-direction:row; align-items:center; justify-content:space-between; gap:10px; padding-left:16px; }
-.concept-item-row input { flex:0 0 auto; width:16px; height:16px; accent-color:var(--accent); }
-.concept-item-row:has(input:disabled) { opacity:.55; }
-.concept-excluded { margin:8px 0 12px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
-.concept-excluded > summary { font-weight:600; color:var(--ink-2); }
-.concept-excluded > strong { display:block; margin-top:10px; }
-.concept-reset { border:1px solid var(--line); border-radius:6px; padding:6px 10px; background:var(--panel); color:var(--ink-2); cursor:pointer; }
