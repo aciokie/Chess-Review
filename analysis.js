@@ -325,6 +325,9 @@ const DEFAULT_SETTINGS = {
   evalView: "both", mlStyle: "rows", badgeStyle: "icon", badgeScale: 1,
   // Eval-graph look (see renderGraph), eval-BAR look (see renderEvalBar) and the Insight-panel text size (px).
   graphStyle: "bars", barStyle: "gradient", insightFont: 18,
+  // Panel area width as a percentage of the board in the automatic layout (two columns). 75 keeps
+  // the board dominant; raising it lets the panels take the window's leftover width.
+  panelSizePct: 75,
   // Board coordinate labels (the a–h / 1–8 ticks in the squares' corners): on/off + size in px.
   showCoords: true, coordSize: 12,
   // App background: "color" (a tone picked with the HSL sliders), a bundled preset (slate / olive
@@ -2141,7 +2144,8 @@ function applyPanelBox(mod, b) {
 // The automatic composition for this viewport (null on a custom canvas or a window too small for
 // it — the responsive CSS grid then takes over).
 function referenceLayout() {
-  return isCustomLayout() ? null : fullHdReferenceLayout(innerWidth, innerHeight);
+  return isCustomLayout() ? null
+    : fullHdReferenceLayout(innerWidth, innerHeight, { panelPct: S.settings.panelSizePct });
 }
 function applyLayout() {
   const custom = isCustomLayout();
@@ -5629,7 +5633,7 @@ const ARROW_SETTING_KEYS = ["bestArrow", "showThreat", "bestArrowColor", "arrowO
 const BACKGROUND_SETTING_KEYS = ["bg", "bgFit", "bgTile", "bgCustom", "bgHue", "bgSat", "bgLight"];
 const VISUAL_SETTING_KEYS = [
   "theme", "accent", "accentCustom", "density", "evalView", "mlStyle", "badgeStyle", "badgeScale",
-  "graphStyle", "barStyle", "insightFont", "showCoords", "coordSize", "boardFrame", "coordsOutside",
+  "graphStyle", "barStyle", "insightFont", "panelSizePct", "showCoords", "coordSize", "boardFrame", "coordsOutside",
   ...BACKGROUND_SETTING_KEYS,
   "coach", "coachPlain", "boardTheme", "pieceStyle", "boardCustomLight", "boardCustomDark",
   "sound", "soundVolume", "soundFx", ...ARROW_SETTING_KEYS,
@@ -5764,6 +5768,7 @@ function visualSettings() {
       seg("Eval", "evalView", ["both", "bar", "graph"]),
       seg("Bar", "barStyle", ["classic", "gradient", "mono", "accent"]),
       seg("Graph", "graphStyle", ["bars", "area", "line", "color", "minimal"]),
+      slider("Panels", "panelSizePct", 40, 120, 5, { fmt: (v) => v + "% of the board", onChange: () => applyLayout() }),
       el("button", { class: "set-reset reorg-toggle-btn", onclick: toggleReorganize }, S.reorganize ? "Done reorganizing" : "Reorganize panels"),
       el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Reorganize lets you drag and resize the panels, and your arrangement is saved. Reset layout goes back to the automatic layout that fits any window.")),
       el("button", { class: "set-reset", onclick: resetLayout }, "Reset layout"),
@@ -7613,9 +7618,11 @@ async function performTabZoomFit(force) {
   if (!force && _fittedDip && Math.abs(w - _fittedDip.w) < 3 && Math.abs(h - _fittedDip.h) < 3) return;
   applyLayout();
   requestAnimationFrame(alignPlayers);
-  // The automatic composition is built for the browser's default zoom; a leftover fitted zoom from
-  // an older version is given back once. Only the custom canvas keeps a fitted tab zoom.
-  const target = isCustomLayout() ? targetZoomFor(w, h) : _defaultZoom;
+  // The automatic composition is built for the browser's own zoom, so it is never fitted by us: a
+  // leftover fitted zoom from an older version is given back on the forced (startup/reset) fit
+  // only, and a zoom the user chose themselves survives later window resizes. The custom canvas
+  // keeps a fitted tab zoom.
+  const target = isCustomLayout() ? targetZoomFor(w, h) : force ? _defaultZoom : z;
   // Only set it when it's off, so an unchanged window never triggers Chrome's zoom bubble.
   if (Math.abs(z - target) > 0.005) {
     await browserAPI.tabs.setZoom(_zoomTabId, target);

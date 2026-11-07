@@ -68,10 +68,11 @@ test('the composition adapts to the window instead of zooming it', async t => {
   const a = layout(t); a.viewport(1920, 920); await a.call('initTabZoom');
   assert.equal(a.composed(), true); assert.equal(a.zoom(), 1);
   const short = a.box('board').w;
+  assert.ok(Math.abs(a.box('review').w / short - 0.75) < 0.02,
+    `panels should be ~75% of the board (got ${a.box('review').w} vs ${Math.round(short * 0.75)})`);
   a.viewport(1920, 1240); await a.call('fitTabZoom');
   assert.ok(a.box('board').w > short + 150, 'a taller window gets a bigger board');
-  const panels = a.box('review');
-  assert.ok(panels.x + panels.w >= 1920 - 24, `the composition fills the window width (ends at ${panels.x + panels.w})`);
+  assert.ok(a.box('review').w <= a.box('board').w * 0.78, 'the panel share is a ceiling');
   assert.equal(a.zoom(), 1, 'the page itself is never zoomed');
   a.viewport(900, 800); await a.call('fitTabZoom');
   assert.equal(a.composed(), false, 'small windows fall back to the responsive grid');
@@ -207,6 +208,14 @@ test('failed zoom writes can be retried at the same window size', async t => {
   assert.equal(a.zoom(), 1);
 });
 
+test('a manual browser zoom survives a resize in the automatic layout', async t => {
+  const a = layout(t); a.viewport(1920, 920); await a.call('initTabZoom');
+  await a.context.browserAPI.tabs.setZoom(7, .8);      // the user zooms out
+  a.viewport(1600, 800); await a.call('fitTabZoom');
+  assert.equal(a.zoom(), .8, 'the resize leaves the user zoom alone');
+  assert.equal(a.composed(), true);
+});
+
 test('small windows use the browser default zoom and the responsive grid', async t => {
   const a = layout(t, .89, 1.25); a.viewport(1000, 800);
   await a.call('initTabZoom');
@@ -235,11 +244,12 @@ test('Engine grows downward for its contents on the custom canvas and cannot be 
   head.getBoundingClientRect = () => ({ height: 40.5 });
   Object.defineProperty(body, 'scrollHeight', { configurable: true, value: 250 });
   const top = mod.style.top;
-  // The canvas kept the composition's panel scale (the calm ceiling): the measured lines (250 CSS
-  // px) are converted back to the canvas's own pixels, and the module starts at the 178 x scale box
-  // before growing for them.
+  // The canvas kept the composition's panel scale: the measured lines (250 CSS px) are converted
+  // back to the canvas's own pixels. Shrink the panel to its header first — the fit must grow it
+  // back so the candidate lines and the action stay visible.
   const scale = a.state.layout.engine.scale;
-  assert.equal(scale, 1.05);
+  assert.ok(scale > 0.8 && scale <= 1.05, `panel scale ${scale}`);
+  a.state.layout.engine.h = 40; mod.style.height = '40px';
   a.call('fitEnginePanel');
   const grown = Math.ceil((40.5 / scale + 250 + 4) * scale / 2) * 2;   // measured lines, rounded up
   assert.equal(a.state.layout.engine.h, grown);

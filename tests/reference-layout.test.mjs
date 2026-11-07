@@ -37,12 +37,14 @@ test('the board takes the window height and stays square', () => {
   }
 });
 
-test('a taller window gives a bigger board and the composition stays flush', () => {
+test('a taller window gives a bigger board and the panels keep their share', () => {
   const short = fullHdReferenceLayout(1920, 920);
   const tall = fullHdReferenceLayout(1920, 1400);
   assert.ok(box(tall, 'board').w > box(short, 'board').w);
-  for (const [name, l, w] of [['920', short, 1920], ['1400', tall, 1920], ['wide', fullHdReferenceLayout(2560, 1440), 2560]]) {
-    assert.ok(right(l) >= w - 24, `${name}: composition leaves a right margin (${w - right(l)})`);
+  for (const [name, l] of [['920', short], ['1400', tall]]) {
+    const board = box(l, 'board').w, side = box(l, 'review').w;
+    assert.ok(side <= board * 0.75 + 30, `${name}: panels take more than their share (${side} vs ${board})`);
+    assert.ok(side >= DESIGN.minSide - 1, `${name}: panels below the minimum`);
     assert.ok(box(l, 'review').scale >= DESIGN.minColScale && box(l, 'review').scale <= DESIGN.maxPanelScale,
       `${name}: panel scale out of range (${box(l, 'review').scale})`);
   }
@@ -50,11 +52,33 @@ test('a taller window gives a bigger board and the composition stays flush', () 
 
 test('the graph sits under the move list in the same column', () => {
   const l = fullHdReferenceLayout(1920, 1080);
-  const graph = box(l, 'graph'), moves = box(l, 'moves'), accuracy = box(l, 'accuracy');
+  const graph = box(l, 'graph'), moves = box(l, 'moves'), controls = box(l, 'controls');
   assert.equal(graph.x, moves.x, 'graph shares the move list column');
   assert.ok(graph.y >= moves.y + moves.h, 'graph sits below the move list');
-  assert.ok(!overlaps(graph, moves), 'graph does not overlap the move list');
-  assert.equal(accuracy.x > graph.x + graph.w, true, 'accuracy stays in the second column');
+  assert.ok(controls.y >= graph.y + graph.h, 'controls sit below the graph');
+  assert.ok(!overlaps(graph, moves) && !overlaps(controls, graph));
+});
+
+test('the panels are two columns about 75% of the board', () => {
+  const l = fullHdReferenceLayout(1920, 1080);
+  const board = box(l, 'board'), review = box(l, 'review');
+  const moves = box(l, 'moves'), accuracy = box(l, 'accuracy');
+  assert.ok(Math.abs(review.w - board.w * 0.75) <= 25, `panel area ${review.w} vs 75% of ${board.w}`);
+  assert.ok(Math.abs(moves.w - accuracy.w) <= 2, 'the two columns are equal');
+  assert.equal(box(l, 'graph').x, moves.x, 'the graph sits under the move list');
+  assert.equal(box(l, 'engine').x, accuracy.x, 'the engine sits under the accuracy');
+  assert.ok(accuracy.scale >= DESIGN.minColScale && accuracy.scale <= DESIGN.maxPanelScale);
+});
+
+test('the panel percentage is honoured and never overflows the window', () => {
+  for (const pct of [40, 75, 120]) {
+    const l = fullHdReferenceLayout(1920, 1080, { panelPct: pct });
+    const board = box(l, 'board').w, side = box(l, 'review').w;
+    assert.ok(right(l) <= 1920 - DESIGN.margin + 1, `${pct}%: composition overflows the window`);
+    assert.ok(side >= DESIGN.minSide - 1, `${pct}%: panels below the minimum`);
+    if (pct === 75) assert.ok(Math.abs(side - board * 0.75) <= 25, 'the default share is 75%');
+    if (pct === 120) assert.ok(side > board * 0.75, 'raising the percentage widens the panels');
+  }
 });
 
 test('the eval bar is wide enough for its score labels', () => {
