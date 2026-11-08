@@ -30,6 +30,47 @@ const DEBUG = (() => {
 })();
 function dbg(...args) { if (DEBUG) console.log("[Chess Review]", ...args); }
 
+/* ---------------- Screen-size preview (screen-preview.html) ----------------
+   The viewer page renders THIS app in an iframe sized to a chosen screen, so it must show the real
+   thing but save nothing. ?viewport-preview=1 therefore swaps storage for a memory copy, seeded
+   once from the launch snapshot (the game, layout and preferences the preview was opened from) and
+   from the real stored values. Nothing else in the app has to know: every read and write continues
+   to go through browserAPI.storage.local. */
+const VIEWPORT_PREVIEW = (() => { try { return /[?&]viewport-preview\b/.test(location.search); } catch { return false; } })();
+function screenPreviewSnapshot() {
+  try { return JSON.parse(window.sessionStorage.getItem("screen-size-preview")) || null; } catch { return null; }
+}
+// Opened without a snapshot (screen-preview.html directly): a short sample game keeps every panel
+// meaningful. Its review runs with whatever settings are stored and is never saved anywhere.
+const PREVIEW_SAMPLE = {
+  pgn: `[Event "Screen preview"]\n[Site "Preview"]\n[White "Preview White"]\n[Black "Preview Black"]\n[Result "*"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 *`,
+  meta: { gameId: "screen-preview", source: "preview" },
+};
+function previewMemoryStorage(seed = {}) {
+  const values = structuredClone(seed);
+  return {
+    async get(keys = null) {
+      if (typeof keys === "string") return { [keys]: values[keys] };
+      if (Array.isArray(keys)) return Object.fromEntries(keys.map((key) => [key, values[key]]));
+      return structuredClone(values);
+    },
+    async set(data) { Object.assign(values, structuredClone(data)); },
+    async remove(keys) { for (const key of Array.isArray(keys) ? keys : [keys]) delete values[key]; },
+    async clear() { for (const key of Object.keys(values)) delete values[key]; },
+  };
+}
+async function installPreviewStorage() {
+  let stored = {};
+  try {
+    stored = (await browserAPI.storage.local.get(["settings", "username", "layout", "layoutMode", "layoutVersion", "library", PLAYER_HISTORY_KEY])) || {};
+  } catch { /* a refused seed just means the preview starts from defaults */ }
+  const snapshot = screenPreviewSnapshot();
+  const values = { ...stored, ...(snapshot?.preferences || {}) };
+  // The preview is about the layout: keep it silent and leave the CPU a single review worker.
+  if (values.settings) values.settings = { ...values.settings, sound: false, engineWorkers: 1 };
+  try { browserAPI.storage.local = previewMemoryStorage(values); } catch { /* real storage stays if the swap is refused */ }
+}
+
 /* ---------------- Opening book ----------------
  * Offline lookup table built from lichess-org/chess-openings (bundled in data/book.json).
  * Key = "epd" (the first 4 FEN fields: board, side, castling, en passant) → either
@@ -849,6 +890,11 @@ function activeBest() {
 /* ---------------- Loading + PGN ---------------- */
 async function loadJob() {
   const jobId = location.hash.replace(/^#/, "");
+  // Screen-size preview: the payload rides in the launch snapshot (or the sample game).
+  if (VIEWPORT_PREVIEW) {
+    const snapshot = screenPreviewSnapshot();
+    return snapshot?.job?.pgn ? snapshot.job : structuredClone(PREVIEW_SAMPLE);
+  }
   if (!jobId) throw new Error("No analysis job specified.");
 
   // Explore mode: standalone Lichess-style analysis board
@@ -2391,6 +2437,31 @@ function resetLayout() {
   saveLayout();
   requestAnimationFrame(alignPlayers);
   return initTabZoom();
+}
+// Open the screen-size preview (screen-preview.html) in a new tab. The preview receives this tab's
+// game, view position, layout and preferences through sessionStorage — window.open copies it
+// synchronously, and the temporary handoff key is removed again right after — while the preview tab
+// itself runs on memory storage, so nothing it does is saved.
+function openScreenSizePreview() {
+  if (VIEWPORT_PREVIEW) { window.parent.focus(); return; }   // already a preview: bring the viewer forward
+  const job = { pgn: S.pgn, meta: S.meta || {}, source: "pgn" };
+  // A finished review travels with the preview, so its panels show the real thing immediately.
+  if (S.pgn && !S.analyzing && !S.analysisError && completeAnalysis(S, S.total + 1)) {
+    job.analysis = { pgn: S.pgn, settingsKey: analysisSettingsKey(), engineBuild: S.activeEngineBuild,
+      evals: S.evals, bests: S.bests, multipv: S.analyzedMultipv };
+  }
+  const display = { width: window.innerWidth, height: window.innerHeight, pixelRatio: window.devicePixelRatio || 1,
+    insetWidth: Math.max(0, window.outerWidth - window.innerWidth) + Math.max(0, window.screen.width - window.screen.availWidth),
+    insetHeight: Math.max(0, window.outerHeight - window.innerHeight) + Math.max(0, window.screen.height - window.screen.availHeight) };
+  const key = "screen-size-preview", previous = window.sessionStorage.getItem(key);
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify({ job, idx: S.idx, display,
+      preferences: { settings: S.settings, layout: layoutForSave(), layoutMode: S.layoutMode, layoutVersion: LAYOUT_VERSION } }));
+    const opened = window.open(_url("screen-preview.html"), "_blank");
+    if (!opened && browserAPI.tabs?.create) return browserAPI.tabs.create({ url: _url("screen-preview.html") });
+  } finally {
+    if (previous == null) window.sessionStorage.removeItem(key); else window.sessionStorage.setItem(key, previous);
+  }
 }
 // Reorganize mode: while ON, panels can be dragged/resized (handles + grips appear); while OFF
 // they're locked and hover shows nothing. The arranged layout auto-saves and persists. Entering it
@@ -6327,6 +6398,8 @@ function visualSettings() {
       el("button", { class: "set-reset reorg-toggle-btn", onclick: toggleReorganize }, S.reorganize ? "Done reorganizing" : "Reorganize panels"),
       el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Reorganize lets you drag and resize the panels, and your arrangement is saved. The layout bar's ✓ selects several panels to move or scale them together, and can export the arrangement. Reset layout goes back to the automatic layout that fits any window.")),
       el("button", { class: "set-reset", onclick: resetLayout }, "Reset layout"),
+      el("button", { class: "set-reset", onclick: openScreenSizePreview }, "Preview at other screen sizes"),
+      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Opens a new tab that renders the review at desktop, laptop, tablet and phone sizes, with fit/actual views and rotation. The preview carries this game and your layout, and saves nothing.")),
     ),
     section("Move list",
       seg("Style", "mlStyle", ["rows", "cards", "compact"]),
@@ -8297,6 +8370,9 @@ async function resetLegacyZoom() {
 }
 (async function main() {
   try {
+    // The screen-size preview must be incapable of saving anything before it reads or writes a
+    // single preference, so its memory storage is installed first (seeded from the launch snapshot).
+    if (VIEWPORT_PREVIEW) await installPreviewStorage();
     // Only the job + stored prefs are needed to build and show the UI. The opening book (~690 KB)
     // and the calibration file are only consumed once scoring/opening refinement runs, so we load
     // them in parallel and don't block the first paint on them — buildUI() can run as soon as the
