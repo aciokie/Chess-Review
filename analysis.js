@@ -2078,6 +2078,7 @@ function buildUI() {
 
   applyLayoutMode();
   initBoardInput();
+  bindBackgroundAnalysisActivity();   // any interaction pauses the warm-up engine (see schedulePanelPrecalculation)
   renderCoachAvatar();     // mount the animated coach portrait for the active personality
   renderLibrary();
   renderReviewSaveStatus();
@@ -3487,6 +3488,7 @@ function invalidateVariationEvals() {
 function resetLiveEngine() {
   S.liveToken++; S.panelToken++; S.liveEngineGeneration++;
   panelPending.clear();        // in-flight panel searches belong to the engine being dropped
+  stopPanelPrecalculation();   // a warm-up job holds an engine of its own; rebuild it for the new identity
   S.liveEngine?.terminate();
   S.liveEngine = null; S.liveEnginePromise = null; S.liveError = null;
 }
@@ -5535,6 +5537,7 @@ function rememberPanelLines(i, want, lines) {
 }
 async function requestPanelLines() {
   if (S.analyzing || S.analysisMode) return;          // not during the batch, not in variation mode
+  schedulePanelPrecalculation();                      // warming the rest of the game keeps the panel instant
   const want = S.settings.engineLines;
   if (!want || want <= 1) return;                     // user only wants the single line
   const i = S.idx;
@@ -5552,6 +5555,7 @@ async function requestPanelLines() {
   let pending = panelPending.get(key);
   if (!pending) {
     pending = (async () => {
+      pauseBackgroundAnalysis();   // the on-demand search owns the engine from here; the job yields
       const eng = await ensureLiveEngine();
       eng.cancelPending(); eng.stop();
       return (await eng.analyse(fen, S.settings.engineDepth, want)).lines;
@@ -5566,6 +5570,145 @@ async function requestPanelLines() {
   if (generation !== S.liveEngineGeneration || S.idx !== i || S.analysisMode || activePos().fen !== fen) return;
   S._panelCache = { idx: i, fen, lines };
   renderEngineCurrent();
+}
+
+/* ---------------- Background panel pre-calculation (ported from upstream) ----------------
+   After a review finishes, one extra engine keeps warming the extra engine-panel candidate lines
+   for every position, starting with the one in view, so navigating finds its lines already cached.
+   A warmed root that also satisfies the annotation rules (exact, one depth, legal distinct PVs) is
+   stored as that position's annotation search, so the Great/Brilliant pass can use it without
+   another search. The job yields to everything that owns the engine or the screen: any pointer /
+   key / wheel interaction, a hidden tab, a running review or live search, practice, a line walk or
+   an on-demand panel search interrupts it, and an interrupted search is thrown away (a partial
+   search can never become evidence) and retried after the interaction settles. It only ever writes
+   panel display lines and annotationSearch - never the scored best/played pair. */
+let panelWarmJob = null;
+let backgroundActivityBound = false, backgroundInteractionAt = 0;
+function pauseBackgroundAnalysis() {
+  backgroundInteractionAt = Date.now();
+  const job = panelWarmJob;
+  if (job?.pending) {
+    job.interrupted = true;
+    job.engine?.cancelPending(); job.engine?.stop();
+  }
+}
+function bindBackgroundAnalysisActivity() {
+  if (backgroundActivityBound) return;
+  backgroundActivityBound = true;
+  for (const type of ["pointerdown", "keydown", "wheel"]) document.addEventListener(type, pauseBackgroundAnalysis, { capture: true, passive: true });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) pauseBackgroundAnalysis(); });
+}
+function waitForBackgroundAnalysis(job, delay) {
+  return new Promise((resolve) => {
+    job.resume = resolve;
+    job.timer = setTimeout(() => { job.resume = null; resolve(!job.cancelled); }, delay);
+  });
+}
+// Anything that owns the engine or the screen right now beats a warm-up search.
+function backgroundAnalysisBusy() {
+  return document.hidden || S.analysisMode || !!S.practice || !!S.bestWalking || !!S.lineWalking
+    || panelPending.size > 0 || !!S.liveEngine?.current || Date.now() - backgroundInteractionAt < 500;
+}
+// Store a warmed search as annotation evidence when it passes the very validation the on-demand
+// key-move pass uses; the scored pair is never touched. If that changes a move's category, repaint
+// and re-save exactly like a finished key-move search would.
+function rememberAnnotationSearch(i, key, count, result) {
+  if (count < 2 || key !== panelContextKey(i, count)) return false;
+  const root = S.bests[i];
+  if (!root || i >= S.total) return false;   // the final position decides no move
+  const search = annotationSearchFor(i, result, count);
+  if (!search) {
+    dbg("warm annotation rejected", i, "lines", (result?.lines || []).map((l) => [l.multipv, l.depth, l.bound, l.score?.cp]));
+    return false;
+  }
+  root.annotationSearch = search;
+  if (S.analysisMode || !["best", "excellent", "great", "brilliant"].includes(S.classif?.[i + 1])) return true;
+  const before = JSON.stringify(S.classif);
+  computeDerived();
+  if (before !== JSON.stringify(S.classif)) {
+    paintBoard(); renderBestArrow(); renderReview(); renderStats(); renderGraph(); renderMoves();
+    saveToLibrary();
+  }
+  return true;
+}
+// The count a warm search produces: the panel's candidate count and the review's own multi-line
+// count both come from it, and its results serve either purpose.
+function panelPrecalcCount() {
+  return Math.max(S.settings.engineLines || 1, S.settings.classifyLines || 1);
+}
+function stopPanelPrecalculation() {
+  if (!panelWarmJob) return;
+  panelWarmJob.cancelled = true;
+  clearTimeout(panelWarmJob.timer);
+  panelWarmJob.resume?.(false);
+  panelWarmJob.engine?.terminate();
+  panelWarmJob = null;
+}
+function schedulePanelPrecalculation() {
+  const count = panelPrecalcCount();
+  // A single line everywhere means there is nothing display-only to warm: the panel needs no
+  // candidates, and the review's own key-move pass already covers the categories.
+  if (!S.pgn || S.analyzing || S.analysisError || count <= 1) return;
+  const context = JSON.stringify([S.batchGen, S.pgn, panelContextKey(0, count), count, S.settings.classifyLines]);
+  if (panelWarmJob?.context === context) return;
+  stopPanelPrecalculation();
+  const job = { context, cancelled: false, engine: null, idx: null, pending: null, interrupted: false, dirty: false };
+  panelWarmJob = job;
+  const positions = S.positions;
+  // Let the foreground settle first: a fresh review or a navigation must not race the warm-up.
+  job.timer = setTimeout(() => { job.promise = (async () => {
+    try {
+      dbg("warm job started", count);
+      if (!await waitForBackgroundAnalysis(job, 500)) return;
+      // The position in view first, then the rest in game order.
+      const order = [S.idx, ...positions.map((_, i) => i).filter((i) => i !== S.idx)];
+      for (let cursor = 0; cursor < order.length; cursor++) {
+        const i = order[cursor];
+        if (job.cancelled || S.positions !== positions || S.analyzing) return;
+        if (!S.bests[i]?.lines || terminalScore(positions[i].fen, i)) continue;
+        const key = panelContextKey(i, count);
+        const cached = panelCachedLines(i, count);
+        if (cached?.length >= count || S.bests[i].lines.length >= count) continue;
+        // The review's own key-move search may already be exactly the multi-line search this
+        // position wants; reuse it instead of searching the same root twice.
+        const extra = S.bests[i].annotationSearch;
+        if (extra?.count >= count && extra.key === engineContextKey(positions[i].fen, searchHistory(positions, i))) {
+          rememberPanelLines(i, count, extra.result.lines);
+          continue;
+        }
+        while (backgroundAnalysisBusy()) { if (!await waitForBackgroundAnalysis(job, 500)) return; }
+        // One worker regardless of the foreground pool size, with a small hash: the warm-up must
+        // never starve a review or the live board for CPU.
+        if (!job.engine) job.engine = await createEngine({ Hash: 16, "Skill Level": S.settings.engineSkill });
+        if (job.cancelled) { job.engine.terminate(); return; }
+        while (backgroundAnalysisBusy()) { if (!await waitForBackgroundAnalysis(job, 500)) return; }
+        job.idx = i;
+        job.interrupted = false;
+        const started = Date.now();
+        job.pending = job.engine.analyse(positions[i].fen, S.settings.engineDepth, count, searchHistory(positions, i));
+        const result = await job.pending;
+        if (job.cancelled || S.positions !== positions || panelContextKey(i, count) !== key) return;
+        job.idx = null; job.pending = null;
+        if (job.interrupted) {
+          // An interrupted search cannot certify a category or leave a partial result in the cache.
+          if (!await waitForBackgroundAnalysis(job, 500)) return;
+          cursor--; continue;
+        }
+        rememberPanelLines(i, count, result.lines);
+        job.dirty = rememberAnnotationSearch(i, key, count, result) || job.dirty;
+        if (!S.analysisMode && S.idx === i) {
+          S._panelCache = { idx: i, fen: positions[i].fen, lines: result.lines };
+          renderEngineCurrent();
+        }
+        // Leave the engine idle about three times as long as the search took (~25% of one core).
+        if (!await waitForBackgroundAnalysis(job, Math.max(250, (Date.now() - started) * 3))) return;
+      }
+    } catch (error) { dbg("background warm-up stopped:", error); /* a foreground navigation can retry the rest */ }
+    finally {
+      job.engine?.terminate(); job.engine = null; job.idx = null; job.pending = null;
+      if (job.dirty && !job.cancelled && S.positions === positions) saveToLibrary();
+    }
+  })(); }, 0);
 }
 const ENGINE_NAME = { nnue: "Stockfish 18 NNUE", sf19full: "Stockfish 19 Full", sf19lite: "Stockfish 19 Lite", native19: "Stockfish 19 (Native)" };
 // Keep all candidate lines and the action visible. Only the bottom edge moves, including
@@ -6692,6 +6835,10 @@ async function setEngineSetting(key, value) {
   const poolOnly = key === "engineWorkers" && !S.analyzing;
   if (!displayOnly && !poolOnly && !sameScores && !S.meta?.explore) scheduleReanalyze();
   renderEngineCurrent();
+  // More (or fewer) candidate lines change what is worth warming; a finished review restarts the
+  // warm-up here, a running one resumes after its batch (startAnalysis stopped the old job).
+  stopPanelPrecalculation();
+  schedulePanelPrecalculation();
   if (UI.settings && !UI.settings.hidden) renderSettings();
 }
 function applySettings() {
@@ -7645,6 +7792,7 @@ function requestProgress(gen) {
 }
 async function startAnalysis() {
   if (S.meta?.explore) { await requestLiveEval(); return; }
+  stopPanelPrecalculation();   // a new batch owns the CPU; warming resumes when the review finishes
   const gen = ++S.batchGen;
   // The identity this batch belongs to. Every result is validated against it before it can touch
   // current-game state, so a late Game 1 search can never be written into Game 2.
@@ -7808,6 +7956,9 @@ async function startAnalysis() {
   if (!S.analysisMode) renderEngineCurrent();
   dbg("analysis completed for", batchGameId);
   saveToLibrary();   // the game is fully analyzed → keep it in the user's library
+  // The foreground pool is gone; the single warm-up worker can fill the extra panel lines (and any
+  // annotation the key-move pass left undecided) in the background now.
+  schedulePanelPrecalculation();
 }
 
 // Cap on extra runner-up searches per review, so a pathological game cannot stall the finish.
