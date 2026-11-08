@@ -1,10 +1,10 @@
 [
   {
     "file": "ChessReviewHost.exe",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "source": "native/host/ChessReviewHost.cs",
     "build": "csc /nologo /target:exe /optimize+ /platform:anycpu /out:ChessReviewHost.exe /r:System.dll /r:System.Core.dll /r:System.Web.Extensions.dll ChessReviewHost.cs (in-box .NET Framework 4.8 compiler; also built on windows-latest CI)",
-    "sha256": "762d168e949313849250ee39f1a560e26f7d0751ce572df5bc395c4a74e55f5a",
+    "sha256": "407933fabc256750e765ef62cef7faf7f981050a86dc0b48aece291a23c9aba8",
     "note": "The prebuilt helper is committed so every user installs the SAME bytes: a locally compiled binary is brand new and unsigned on every run, so antivirus treats it as a stranger each time, while one stable binary accumulates reputation after the first install. native/install.ps1 prefers this file when its hash matches and only falls back to compiling native/host/ChessReviewHost.cs with the in-box csc.exe. The hash pins the committed bytes (a csc build is not reproducible byte-for-byte: it embeds a fresh module GUID and timestamp), so verify by comparing this file's hash, not by rebuilding. Rebuild and re-record this hash whenever ChessReviewHost.cs changes; the release workflow records the hash it builds for the release zip."
   }
 ]

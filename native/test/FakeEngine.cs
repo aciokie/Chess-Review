@@ -30,6 +30,9 @@ internal static class FakeEngine
     private static volatile string _bestmove = "e2e4";
     private static volatile bool _showWdl;
     private static volatile string _searchMove = "";
+    // Observed by scripts/native-host-smoke.mjs: the smoke test needs to see which thread count the
+    // host applied to a search (scoring searches must be pinned to 1). Written next to the pid file.
+    private static volatile int _threads = 1;
 
     private static void Out(string line)
     {
@@ -99,6 +102,15 @@ internal static class FakeEngine
                     {
                         int parsed;
                         if (Int32.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed) && parsed > 0) _multipv = parsed;
+                    }
+                    if (name.Equals("Threads", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int threadsParsed;
+                        if (Int32.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out threadsParsed) && threadsParsed > 0)
+                        {
+                            _threads = threadsParsed;
+                            try { File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), "fake-engine-threads.txt"), threadsParsed.ToString(CultureInfo.InvariantCulture)); } catch { }
+                        }
                     }
                     Out("info string option " + name + "=" + value);
                 }
@@ -170,6 +182,7 @@ internal static class FakeEngine
     private static void Search(int depth)
     {
         _stop = false;
+        Out("info string threads " + _threads.ToString(CultureInfo.InvariantCulture));
         int baseCp = 30 + (_position.Length % 7);
         for (int d = 1; d <= depth; d++)
         {

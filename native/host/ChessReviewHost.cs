@@ -40,7 +40,7 @@ namespace ChessReview.NativeHost
 {
     internal static class Program
     {
-        public const string HostVersion = "1.1.0";
+        public const string HostVersion = "1.1.1";
         // Keep in sync with engine/native.js NATIVE_MAX_FRAME_BYTES.
         public const int MaxFrameBytes = 8 * 1024 * 1024;
         private const int SwHide = 0;
@@ -996,9 +996,12 @@ namespace ChessReview.NativeHost
             // Mirror engine/uci.js: clear between positions so a native review is depth-for-depth the
             // same *kind* of cold search the WASM batch performs (classifications stay comparable).
             SendUci("ucinewgame");
-            // A fixed-node search is only reproducible on one thread, so scoring searches run on one
-            // thread and every other search returns to the configured count.
-            int wantThreads = goKind == "nodes" ? 1 : _config.Threads;
+            // A fixed search budget is only reproducible on one thread, so every scoring search runs
+            // on one thread and every other search returns to the configured count. Depth budgets
+            // are scoring searches too when they ask for exact lines (scoring-v1), so they are pinned
+            // the same way: a helper installed with threads > 1 must never make the same review
+            // score differently than the bundled builds.
+            int wantThreads = (goKind == "nodes" || requireExact) ? 1 : _config.Threads;
             if (wantThreads != _engineThreads)
             {
                 _engineThreads = wantThreads;

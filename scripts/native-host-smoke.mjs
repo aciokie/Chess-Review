@@ -81,7 +81,7 @@ function encodeFrame(value) {
 async function boot(options = {}) {
   const config = {
     enginePath: options.enginePath === null ? '' : (options.enginePath || fakeExe),
-    threads: 1,
+    threads: options.threads || 1,
     hashMb: 16,
     searchTimeoutMs: options.searchTimeoutMs || 120000,
     expectedSha256: options.expectedSha256 || '',
@@ -473,6 +473,35 @@ await check('the engine binary is hashed, and a pinned hash makes "verified" rea
   assert(wrong.engine.verified === false, 'a wrong hash must make the engine unverified, even with a Stockfish 19 id name');
   await host.close();
   host = null;
+});
+
+await check('scoring searches are pinned to one thread, including depth budgets', async () => {
+  // The test engine records the thread count the host applied, so the pin is observable. A host
+  // configured with 4 threads proves the host actively overrides it for scoring searches and
+  // restores it for panel/live searches. This runs on its own host so no other check is disturbed.
+  const pinHost = await boot({ threads: 4 });
+  try {
+    pinHost.send({ type: 'init', options: {} });
+    await pinHost.waitFor((message) => message.type === 'ready', 60000, 'ready (threads)');
+    const threadsFile = path.join(buildDir, 'fake-engine-threads.txt');
+    const engineThreads = async () => (await fs.readFile(threadsFile, 'utf8')).trim();
+    assert(await engineThreads() === '4', `the configured thread count must reach the engine, saw ${await engineThreads()}`);
+    // A depth budget with exact results is a scoring search: one thread, and the budget reaches the engine.
+    pinHost.send(analyse({ id: 31, depth: 22, budget: { kind: 'depth', value: 22 }, cold: true, requireExact: true }));
+    const scored = await pinHost.waitFor((message) => message.type === 'bestmove' && message.id === 31, 20000, 'depth-budget bestmove');
+    assert(await engineThreads() === '1', `a scoring depth budget must run on one thread, engine saw ${await engineThreads()}`);
+    assert(scored.lines.at(-1)?.depth === 22, `the depth budget must reach the engine, got depth ${scored.lines.at(-1)?.depth}`);
+    // A plain (panel/live) depth search is not scoring: it keeps the configured count.
+    pinHost.send(analyse({ id: 32, depth: 12 }));
+    await pinHost.waitFor((message) => message.type === 'bestmove' && message.id === 32, 20000, 'panel bestmove');
+    assert(await engineThreads() === '4', `a panel search must keep the configured threads, engine saw ${await engineThreads()}`);
+    // The shipped fixed-node protocol stays pinned exactly as before.
+    pinHost.send(analyse({ id: 33, budget: { kind: 'nodes', value: 20000 }, cold: true, requireExact: true }));
+    await pinHost.waitFor((message) => message.type === 'bestmove' && message.id === 33, 20000, 'node-budget bestmove');
+    assert(await engineThreads() === '1', `a node budget must stay on one thread, engine saw ${await engineThreads()}`);
+  } finally {
+    await pinHost.close();
+  }
 });
 
 /* ---------------- Report ---------------- */
