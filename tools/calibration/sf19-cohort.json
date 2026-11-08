@@ -1,0 +1,9010 @@
+{
+  "schema": "sf19-rating-cohort-v1",
+  "definition": "750 training games of public/dataset.json.gz; both player sides except sides with fewer than ten nonforced decisions; every ply of an included side is one contextMove.",
+  "cohortHash": "724d9148e2b2358015670b27ca8cf4bcea6dad3888638f0a1e0474badd4190e4",
+  "gameCount": 750,
+  "sideCount": 1498,
+  "plies": 52239,
+  "sides": [
+    {
+      "gameId": "qw9OwOT5",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "qw9OwOT5",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "IzOywquq",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "IzOywquq",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "UGLjf02M",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "UGLjf02M",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "Ncf3Z6RP",
+      "color": "w",
+      "first": 1,
+      "count": 46
+    },
+    {
+      "gameId": "Ncf3Z6RP",
+      "color": "b",
+      "first": 2,
+      "count": 46
+    },
+    {
+      "gameId": "wacvo0M6",
+      "color": "w",
+      "first": 1,
+      "count": 19
+    },
+    {
+      "gameId": "wacvo0M6",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "oT2MPfQa",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "oT2MPfQa",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "o4b4CTXP",
+      "color": "w",
+      "first": 1,
+      "count": 19
+    },
+    {
+      "gameId": "o4b4CTXP",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "GI9glGoo",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "GI9glGoo",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "sCTZXlzT",
+      "color": "w",
+      "first": 1,
+      "count": 47
+    },
+    {
+      "gameId": "sCTZXlzT",
+      "color": "b",
+      "first": 2,
+      "count": 47
+    },
+    {
+      "gameId": "al9nr8e5",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "al9nr8e5",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "fSFGyQj1",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "fSFGyQj1",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "EcQ3XG9b",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "EcQ3XG9b",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "UoNuqvuz",
+      "color": "w",
+      "first": 1,
+      "count": 10
+    },
+    {
+      "gameId": "UoNuqvuz",
+      "color": "b",
+      "first": 2,
+      "count": 10
+    },
+    {
+      "gameId": "2EHN1HK3",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "2EHN1HK3",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "UWiKRSdj",
+      "color": "w",
+      "first": 1,
+      "count": 84
+    },
+    {
+      "gameId": "UWiKRSdj",
+      "color": "b",
+      "first": 2,
+      "count": 83
+    },
+    {
+      "gameId": "Of6kTpuR",
+      "color": "w",
+      "first": 1,
+      "count": 15
+    },
+    {
+      "gameId": "Of6kTpuR",
+      "color": "b",
+      "first": 2,
+      "count": 14
+    },
+    {
+      "gameId": "CkGc22v6",
+      "color": "w",
+      "first": 1,
+      "count": 15
+    },
+    {
+      "gameId": "CkGc22v6",
+      "color": "b",
+      "first": 2,
+      "count": 15
+    },
+    {
+      "gameId": "aQ903hcx",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "aQ903hcx",
+      "color": "b",
+      "first": 2,
+      "count": 40
+    },
+    {
+      "gameId": "Nd4Rawhh",
+      "color": "w",
+      "first": 1,
+      "count": 44
+    },
+    {
+      "gameId": "Nd4Rawhh",
+      "color": "b",
+      "first": 2,
+      "count": 43
+    },
+    {
+      "gameId": "GpIcw0Dv",
+      "color": "w",
+      "first": 1,
+      "count": 51
+    },
+    {
+      "gameId": "GpIcw0Dv",
+      "color": "b",
+      "first": 2,
+      "count": 50
+    },
+    {
+      "gameId": "nwoD7NsA",
+      "color": "w",
+      "first": 1,
+      "count": 55
+    },
+    {
+      "gameId": "nwoD7NsA",
+      "color": "b",
+      "first": 2,
+      "count": 55
+    },
+    {
+      "gameId": "tRqzQt8J",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "tRqzQt8J",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "jOv52bMh",
+      "color": "w",
+      "first": 1,
+      "count": 47
+    },
+    {
+      "gameId": "jOv52bMh",
+      "color": "b",
+      "first": 2,
+      "count": 47
+    },
+    {
+      "gameId": "0zl0bbTT",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "0zl0bbTT",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "nhuWmN0z",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "nhuWmN0z",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "Rr8MMtMy",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "Rr8MMtMy",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "862xoDXG",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "862xoDXG",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "Lo8HbiSn",
+      "color": "w",
+      "first": 1,
+      "count": 14
+    },
+    {
+      "gameId": "Lo8HbiSn",
+      "color": "b",
+      "first": 2,
+      "count": 14
+    },
+    {
+      "gameId": "k6vcFeJ2",
+      "color": "w",
+      "first": 1,
+      "count": 37
+    },
+    {
+      "gameId": "k6vcFeJ2",
+      "color": "b",
+      "first": 2,
+      "count": 37
+    },
+    {
+      "gameId": "Uo4GOtnA",
+      "color": "w",
+      "first": 1,
+      "count": 40
+    },
+    {
+      "gameId": "Uo4GOtnA",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "D7HSqNcg",
+      "color": "w",
+      "first": 1,
+      "count": 68
+    },
+    {
+      "gameId": "D7HSqNcg",
+      "color": "b",
+      "first": 2,
+      "count": 68
+    },
+    {
+      "gameId": "XEEvuA81",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "XEEvuA81",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "Q7rX3hxq",
+      "color": "w",
+      "first": 1,
+      "count": 56
+    },
+    {
+      "gameId": "Q7rX3hxq",
+      "color": "b",
+      "first": 2,
+      "count": 56
+    },
+    {
+      "gameId": "YPmHpWLb",
+      "color": "w",
+      "first": 1,
+      "count": 65
+    },
+    {
+      "gameId": "YPmHpWLb",
+      "color": "b",
+      "first": 2,
+      "count": 64
+    },
+    {
+      "gameId": "ZHIb4uG4",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "ZHIb4uG4",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "SbyzcANV",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "SbyzcANV",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "Gp1Bt2cP",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "Gp1Bt2cP",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "VIAZcO4U",
+      "color": "w",
+      "first": 1,
+      "count": 15
+    },
+    {
+      "gameId": "VIAZcO4U",
+      "color": "b",
+      "first": 2,
+      "count": 14
+    },
+    {
+      "gameId": "JbgNFjg0",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "JbgNFjg0",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "Nxbr6imw",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "Nxbr6imw",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "quTcTZaQ",
+      "color": "w",
+      "first": 1,
+      "count": 17
+    },
+    {
+      "gameId": "quTcTZaQ",
+      "color": "b",
+      "first": 2,
+      "count": 17
+    },
+    {
+      "gameId": "UqV6uv0s",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "UqV6uv0s",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "ESAH8GEZ",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "ESAH8GEZ",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "5seNpKgX",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "5seNpKgX",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "1tVvVxcK",
+      "color": "w",
+      "first": 1,
+      "count": 15
+    },
+    {
+      "gameId": "1tVvVxcK",
+      "color": "b",
+      "first": 2,
+      "count": 14
+    },
+    {
+      "gameId": "oneIHkm8",
+      "color": "w",
+      "first": 1,
+      "count": 44
+    },
+    {
+      "gameId": "oneIHkm8",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "pCnAczkD",
+      "color": "w",
+      "first": 1,
+      "count": 19
+    },
+    {
+      "gameId": "pCnAczkD",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "bmq7q2sv",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "bmq7q2sv",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "KeRo2942",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "KeRo2942",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "rO7O3YXk",
+      "color": "w",
+      "first": 1,
+      "count": 63
+    },
+    {
+      "gameId": "rO7O3YXk",
+      "color": "b",
+      "first": 2,
+      "count": 63
+    },
+    {
+      "gameId": "55awThxo",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "55awThxo",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "qAbidTeP",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "qAbidTeP",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "Ww3Mp9V8",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "Ww3Mp9V8",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "12R64ccW",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "12R64ccW",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "kPUdvvo0",
+      "color": "w",
+      "first": 1,
+      "count": 80
+    },
+    {
+      "gameId": "kPUdvvo0",
+      "color": "b",
+      "first": 2,
+      "count": 79
+    },
+    {
+      "gameId": "5Fu2I18C",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "5Fu2I18C",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "iOd0fnlR",
+      "color": "w",
+      "first": 1,
+      "count": 43
+    },
+    {
+      "gameId": "iOd0fnlR",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "6awNXPRd",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "6awNXPRd",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "cxSMIrYH",
+      "color": "w",
+      "first": 1,
+      "count": 49
+    },
+    {
+      "gameId": "cxSMIrYH",
+      "color": "b",
+      "first": 2,
+      "count": 48
+    },
+    {
+      "gameId": "k5EwGiaM",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "k5EwGiaM",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "E4Ruli1n",
+      "color": "w",
+      "first": 1,
+      "count": 11
+    },
+    {
+      "gameId": "E4Ruli1n",
+      "color": "b",
+      "first": 2,
+      "count": 11
+    },
+    {
+      "gameId": "zORQaHx1",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "zORQaHx1",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "MUzkIuFh",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "MUzkIuFh",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "tPmrAKYK",
+      "color": "w",
+      "first": 1,
+      "count": 63
+    },
+    {
+      "gameId": "tPmrAKYK",
+      "color": "b",
+      "first": 2,
+      "count": 62
+    },
+    {
+      "gameId": "qQGPXMfq",
+      "color": "w",
+      "first": 1,
+      "count": 61
+    },
+    {
+      "gameId": "qQGPXMfq",
+      "color": "b",
+      "first": 2,
+      "count": 61
+    },
+    {
+      "gameId": "P8zBYwOI",
+      "color": "w",
+      "first": 1,
+      "count": 48
+    },
+    {
+      "gameId": "P8zBYwOI",
+      "color": "b",
+      "first": 2,
+      "count": 47
+    },
+    {
+      "gameId": "ZBGqcHwz",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "ZBGqcHwz",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "yhVu0L0X",
+      "color": "w",
+      "first": 1,
+      "count": 43
+    },
+    {
+      "gameId": "yhVu0L0X",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "6EaChi6r",
+      "color": "w",
+      "first": 1,
+      "count": 60
+    },
+    {
+      "gameId": "6EaChi6r",
+      "color": "b",
+      "first": 2,
+      "count": 59
+    },
+    {
+      "gameId": "CxGDiMXI",
+      "color": "w",
+      "first": 1,
+      "count": 65
+    },
+    {
+      "gameId": "CxGDiMXI",
+      "color": "b",
+      "first": 2,
+      "count": 64
+    },
+    {
+      "gameId": "nSdEpVDE",
+      "color": "w",
+      "first": 1,
+      "count": 14
+    },
+    {
+      "gameId": "nSdEpVDE",
+      "color": "b",
+      "first": 2,
+      "count": 14
+    },
+    {
+      "gameId": "h18DGBCf",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "h18DGBCf",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "11UGNcUz",
+      "color": "w",
+      "first": 1,
+      "count": 60
+    },
+    {
+      "gameId": "11UGNcUz",
+      "color": "b",
+      "first": 2,
+      "count": 60
+    },
+    {
+      "gameId": "eCF7b9wK",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "eCF7b9wK",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "2YIVomfH",
+      "color": "w",
+      "first": 1,
+      "count": 72
+    },
+    {
+      "gameId": "2YIVomfH",
+      "color": "b",
+      "first": 2,
+      "count": 72
+    },
+    {
+      "gameId": "R6Fxomfs",
+      "color": "w",
+      "first": 1,
+      "count": 11
+    },
+    {
+      "gameId": "R6Fxomfs",
+      "color": "b",
+      "first": 2,
+      "count": 11
+    },
+    {
+      "gameId": "FcusMp0s",
+      "color": "w",
+      "first": 1,
+      "count": 51
+    },
+    {
+      "gameId": "FcusMp0s",
+      "color": "b",
+      "first": 2,
+      "count": 50
+    },
+    {
+      "gameId": "ymsktO3J",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "ymsktO3J",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "TXbHXMpy",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "TXbHXMpy",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "zAMjWaP2",
+      "color": "w",
+      "first": 1,
+      "count": 13
+    },
+    {
+      "gameId": "zAMjWaP2",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "jHeFVLS3",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "jHeFVLS3",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "Dhezn5li",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "Dhezn5li",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "zmt2Orj4",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "zmt2Orj4",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "LzAwyYIT",
+      "color": "w",
+      "first": 1,
+      "count": 38
+    },
+    {
+      "gameId": "LzAwyYIT",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "1xYgr8oB",
+      "color": "w",
+      "first": 1,
+      "count": 81
+    },
+    {
+      "gameId": "1xYgr8oB",
+      "color": "b",
+      "first": 2,
+      "count": 80
+    },
+    {
+      "gameId": "MH0zqVhN",
+      "color": "w",
+      "first": 1,
+      "count": 55
+    },
+    {
+      "gameId": "MH0zqVhN",
+      "color": "b",
+      "first": 2,
+      "count": 55
+    },
+    {
+      "gameId": "8rGjWgyF",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "8rGjWgyF",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "RAYfKiRW",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "RAYfKiRW",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "OG6OXTzT",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "OG6OXTzT",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "qI0M2c5f",
+      "color": "w",
+      "first": 1,
+      "count": 19
+    },
+    {
+      "gameId": "qI0M2c5f",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "c2igefRX",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "c2igefRX",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "jXyCZlSk",
+      "color": "w",
+      "first": 1,
+      "count": 47
+    },
+    {
+      "gameId": "jXyCZlSk",
+      "color": "b",
+      "first": 2,
+      "count": 47
+    },
+    {
+      "gameId": "NgkjU7gS",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "NgkjU7gS",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "baDGHzKh",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "baDGHzKh",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "wcG9j3dW",
+      "color": "w",
+      "first": 1,
+      "count": 67
+    },
+    {
+      "gameId": "wcG9j3dW",
+      "color": "b",
+      "first": 2,
+      "count": 66
+    },
+    {
+      "gameId": "ZRViodq9",
+      "color": "w",
+      "first": 1,
+      "count": 14
+    },
+    {
+      "gameId": "ZRViodq9",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "G3WSXBOg",
+      "color": "w",
+      "first": 1,
+      "count": 50
+    },
+    {
+      "gameId": "G3WSXBOg",
+      "color": "b",
+      "first": 2,
+      "count": 50
+    },
+    {
+      "gameId": "THlaaTfa",
+      "color": "w",
+      "first": 1,
+      "count": 61
+    },
+    {
+      "gameId": "THlaaTfa",
+      "color": "b",
+      "first": 2,
+      "count": 60
+    },
+    {
+      "gameId": "lcDOszpr",
+      "color": "w",
+      "first": 1,
+      "count": 56
+    },
+    {
+      "gameId": "lcDOszpr",
+      "color": "b",
+      "first": 2,
+      "count": 55
+    },
+    {
+      "gameId": "rzNXAPX1",
+      "color": "w",
+      "first": 1,
+      "count": 43
+    },
+    {
+      "gameId": "rzNXAPX1",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "01B2EROH",
+      "color": "w",
+      "first": 1,
+      "count": 15
+    },
+    {
+      "gameId": "01B2EROH",
+      "color": "b",
+      "first": 2,
+      "count": 14
+    },
+    {
+      "gameId": "8QHM8f6S",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "8QHM8f6S",
+      "color": "b",
+      "first": 2,
+      "count": 17
+    },
+    {
+      "gameId": "AAOaVT66",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "AAOaVT66",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "UoAme6Vk",
+      "color": "w",
+      "first": 1,
+      "count": 54
+    },
+    {
+      "gameId": "UoAme6Vk",
+      "color": "b",
+      "first": 2,
+      "count": 53
+    },
+    {
+      "gameId": "kX6jNNor",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "kX6jNNor",
+      "color": "b",
+      "first": 2,
+      "count": 45
+    },
+    {
+      "gameId": "C1M37iKW",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "C1M37iKW",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "ycnmKNKB",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "ycnmKNKB",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "CjXNuuMs",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "CjXNuuMs",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "H9g2o6US",
+      "color": "w",
+      "first": 1,
+      "count": 54
+    },
+    {
+      "gameId": "H9g2o6US",
+      "color": "b",
+      "first": 2,
+      "count": 54
+    },
+    {
+      "gameId": "oGHwxHXQ",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "oGHwxHXQ",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "PGpNooId",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "PGpNooId",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "C2Cmz55b",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "C2Cmz55b",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "5hdssme0",
+      "color": "w",
+      "first": 1,
+      "count": 49
+    },
+    {
+      "gameId": "5hdssme0",
+      "color": "b",
+      "first": 2,
+      "count": 49
+    },
+    {
+      "gameId": "tpOpyGrV",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "tpOpyGrV",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "ZPofl36u",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "ZPofl36u",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "3FQsCbG5",
+      "color": "w",
+      "first": 1,
+      "count": 64
+    },
+    {
+      "gameId": "3FQsCbG5",
+      "color": "b",
+      "first": 2,
+      "count": 64
+    },
+    {
+      "gameId": "oiiMjAew",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "oiiMjAew",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "Y6RDoVS0",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "Y6RDoVS0",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "8MqOmKkD",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "8MqOmKkD",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "as23Eduq",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "as23Eduq",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "CCkgZZjj",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "CCkgZZjj",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "kmCTi7Oq",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "kmCTi7Oq",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "rkoe59ea",
+      "color": "w",
+      "first": 1,
+      "count": 70
+    },
+    {
+      "gameId": "rkoe59ea",
+      "color": "b",
+      "first": 2,
+      "count": 70
+    },
+    {
+      "gameId": "tgMpCzrY",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "tgMpCzrY",
+      "color": "b",
+      "first": 2,
+      "count": 45
+    },
+    {
+      "gameId": "shQhwqmG",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "shQhwqmG",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "30TTEvAO",
+      "color": "w",
+      "first": 1,
+      "count": 13
+    },
+    {
+      "gameId": "30TTEvAO",
+      "color": "b",
+      "first": 2,
+      "count": 12
+    },
+    {
+      "gameId": "jcbzyUdc",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "jcbzyUdc",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "nDzcRyqV",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "nDzcRyqV",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "OZvV0CwY",
+      "color": "w",
+      "first": 1,
+      "count": 63
+    },
+    {
+      "gameId": "OZvV0CwY",
+      "color": "b",
+      "first": 2,
+      "count": 62
+    },
+    {
+      "gameId": "9bgA2AEd",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "9bgA2AEd",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "cb8PTDHy",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "cb8PTDHy",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "er8aV0tL",
+      "color": "w",
+      "first": 1,
+      "count": 12
+    },
+    {
+      "gameId": "er8aV0tL",
+      "color": "b",
+      "first": 2,
+      "count": 12
+    },
+    {
+      "gameId": "XpWBf2De",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "XpWBf2De",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "KXSwDVF8",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "KXSwDVF8",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "y8GCIZ0p",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "y8GCIZ0p",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "iLG8HrRn",
+      "color": "w",
+      "first": 1,
+      "count": 58
+    },
+    {
+      "gameId": "iLG8HrRn",
+      "color": "b",
+      "first": 2,
+      "count": 58
+    },
+    {
+      "gameId": "YlomvpyQ",
+      "color": "w",
+      "first": 1,
+      "count": 15
+    },
+    {
+      "gameId": "YlomvpyQ",
+      "color": "b",
+      "first": 2,
+      "count": 14
+    },
+    {
+      "gameId": "6bY5pJ9o",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "6bY5pJ9o",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "Tytck8Sv",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "Tytck8Sv",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "c3HfK7EL",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "c3HfK7EL",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "0hLOgdYt",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "0hLOgdYt",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "Kqvux4hV",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "Kqvux4hV",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "Tj2W4rdi",
+      "color": "w",
+      "first": 1,
+      "count": 53
+    },
+    {
+      "gameId": "Tj2W4rdi",
+      "color": "b",
+      "first": 2,
+      "count": 53
+    },
+    {
+      "gameId": "rFtrr1U5",
+      "color": "w",
+      "first": 1,
+      "count": 58
+    },
+    {
+      "gameId": "rFtrr1U5",
+      "color": "b",
+      "first": 2,
+      "count": 58
+    },
+    {
+      "gameId": "8yicLlYq",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "8yicLlYq",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "JITn7pUi",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "JITn7pUi",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "T6GoxPfM",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "T6GoxPfM",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "WbDm3kQK",
+      "color": "w",
+      "first": 1,
+      "count": 56
+    },
+    {
+      "gameId": "WbDm3kQK",
+      "color": "b",
+      "first": 2,
+      "count": 56
+    },
+    {
+      "gameId": "peWgg6fY",
+      "color": "w",
+      "first": 1,
+      "count": 56
+    },
+    {
+      "gameId": "peWgg6fY",
+      "color": "b",
+      "first": 2,
+      "count": 55
+    },
+    {
+      "gameId": "vzjSmdei",
+      "color": "w",
+      "first": 1,
+      "count": 49
+    },
+    {
+      "gameId": "vzjSmdei",
+      "color": "b",
+      "first": 2,
+      "count": 49
+    },
+    {
+      "gameId": "k1ycvILF",
+      "color": "w",
+      "first": 1,
+      "count": 13
+    },
+    {
+      "gameId": "k1ycvILF",
+      "color": "b",
+      "first": 2,
+      "count": 12
+    },
+    {
+      "gameId": "E7SrFVZB",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "E7SrFVZB",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "fcEVWCtI",
+      "color": "w",
+      "first": 1,
+      "count": 57
+    },
+    {
+      "gameId": "fcEVWCtI",
+      "color": "b",
+      "first": 2,
+      "count": 57
+    },
+    {
+      "gameId": "mvr7U2iD",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "mvr7U2iD",
+      "color": "b",
+      "first": 2,
+      "count": 17
+    },
+    {
+      "gameId": "g0hdoEZp",
+      "color": "w",
+      "first": 1,
+      "count": 47
+    },
+    {
+      "gameId": "g0hdoEZp",
+      "color": "b",
+      "first": 2,
+      "count": 46
+    },
+    {
+      "gameId": "HSuHL3bm",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "HSuHL3bm",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "ptNcD6Wu",
+      "color": "w",
+      "first": 1,
+      "count": 43
+    },
+    {
+      "gameId": "ptNcD6Wu",
+      "color": "b",
+      "first": 2,
+      "count": 43
+    },
+    {
+      "gameId": "2en6tmC2",
+      "color": "w",
+      "first": 1,
+      "count": 55
+    },
+    {
+      "gameId": "2en6tmC2",
+      "color": "b",
+      "first": 2,
+      "count": 54
+    },
+    {
+      "gameId": "B23r3Oti",
+      "color": "w",
+      "first": 1,
+      "count": 50
+    },
+    {
+      "gameId": "B23r3Oti",
+      "color": "b",
+      "first": 2,
+      "count": 50
+    },
+    {
+      "gameId": "qBMwVi1l",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "qBMwVi1l",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "zDoNHjST",
+      "color": "w",
+      "first": 1,
+      "count": 11
+    },
+    {
+      "gameId": "zDoNHjST",
+      "color": "b",
+      "first": 2,
+      "count": 11
+    },
+    {
+      "gameId": "oJjStQ1m",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "oJjStQ1m",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "2pWVrMXj",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "2pWVrMXj",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "L7xlmkpo",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "L7xlmkpo",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "JmxSPG1x",
+      "color": "w",
+      "first": 1,
+      "count": 65
+    },
+    {
+      "gameId": "JmxSPG1x",
+      "color": "b",
+      "first": 2,
+      "count": 64
+    },
+    {
+      "gameId": "sSfjAdVH",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "sSfjAdVH",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "j1cZMAEw",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "j1cZMAEw",
+      "color": "b",
+      "first": 2,
+      "count": 40
+    },
+    {
+      "gameId": "XqenrlyS",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "XqenrlyS",
+      "color": "b",
+      "first": 2,
+      "count": 40
+    },
+    {
+      "gameId": "HdxVUCcR",
+      "color": "w",
+      "first": 1,
+      "count": 57
+    },
+    {
+      "gameId": "HdxVUCcR",
+      "color": "b",
+      "first": 2,
+      "count": 56
+    },
+    {
+      "gameId": "JwSRMHkb",
+      "color": "w",
+      "first": 1,
+      "count": 51
+    },
+    {
+      "gameId": "JwSRMHkb",
+      "color": "b",
+      "first": 2,
+      "count": 50
+    },
+    {
+      "gameId": "MgtAf46W",
+      "color": "w",
+      "first": 1,
+      "count": 43
+    },
+    {
+      "gameId": "MgtAf46W",
+      "color": "b",
+      "first": 2,
+      "count": 43
+    },
+    {
+      "gameId": "jOoykGmc",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "jOoykGmc",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "a02ZmHZ8",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "a02ZmHZ8",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "QBZyAIsB",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "QBZyAIsB",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "zoF3Xd96",
+      "color": "w",
+      "first": 1,
+      "count": 16
+    },
+    {
+      "gameId": "zoF3Xd96",
+      "color": "b",
+      "first": 2,
+      "count": 15
+    },
+    {
+      "gameId": "4rTkfRVM",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "4rTkfRVM",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "l8wlQdRI",
+      "color": "w",
+      "first": 1,
+      "count": 43
+    },
+    {
+      "gameId": "l8wlQdRI",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "KLSM56m6",
+      "color": "w",
+      "first": 1,
+      "count": 42
+    },
+    {
+      "gameId": "KLSM56m6",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "3SJnhs4H",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "3SJnhs4H",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "OvIAbx7Y",
+      "color": "w",
+      "first": 1,
+      "count": 44
+    },
+    {
+      "gameId": "OvIAbx7Y",
+      "color": "b",
+      "first": 2,
+      "count": 43
+    },
+    {
+      "gameId": "rz8H5uRG",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "rz8H5uRG",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "Q3xt1a45",
+      "color": "w",
+      "first": 1,
+      "count": 56
+    },
+    {
+      "gameId": "Q3xt1a45",
+      "color": "b",
+      "first": 2,
+      "count": 56
+    },
+    {
+      "gameId": "WnfFOshC",
+      "color": "w",
+      "first": 1,
+      "count": 17
+    },
+    {
+      "gameId": "WnfFOshC",
+      "color": "b",
+      "first": 2,
+      "count": 17
+    },
+    {
+      "gameId": "fuA8CswO",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "fuA8CswO",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "EaknAphs",
+      "color": "w",
+      "first": 1,
+      "count": 51
+    },
+    {
+      "gameId": "EaknAphs",
+      "color": "b",
+      "first": 2,
+      "count": 51
+    },
+    {
+      "gameId": "fEmbpzFC",
+      "color": "w",
+      "first": 1,
+      "count": 17
+    },
+    {
+      "gameId": "fEmbpzFC",
+      "color": "b",
+      "first": 2,
+      "count": 16
+    },
+    {
+      "gameId": "TituQk2Q",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "TituQk2Q",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "96o4ZGx2",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "96o4ZGx2",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "PKmJuuUF",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "PKmJuuUF",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "23lLmOpC",
+      "color": "w",
+      "first": 1,
+      "count": 19
+    },
+    {
+      "gameId": "23lLmOpC",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "CTbquJIJ",
+      "color": "w",
+      "first": 1,
+      "count": 40
+    },
+    {
+      "gameId": "CTbquJIJ",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "dLxCgt7V",
+      "color": "w",
+      "first": 1,
+      "count": 40
+    },
+    {
+      "gameId": "dLxCgt7V",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "7SEVNlin",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "7SEVNlin",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "50l6Yw10",
+      "color": "w",
+      "first": 1,
+      "count": 40
+    },
+    {
+      "gameId": "50l6Yw10",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "s2EBkIlj",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "s2EBkIlj",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "GVcCyksH",
+      "color": "w",
+      "first": 1,
+      "count": 50
+    },
+    {
+      "gameId": "GVcCyksH",
+      "color": "b",
+      "first": 2,
+      "count": 50
+    },
+    {
+      "gameId": "RjY8iAXV",
+      "color": "w",
+      "first": 1,
+      "count": 43
+    },
+    {
+      "gameId": "RjY8iAXV",
+      "color": "b",
+      "first": 2,
+      "count": 43
+    },
+    {
+      "gameId": "u3ioljsw",
+      "color": "w",
+      "first": 1,
+      "count": 37
+    },
+    {
+      "gameId": "u3ioljsw",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "nDnsaa5u",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "nDnsaa5u",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "uvLQ5p88",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "uvLQ5p88",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "yhvd5gn6",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "yhvd5gn6",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "CraoA3LY",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "CraoA3LY",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "z3tFFnIx",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "z3tFFnIx",
+      "color": "b",
+      "first": 2,
+      "count": 17
+    },
+    {
+      "gameId": "2b9Bk8e2",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "2b9Bk8e2",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "elKGSmOa",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "elKGSmOa",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "Wl6n4x9Q",
+      "color": "w",
+      "first": 1,
+      "count": 51
+    },
+    {
+      "gameId": "Wl6n4x9Q",
+      "color": "b",
+      "first": 2,
+      "count": 50
+    },
+    {
+      "gameId": "CYy8K38V",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "CYy8K38V",
+      "color": "b",
+      "first": 2,
+      "count": 17
+    },
+    {
+      "gameId": "p3ZAldEe",
+      "color": "w",
+      "first": 1,
+      "count": 50
+    },
+    {
+      "gameId": "p3ZAldEe",
+      "color": "b",
+      "first": 2,
+      "count": 49
+    },
+    {
+      "gameId": "J6D9jHVC",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "J6D9jHVC",
+      "color": "b",
+      "first": 2,
+      "count": 45
+    },
+    {
+      "gameId": "oBofgXgo",
+      "color": "w",
+      "first": 1,
+      "count": 44
+    },
+    {
+      "gameId": "oBofgXgo",
+      "color": "b",
+      "first": 2,
+      "count": 43
+    },
+    {
+      "gameId": "gKGVRHdc",
+      "color": "w",
+      "first": 1,
+      "count": 48
+    },
+    {
+      "gameId": "gKGVRHdc",
+      "color": "b",
+      "first": 2,
+      "count": 47
+    },
+    {
+      "gameId": "Zsmun4og",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "Zsmun4og",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "4RRE1ENY",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "4RRE1ENY",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "SHY9D4cV",
+      "color": "w",
+      "first": 1,
+      "count": 16
+    },
+    {
+      "gameId": "SHY9D4cV",
+      "color": "b",
+      "first": 2,
+      "count": 15
+    },
+    {
+      "gameId": "SyCOrhEW",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "SyCOrhEW",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "E1vP8cW8",
+      "color": "w",
+      "first": 1,
+      "count": 11
+    },
+    {
+      "gameId": "E1vP8cW8",
+      "color": "b",
+      "first": 2,
+      "count": 11
+    },
+    {
+      "gameId": "NJuVs21L",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "NJuVs21L",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "LCdDIqz2",
+      "color": "w",
+      "first": 1,
+      "count": 50
+    },
+    {
+      "gameId": "LCdDIqz2",
+      "color": "b",
+      "first": 2,
+      "count": 49
+    },
+    {
+      "gameId": "q6CsnrSZ",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "q6CsnrSZ",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "SquV54Nd",
+      "color": "w",
+      "first": 1,
+      "count": 37
+    },
+    {
+      "gameId": "SquV54Nd",
+      "color": "b",
+      "first": 2,
+      "count": 37
+    },
+    {
+      "gameId": "ynB6HOJs",
+      "color": "w",
+      "first": 1,
+      "count": 56
+    },
+    {
+      "gameId": "ynB6HOJs",
+      "color": "b",
+      "first": 2,
+      "count": 56
+    },
+    {
+      "gameId": "S3ncNaRf",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "S3ncNaRf",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "TG8lvOs2",
+      "color": "w",
+      "first": 1,
+      "count": 54
+    },
+    {
+      "gameId": "TG8lvOs2",
+      "color": "b",
+      "first": 2,
+      "count": 53
+    },
+    {
+      "gameId": "VDBaUxDU",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "VDBaUxDU",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "3ZhfZGdV",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "3ZhfZGdV",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "Kzejih8v",
+      "color": "w",
+      "first": 1,
+      "count": 53
+    },
+    {
+      "gameId": "Kzejih8v",
+      "color": "b",
+      "first": 2,
+      "count": 52
+    },
+    {
+      "gameId": "aXitzVAu",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "aXitzVAu",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "r4K87oV8",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "r4K87oV8",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "Ss8F6KY3",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "Ss8F6KY3",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "ixqQhgdY",
+      "color": "w",
+      "first": 1,
+      "count": 46
+    },
+    {
+      "gameId": "ixqQhgdY",
+      "color": "b",
+      "first": 2,
+      "count": 45
+    },
+    {
+      "gameId": "Ieb3vzqm",
+      "color": "w",
+      "first": 1,
+      "count": 42
+    },
+    {
+      "gameId": "Ieb3vzqm",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "AtrYvF0c",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "AtrYvF0c",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "P9vIOR8A",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "P9vIOR8A",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "E79oDSbH",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "E79oDSbH",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "TsXG4US2",
+      "color": "w",
+      "first": 1,
+      "count": 58
+    },
+    {
+      "gameId": "TsXG4US2",
+      "color": "b",
+      "first": 2,
+      "count": 58
+    },
+    {
+      "gameId": "OxEhEjfZ",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "OxEhEjfZ",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "rHuzvbvF",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "rHuzvbvF",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "isiLzGKb",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "isiLzGKb",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "I1HncBnt",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "I1HncBnt",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "wWtMbqBu",
+      "color": "w",
+      "first": 1,
+      "count": 65
+    },
+    {
+      "gameId": "wWtMbqBu",
+      "color": "b",
+      "first": 2,
+      "count": 64
+    },
+    {
+      "gameId": "azrZVXnm",
+      "color": "w",
+      "first": 1,
+      "count": 60
+    },
+    {
+      "gameId": "azrZVXnm",
+      "color": "b",
+      "first": 2,
+      "count": 60
+    },
+    {
+      "gameId": "c2NG13Pk",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "c2NG13Pk",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "6uYS2QZL",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "6uYS2QZL",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "gxTTlh2s",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "gxTTlh2s",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "o6wbwubu",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "o6wbwubu",
+      "color": "b",
+      "first": 2,
+      "count": 45
+    },
+    {
+      "gameId": "beC3OO1Q",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "beC3OO1Q",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "FhuN8pa8",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "FhuN8pa8",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "Lm088cZi",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "Lm088cZi",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "FdsFC1VZ",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "FdsFC1VZ",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "TxzKWtUy",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "TxzKWtUy",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "T1TUZ7TN",
+      "color": "w",
+      "first": 1,
+      "count": 67
+    },
+    {
+      "gameId": "T1TUZ7TN",
+      "color": "b",
+      "first": 2,
+      "count": 67
+    },
+    {
+      "gameId": "tKiiPCTb",
+      "color": "w",
+      "first": 1,
+      "count": 65
+    },
+    {
+      "gameId": "tKiiPCTb",
+      "color": "b",
+      "first": 2,
+      "count": 65
+    },
+    {
+      "gameId": "Z2jpYpPV",
+      "color": "w",
+      "first": 1,
+      "count": 64
+    },
+    {
+      "gameId": "Z2jpYpPV",
+      "color": "b",
+      "first": 2,
+      "count": 63
+    },
+    {
+      "gameId": "yj66wkWz",
+      "color": "w",
+      "first": 1,
+      "count": 61
+    },
+    {
+      "gameId": "yj66wkWz",
+      "color": "b",
+      "first": 2,
+      "count": 61
+    },
+    {
+      "gameId": "PaXDSzdK",
+      "color": "w",
+      "first": 1,
+      "count": 42
+    },
+    {
+      "gameId": "PaXDSzdK",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "ZnrQjqHJ",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "ZnrQjqHJ",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "ZyzkXjEb",
+      "color": "w",
+      "first": 1,
+      "count": 68
+    },
+    {
+      "gameId": "ZyzkXjEb",
+      "color": "b",
+      "first": 2,
+      "count": 68
+    },
+    {
+      "gameId": "7uz8DrOy",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "7uz8DrOy",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "fYBCDyFN",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "fYBCDyFN",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "ogjLZONg",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "ogjLZONg",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "WXfJiHxv",
+      "color": "w",
+      "first": 1,
+      "count": 14
+    },
+    {
+      "gameId": "WXfJiHxv",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "e0bpTLDo",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "e0bpTLDo",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "4RePom0V",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "4RePom0V",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "PqREgqCQ",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "PqREgqCQ",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "GqVmyLjc",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "GqVmyLjc",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "CB8AhzAS",
+      "color": "w",
+      "first": 1,
+      "count": 37
+    },
+    {
+      "gameId": "CB8AhzAS",
+      "color": "b",
+      "first": 2,
+      "count": 37
+    },
+    {
+      "gameId": "55JUx6zQ",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "55JUx6zQ",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "aAfPYQ56",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "aAfPYQ56",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "PBBlolMt",
+      "color": "w",
+      "first": 1,
+      "count": 40
+    },
+    {
+      "gameId": "PBBlolMt",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "vuOsxRMu",
+      "color": "w",
+      "first": 1,
+      "count": 53
+    },
+    {
+      "gameId": "vuOsxRMu",
+      "color": "b",
+      "first": 2,
+      "count": 53
+    },
+    {
+      "gameId": "kViB9CfH",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "kViB9CfH",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "qmXAGwpv",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "qmXAGwpv",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "JDRTVNTP",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "JDRTVNTP",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "YF9ihuKn",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "YF9ihuKn",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "RgAkRyub",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "RgAkRyub",
+      "color": "b",
+      "first": 2,
+      "count": 45
+    },
+    {
+      "gameId": "ghGjKsgs",
+      "color": "w",
+      "first": 1,
+      "count": 40
+    },
+    {
+      "gameId": "ghGjKsgs",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "9vSzDFrt",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "9vSzDFrt",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "7lOkq1gr",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "7lOkq1gr",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "3PP2yp6b",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "3PP2yp6b",
+      "color": "b",
+      "first": 2,
+      "count": 52
+    },
+    {
+      "gameId": "WTMESVRp",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "WTMESVRp",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "BqBwKM7M",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "BqBwKM7M",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "FjOaAs02",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "FjOaAs02",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "nx02g9wu",
+      "color": "w",
+      "first": 1,
+      "count": 60
+    },
+    {
+      "gameId": "nx02g9wu",
+      "color": "b",
+      "first": 2,
+      "count": 60
+    },
+    {
+      "gameId": "HXFDE6K0",
+      "color": "w",
+      "first": 1,
+      "count": 42
+    },
+    {
+      "gameId": "HXFDE6K0",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "qGwQTIML",
+      "color": "w",
+      "first": 1,
+      "count": 42
+    },
+    {
+      "gameId": "qGwQTIML",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "QpD0VPzI",
+      "color": "w",
+      "first": 1,
+      "count": 17
+    },
+    {
+      "gameId": "QpD0VPzI",
+      "color": "b",
+      "first": 2,
+      "count": 17
+    },
+    {
+      "gameId": "gD549DeK",
+      "color": "w",
+      "first": 1,
+      "count": 38
+    },
+    {
+      "gameId": "gD549DeK",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "1fsq7ZaT",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "1fsq7ZaT",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "faYFPsjq",
+      "color": "w",
+      "first": 1,
+      "count": 38
+    },
+    {
+      "gameId": "faYFPsjq",
+      "color": "b",
+      "first": 2,
+      "count": 37
+    },
+    {
+      "gameId": "SULZ4EqV",
+      "color": "w",
+      "first": 1,
+      "count": 43
+    },
+    {
+      "gameId": "SULZ4EqV",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "QaMLmVFM",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "QaMLmVFM",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "fF2XWZx4",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "fF2XWZx4",
+      "color": "b",
+      "first": 2,
+      "count": 40
+    },
+    {
+      "gameId": "yXXjnn6N",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "yXXjnn6N",
+      "color": "b",
+      "first": 2,
+      "count": 51
+    },
+    {
+      "gameId": "wT5x1eGN",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "wT5x1eGN",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "mnBZS2LT",
+      "color": "w",
+      "first": 1,
+      "count": 61
+    },
+    {
+      "gameId": "mnBZS2LT",
+      "color": "b",
+      "first": 2,
+      "count": 61
+    },
+    {
+      "gameId": "flwoCx9R",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "flwoCx9R",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "eUE2Gvwq",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "eUE2Gvwq",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "9As2T1W7",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "9As2T1W7",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "SZ5MSLka",
+      "color": "w",
+      "first": 1,
+      "count": 59
+    },
+    {
+      "gameId": "SZ5MSLka",
+      "color": "b",
+      "first": 2,
+      "count": 59
+    },
+    {
+      "gameId": "KV0idqKg",
+      "color": "w",
+      "first": 1,
+      "count": 70
+    },
+    {
+      "gameId": "KV0idqKg",
+      "color": "b",
+      "first": 2,
+      "count": 69
+    },
+    {
+      "gameId": "vWrIMnuj",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "vWrIMnuj",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "3y3y0ojs",
+      "color": "w",
+      "first": 1,
+      "count": 13
+    },
+    {
+      "gameId": "3y3y0ojs",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "8NQq1b7p",
+      "color": "w",
+      "first": 1,
+      "count": 17
+    },
+    {
+      "gameId": "8NQq1b7p",
+      "color": "b",
+      "first": 2,
+      "count": 16
+    },
+    {
+      "gameId": "J3gkJWnn",
+      "color": "w",
+      "first": 1,
+      "count": 14
+    },
+    {
+      "gameId": "J3gkJWnn",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "RNyNPxi8",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "RNyNPxi8",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "ul89scH5",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "ul89scH5",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "C64zjJQY",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "C64zjJQY",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "p5dQ1dlO",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "p5dQ1dlO",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "gu0S0aXa",
+      "color": "w",
+      "first": 1,
+      "count": 66
+    },
+    {
+      "gameId": "gu0S0aXa",
+      "color": "b",
+      "first": 2,
+      "count": 66
+    },
+    {
+      "gameId": "OTdiC6VG",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "OTdiC6VG",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "MlhOmYyu",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "MlhOmYyu",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "2M2h3O4z",
+      "color": "w",
+      "first": 1,
+      "count": 49
+    },
+    {
+      "gameId": "2M2h3O4z",
+      "color": "b",
+      "first": 2,
+      "count": 48
+    },
+    {
+      "gameId": "Ysaz6sMj",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "Ysaz6sMj",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "fBMppqyV",
+      "color": "w",
+      "first": 1,
+      "count": 47
+    },
+    {
+      "gameId": "fBMppqyV",
+      "color": "b",
+      "first": 2,
+      "count": 47
+    },
+    {
+      "gameId": "c1Wvtojh",
+      "color": "w",
+      "first": 1,
+      "count": 50
+    },
+    {
+      "gameId": "c1Wvtojh",
+      "color": "b",
+      "first": 2,
+      "count": 50
+    },
+    {
+      "gameId": "VzmLlVDy",
+      "color": "w",
+      "first": 1,
+      "count": 57
+    },
+    {
+      "gameId": "VzmLlVDy",
+      "color": "b",
+      "first": 2,
+      "count": 57
+    },
+    {
+      "gameId": "NJfc7uOL",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "NJfc7uOL",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "RKHv5hJI",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "RKHv5hJI",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "Qi8NYCkO",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "Qi8NYCkO",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "toVN1Gg8",
+      "color": "w",
+      "first": 1,
+      "count": 48
+    },
+    {
+      "gameId": "toVN1Gg8",
+      "color": "b",
+      "first": 2,
+      "count": 48
+    },
+    {
+      "gameId": "U3VXqpIG",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "U3VXqpIG",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "s2LHQHZc",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "s2LHQHZc",
+      "color": "b",
+      "first": 2,
+      "count": 17
+    },
+    {
+      "gameId": "SwVqSeY8",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "SwVqSeY8",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "fTMOG9PP",
+      "color": "w",
+      "first": 1,
+      "count": 49
+    },
+    {
+      "gameId": "fTMOG9PP",
+      "color": "b",
+      "first": 2,
+      "count": 49
+    },
+    {
+      "gameId": "SSSyPtc1",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "SSSyPtc1",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "LLGxzFB9",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "LLGxzFB9",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "gOUvdfrc",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "gOUvdfrc",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "edqllH9r",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "edqllH9r",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "qujewLi7",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "qujewLi7",
+      "color": "b",
+      "first": 2,
+      "count": 40
+    },
+    {
+      "gameId": "iB1xBiSd",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "iB1xBiSd",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "10qNq4FB",
+      "color": "w",
+      "first": 1,
+      "count": 88
+    },
+    {
+      "gameId": "10qNq4FB",
+      "color": "b",
+      "first": 2,
+      "count": 87
+    },
+    {
+      "gameId": "wsia8zsS",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "wsia8zsS",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "Lp4hpI5G",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "Lp4hpI5G",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "rqXg7GBk",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "rqXg7GBk",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "3dsFuVJU",
+      "color": "w",
+      "first": 1,
+      "count": 19
+    },
+    {
+      "gameId": "3dsFuVJU",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "RTyQgNGP",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "RTyQgNGP",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "m3gz7FnE",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "m3gz7FnE",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "hEfqvQ0k",
+      "color": "w",
+      "first": 1,
+      "count": 38
+    },
+    {
+      "gameId": "hEfqvQ0k",
+      "color": "b",
+      "first": 2,
+      "count": 37
+    },
+    {
+      "gameId": "cI9KCFB5",
+      "color": "w",
+      "first": 1,
+      "count": 43
+    },
+    {
+      "gameId": "cI9KCFB5",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "5zdOynlU",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "5zdOynlU",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "g2SVgMsa",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "g2SVgMsa",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "b0slS1dm",
+      "color": "w",
+      "first": 1,
+      "count": 61
+    },
+    {
+      "gameId": "b0slS1dm",
+      "color": "b",
+      "first": 2,
+      "count": 60
+    },
+    {
+      "gameId": "fZlkN8Mp",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "fZlkN8Mp",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "IdY2Odjp",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "IdY2Odjp",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "lmzr0yFc",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "lmzr0yFc",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "XGD2g00D",
+      "color": "w",
+      "first": 1,
+      "count": 19
+    },
+    {
+      "gameId": "XGD2g00D",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "eA8elw4t",
+      "color": "w",
+      "first": 1,
+      "count": 65
+    },
+    {
+      "gameId": "eA8elw4t",
+      "color": "b",
+      "first": 2,
+      "count": 64
+    },
+    {
+      "gameId": "RJeDKhom",
+      "color": "w",
+      "first": 1,
+      "count": 38
+    },
+    {
+      "gameId": "RJeDKhom",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "A942ktTM",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "A942ktTM",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "lZYbW38u",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "lZYbW38u",
+      "color": "b",
+      "first": 2,
+      "count": 45
+    },
+    {
+      "gameId": "0HUnjbam",
+      "color": "w",
+      "first": 1,
+      "count": 44
+    },
+    {
+      "gameId": "0HUnjbam",
+      "color": "b",
+      "first": 2,
+      "count": 43
+    },
+    {
+      "gameId": "KuaTPgrI",
+      "color": "w",
+      "first": 1,
+      "count": 48
+    },
+    {
+      "gameId": "KuaTPgrI",
+      "color": "b",
+      "first": 2,
+      "count": 47
+    },
+    {
+      "gameId": "91By3M8S",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "91By3M8S",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "8Umvj7ns",
+      "color": "w",
+      "first": 1,
+      "count": 44
+    },
+    {
+      "gameId": "8Umvj7ns",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "lgiQ2m9D",
+      "color": "w",
+      "first": 1,
+      "count": 37
+    },
+    {
+      "gameId": "lgiQ2m9D",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "s92UgJl9",
+      "color": "w",
+      "first": 1,
+      "count": 13
+    },
+    {
+      "gameId": "s92UgJl9",
+      "color": "b",
+      "first": 2,
+      "count": 12
+    },
+    {
+      "gameId": "9ENJ2Y4v",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "9ENJ2Y4v",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "R2p1MzQ6",
+      "color": "w",
+      "first": 1,
+      "count": 44
+    },
+    {
+      "gameId": "R2p1MzQ6",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "WhDdu34i",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "WhDdu34i",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "uwC3Zm7z",
+      "color": "w",
+      "first": 1,
+      "count": 13
+    },
+    {
+      "gameId": "uwC3Zm7z",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "yhBo8RLT",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "yhBo8RLT",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "NJ2gKggW",
+      "color": "w",
+      "first": 1,
+      "count": 60
+    },
+    {
+      "gameId": "NJ2gKggW",
+      "color": "b",
+      "first": 2,
+      "count": 59
+    },
+    {
+      "gameId": "HsowT6Qd",
+      "color": "w",
+      "first": 1,
+      "count": 11
+    },
+    {
+      "gameId": "bQwKI8Fo",
+      "color": "w",
+      "first": 1,
+      "count": 59
+    },
+    {
+      "gameId": "bQwKI8Fo",
+      "color": "b",
+      "first": 2,
+      "count": 58
+    },
+    {
+      "gameId": "LwgTX3LI",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "LwgTX3LI",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "HpzxWCbQ",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "HpzxWCbQ",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "y1jpgm2f",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "y1jpgm2f",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "xjj5ipaD",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "xjj5ipaD",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "DK9zzgi6",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "DK9zzgi6",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "L1zHalzO",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "L1zHalzO",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "uz4JYSO4",
+      "color": "w",
+      "first": 1,
+      "count": 17
+    },
+    {
+      "gameId": "uz4JYSO4",
+      "color": "b",
+      "first": 2,
+      "count": 16
+    },
+    {
+      "gameId": "JX2uKUtQ",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "JX2uKUtQ",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "OQ3a49eb",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "OQ3a49eb",
+      "color": "b",
+      "first": 2,
+      "count": 52
+    },
+    {
+      "gameId": "Nz5VsJhK",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "Nz5VsJhK",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "kLomWkDZ",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "kLomWkDZ",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "AgsacT6Y",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "AgsacT6Y",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "OEuYE6EO",
+      "color": "w",
+      "first": 1,
+      "count": 11
+    },
+    {
+      "gameId": "OEuYE6EO",
+      "color": "b",
+      "first": 2,
+      "count": 11
+    },
+    {
+      "gameId": "7yvIE2Vh",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "7yvIE2Vh",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "GmwzSxcg",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "GmwzSxcg",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "hOkBF92U",
+      "color": "w",
+      "first": 1,
+      "count": 60
+    },
+    {
+      "gameId": "hOkBF92U",
+      "color": "b",
+      "first": 2,
+      "count": 60
+    },
+    {
+      "gameId": "ASiKmgPG",
+      "color": "w",
+      "first": 1,
+      "count": 98
+    },
+    {
+      "gameId": "ASiKmgPG",
+      "color": "b",
+      "first": 2,
+      "count": 97
+    },
+    {
+      "gameId": "dTNK3Uhs",
+      "color": "w",
+      "first": 1,
+      "count": 38
+    },
+    {
+      "gameId": "dTNK3Uhs",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "Jg9Z5fCc",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "Jg9Z5fCc",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "yzGlRWCZ",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "yzGlRWCZ",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "mY2Acuu2",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "mY2Acuu2",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "6UqpYuOL",
+      "color": "w",
+      "first": 1,
+      "count": 58
+    },
+    {
+      "gameId": "6UqpYuOL",
+      "color": "b",
+      "first": 2,
+      "count": 58
+    },
+    {
+      "gameId": "Nfe5HU5n",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "Nfe5HU5n",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "tLXi6c9T",
+      "color": "w",
+      "first": 1,
+      "count": 14
+    },
+    {
+      "gameId": "tLXi6c9T",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "USSnQ9pj",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "USSnQ9pj",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "h6zZEyk1",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "h6zZEyk1",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "LJJQuCHE",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "LJJQuCHE",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "VLGtZwfi",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "VLGtZwfi",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "qx8VzN8O",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "qx8VzN8O",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "Kq6ObF8g",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "Kq6ObF8g",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "doVFEKdn",
+      "color": "w",
+      "first": 1,
+      "count": 46
+    },
+    {
+      "gameId": "doVFEKdn",
+      "color": "b",
+      "first": 2,
+      "count": 45
+    },
+    {
+      "gameId": "YANFfvxt",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "YANFfvxt",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "8BHyLEDr",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "8BHyLEDr",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "xPsWOVve",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "xPsWOVve",
+      "color": "b",
+      "first": 2,
+      "count": 52
+    },
+    {
+      "gameId": "SiE6ravm",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "SiE6ravm",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "M65SwsiA",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "M65SwsiA",
+      "color": "b",
+      "first": 2,
+      "count": 17
+    },
+    {
+      "gameId": "XylTigET",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "XylTigET",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "glbyt57N",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "glbyt57N",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "PoX6qARo",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "PoX6qARo",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "96VMkIwG",
+      "color": "w",
+      "first": 1,
+      "count": 85
+    },
+    {
+      "gameId": "96VMkIwG",
+      "color": "b",
+      "first": 2,
+      "count": 84
+    },
+    {
+      "gameId": "jMtwXOlO",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "jMtwXOlO",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "7VQ41lMY",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "7VQ41lMY",
+      "color": "b",
+      "first": 2,
+      "count": 17
+    },
+    {
+      "gameId": "5KJpZg59",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "5KJpZg59",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "j0BFGhbk",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "j0BFGhbk",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "UV0XmT7y",
+      "color": "w",
+      "first": 1,
+      "count": 15
+    },
+    {
+      "gameId": "UV0XmT7y",
+      "color": "b",
+      "first": 2,
+      "count": 15
+    },
+    {
+      "gameId": "d2zz9qxM",
+      "color": "w",
+      "first": 1,
+      "count": 48
+    },
+    {
+      "gameId": "d2zz9qxM",
+      "color": "b",
+      "first": 2,
+      "count": 47
+    },
+    {
+      "gameId": "imCAnOsY",
+      "color": "w",
+      "first": 1,
+      "count": 42
+    },
+    {
+      "gameId": "imCAnOsY",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "1dwnv5jT",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "1dwnv5jT",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "wJCbPhwO",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "wJCbPhwO",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "wTI5RRg3",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "wTI5RRg3",
+      "color": "b",
+      "first": 2,
+      "count": 51
+    },
+    {
+      "gameId": "PsRGS8qY",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "PsRGS8qY",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "zDiQvC0t",
+      "color": "w",
+      "first": 1,
+      "count": 19
+    },
+    {
+      "gameId": "zDiQvC0t",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "tQNLDlu8",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "tQNLDlu8",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "odUY2mb7",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "odUY2mb7",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "fouahGp3",
+      "color": "w",
+      "first": 1,
+      "count": 14
+    },
+    {
+      "gameId": "fouahGp3",
+      "color": "b",
+      "first": 2,
+      "count": 14
+    },
+    {
+      "gameId": "f055AYMt",
+      "color": "w",
+      "first": 1,
+      "count": 90
+    },
+    {
+      "gameId": "f055AYMt",
+      "color": "b",
+      "first": 2,
+      "count": 90
+    },
+    {
+      "gameId": "a87cS9Oo",
+      "color": "w",
+      "first": 1,
+      "count": 47
+    },
+    {
+      "gameId": "a87cS9Oo",
+      "color": "b",
+      "first": 2,
+      "count": 46
+    },
+    {
+      "gameId": "1LsIBFA8",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "1LsIBFA8",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "0evA2BQh",
+      "color": "w",
+      "first": 1,
+      "count": 54
+    },
+    {
+      "gameId": "0evA2BQh",
+      "color": "b",
+      "first": 2,
+      "count": 54
+    },
+    {
+      "gameId": "hvGWgcdG",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "hvGWgcdG",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "h9m9WAO7",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "h9m9WAO7",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "GlIsh4xL",
+      "color": "w",
+      "first": 1,
+      "count": 16
+    },
+    {
+      "gameId": "GlIsh4xL",
+      "color": "b",
+      "first": 2,
+      "count": 15
+    },
+    {
+      "gameId": "RLqYIewU",
+      "color": "w",
+      "first": 1,
+      "count": 40
+    },
+    {
+      "gameId": "RLqYIewU",
+      "color": "b",
+      "first": 2,
+      "count": 40
+    },
+    {
+      "gameId": "L8xnxCAg",
+      "color": "w",
+      "first": 1,
+      "count": 47
+    },
+    {
+      "gameId": "L8xnxCAg",
+      "color": "b",
+      "first": 2,
+      "count": 47
+    },
+    {
+      "gameId": "1lo0CJAa",
+      "color": "w",
+      "first": 1,
+      "count": 59
+    },
+    {
+      "gameId": "1lo0CJAa",
+      "color": "b",
+      "first": 2,
+      "count": 58
+    },
+    {
+      "gameId": "WqQHvezi",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "WqQHvezi",
+      "color": "b",
+      "first": 2,
+      "count": 51
+    },
+    {
+      "gameId": "D4u2gNBb",
+      "color": "w",
+      "first": 1,
+      "count": 38
+    },
+    {
+      "gameId": "D4u2gNBb",
+      "color": "b",
+      "first": 2,
+      "count": 37
+    },
+    {
+      "gameId": "w5dQUtwC",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "w5dQUtwC",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "DP9T1FFB",
+      "color": "w",
+      "first": 1,
+      "count": 54
+    },
+    {
+      "gameId": "DP9T1FFB",
+      "color": "b",
+      "first": 2,
+      "count": 54
+    },
+    {
+      "gameId": "xFy1ikbd",
+      "color": "w",
+      "first": 1,
+      "count": 61
+    },
+    {
+      "gameId": "xFy1ikbd",
+      "color": "b",
+      "first": 2,
+      "count": 60
+    },
+    {
+      "gameId": "b2Q1diaF",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "b2Q1diaF",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "0FejfaW3",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "0FejfaW3",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "rOX8pxAX",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "rOX8pxAX",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "fbFRk1yI",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "fbFRk1yI",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "aS0QrceE",
+      "color": "w",
+      "first": 1,
+      "count": 47
+    },
+    {
+      "gameId": "aS0QrceE",
+      "color": "b",
+      "first": 2,
+      "count": 46
+    },
+    {
+      "gameId": "Q87kYvcA",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "Q87kYvcA",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "RmnVktbK",
+      "color": "w",
+      "first": 1,
+      "count": 63
+    },
+    {
+      "gameId": "RmnVktbK",
+      "color": "b",
+      "first": 2,
+      "count": 62
+    },
+    {
+      "gameId": "cSBVHdqu",
+      "color": "w",
+      "first": 1,
+      "count": 12
+    },
+    {
+      "gameId": "cSBVHdqu",
+      "color": "b",
+      "first": 2,
+      "count": 11
+    },
+    {
+      "gameId": "nDtNXOXx",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "nDtNXOXx",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "eNp7jizv",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "eNp7jizv",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "oUI24PeU",
+      "color": "w",
+      "first": 1,
+      "count": 46
+    },
+    {
+      "gameId": "oUI24PeU",
+      "color": "b",
+      "first": 2,
+      "count": 46
+    },
+    {
+      "gameId": "xXhfA67L",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "xXhfA67L",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "9eRwoGF7",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "9eRwoGF7",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "nnXrJARg",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "nnXrJARg",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "DjrVOaHo",
+      "color": "w",
+      "first": 1,
+      "count": 66
+    },
+    {
+      "gameId": "DjrVOaHo",
+      "color": "b",
+      "first": 2,
+      "count": 65
+    },
+    {
+      "gameId": "Kz8OLeBr",
+      "color": "w",
+      "first": 1,
+      "count": 14
+    },
+    {
+      "gameId": "Kz8OLeBr",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "sVSBrmTb",
+      "color": "w",
+      "first": 1,
+      "count": 17
+    },
+    {
+      "gameId": "sVSBrmTb",
+      "color": "b",
+      "first": 2,
+      "count": 16
+    },
+    {
+      "gameId": "s9wVm6lx",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "s9wVm6lx",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "A3i4qAXN",
+      "color": "w",
+      "first": 1,
+      "count": 16
+    },
+    {
+      "gameId": "A3i4qAXN",
+      "color": "b",
+      "first": 2,
+      "count": 15
+    },
+    {
+      "gameId": "01sWfwK6",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "01sWfwK6",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "YK4lQjev",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "YK4lQjev",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "l581691v",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "l581691v",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "uMJoJBpX",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "uMJoJBpX",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "3sBjHhx6",
+      "color": "w",
+      "first": 1,
+      "count": 44
+    },
+    {
+      "gameId": "3sBjHhx6",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "DLvFPEtt",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "DLvFPEtt",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "JxbaN1Qt",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "JxbaN1Qt",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "CFkdyJhw",
+      "color": "w",
+      "first": 1,
+      "count": 15
+    },
+    {
+      "gameId": "CFkdyJhw",
+      "color": "b",
+      "first": 2,
+      "count": 14
+    },
+    {
+      "gameId": "4QI4z2UV",
+      "color": "w",
+      "first": 1,
+      "count": 42
+    },
+    {
+      "gameId": "4QI4z2UV",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "qXIdoOSX",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "qXIdoOSX",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "J3QyT3vL",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "J3QyT3vL",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "lPpuTr6D",
+      "color": "w",
+      "first": 1,
+      "count": 47
+    },
+    {
+      "gameId": "lPpuTr6D",
+      "color": "b",
+      "first": 2,
+      "count": 46
+    },
+    {
+      "gameId": "ujB3prju",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "ujB3prju",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "21x71If8",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "21x71If8",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "ASlJFEZg",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "ASlJFEZg",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "9KduImBf",
+      "color": "w",
+      "first": 1,
+      "count": 49
+    },
+    {
+      "gameId": "9KduImBf",
+      "color": "b",
+      "first": 2,
+      "count": 48
+    },
+    {
+      "gameId": "5Ea2dg8D",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "5Ea2dg8D",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "2S5lBa95",
+      "color": "w",
+      "first": 1,
+      "count": 65
+    },
+    {
+      "gameId": "2S5lBa95",
+      "color": "b",
+      "first": 2,
+      "count": 65
+    },
+    {
+      "gameId": "BR7ykCwX",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "BR7ykCwX",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "z4DXzjHr",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "z4DXzjHr",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "oaihRZ0q",
+      "color": "w",
+      "first": 1,
+      "count": 53
+    },
+    {
+      "gameId": "oaihRZ0q",
+      "color": "b",
+      "first": 2,
+      "count": 52
+    },
+    {
+      "gameId": "ty4kOfXE",
+      "color": "w",
+      "first": 1,
+      "count": 43
+    },
+    {
+      "gameId": "ty4kOfXE",
+      "color": "b",
+      "first": 2,
+      "count": 43
+    },
+    {
+      "gameId": "wtSoSuWj",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "wtSoSuWj",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "YA3cLQ4f",
+      "color": "w",
+      "first": 1,
+      "count": 44
+    },
+    {
+      "gameId": "YA3cLQ4f",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "D6ZGMJfB",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "D6ZGMJfB",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "R4oOKEVn",
+      "color": "w",
+      "first": 1,
+      "count": 59
+    },
+    {
+      "gameId": "R4oOKEVn",
+      "color": "b",
+      "first": 2,
+      "count": 58
+    },
+    {
+      "gameId": "09AskTJU",
+      "color": "w",
+      "first": 1,
+      "count": 13
+    },
+    {
+      "gameId": "09AskTJU",
+      "color": "b",
+      "first": 2,
+      "count": 12
+    },
+    {
+      "gameId": "X2cDXPhY",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "X2cDXPhY",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "Y2yuzCON",
+      "color": "w",
+      "first": 1,
+      "count": 14
+    },
+    {
+      "gameId": "Y2yuzCON",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "Ob8axkvG",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "Ob8axkvG",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "avLknN3Y",
+      "color": "w",
+      "first": 1,
+      "count": 48
+    },
+    {
+      "gameId": "avLknN3Y",
+      "color": "b",
+      "first": 2,
+      "count": 47
+    },
+    {
+      "gameId": "yrPIaxeV",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "yrPIaxeV",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "lPheIPBz",
+      "color": "w",
+      "first": 1,
+      "count": 55
+    },
+    {
+      "gameId": "lPheIPBz",
+      "color": "b",
+      "first": 2,
+      "count": 55
+    },
+    {
+      "gameId": "VU1InoeO",
+      "color": "w",
+      "first": 1,
+      "count": 14
+    },
+    {
+      "gameId": "VU1InoeO",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "vpghGd2m",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "vpghGd2m",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "zX0o7enE",
+      "color": "w",
+      "first": 1,
+      "count": 44
+    },
+    {
+      "gameId": "zX0o7enE",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "wgOjXqkx",
+      "color": "w",
+      "first": 1,
+      "count": 46
+    },
+    {
+      "gameId": "wgOjXqkx",
+      "color": "b",
+      "first": 2,
+      "count": 46
+    },
+    {
+      "gameId": "LP45pWlw",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "LP45pWlw",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "vr3FtdEI",
+      "color": "w",
+      "first": 1,
+      "count": 64
+    },
+    {
+      "gameId": "vr3FtdEI",
+      "color": "b",
+      "first": 2,
+      "count": 64
+    },
+    {
+      "gameId": "kJ9Fc9yp",
+      "color": "w",
+      "first": 1,
+      "count": 56
+    },
+    {
+      "gameId": "kJ9Fc9yp",
+      "color": "b",
+      "first": 2,
+      "count": 56
+    },
+    {
+      "gameId": "vYD5oDWd",
+      "color": "w",
+      "first": 1,
+      "count": 49
+    },
+    {
+      "gameId": "vYD5oDWd",
+      "color": "b",
+      "first": 2,
+      "count": 49
+    },
+    {
+      "gameId": "reDvZZc8",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "reDvZZc8",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "pt6djH4I",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "pt6djH4I",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "x5PNKHKJ",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "x5PNKHKJ",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "Mha8b1TG",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "Mha8b1TG",
+      "color": "b",
+      "first": 2,
+      "count": 51
+    },
+    {
+      "gameId": "LGkrMISA",
+      "color": "w",
+      "first": 1,
+      "count": 42
+    },
+    {
+      "gameId": "LGkrMISA",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "sQLncTbb",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "sQLncTbb",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "It7sI7DV",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "It7sI7DV",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "p8P5kOkO",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "p8P5kOkO",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "rjlQsyJD",
+      "color": "w",
+      "first": 1,
+      "count": 55
+    },
+    {
+      "gameId": "rjlQsyJD",
+      "color": "b",
+      "first": 2,
+      "count": 54
+    },
+    {
+      "gameId": "iRKpoWSW",
+      "color": "w",
+      "first": 1,
+      "count": 42
+    },
+    {
+      "gameId": "iRKpoWSW",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "bIGZoPke",
+      "color": "w",
+      "first": 1,
+      "count": 49
+    },
+    {
+      "gameId": "bIGZoPke",
+      "color": "b",
+      "first": 2,
+      "count": 48
+    },
+    {
+      "gameId": "wecQmgvW",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "wecQmgvW",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "W0J8Oyak",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "W0J8Oyak",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "NZta6CCP",
+      "color": "w",
+      "first": 1,
+      "count": 15
+    },
+    {
+      "gameId": "NZta6CCP",
+      "color": "b",
+      "first": 2,
+      "count": 14
+    },
+    {
+      "gameId": "5WrWEOCq",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "5WrWEOCq",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "oXJTvVe7",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "oXJTvVe7",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "PAeC4rGB",
+      "color": "w",
+      "first": 1,
+      "count": 47
+    },
+    {
+      "gameId": "PAeC4rGB",
+      "color": "b",
+      "first": 2,
+      "count": 47
+    },
+    {
+      "gameId": "0WJxoUr8",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "0WJxoUr8",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "APM5HdGC",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "APM5HdGC",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "RcK97brk",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "RcK97brk",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "cVaUw4OM",
+      "color": "w",
+      "first": 1,
+      "count": 66
+    },
+    {
+      "gameId": "cVaUw4OM",
+      "color": "b",
+      "first": 2,
+      "count": 66
+    },
+    {
+      "gameId": "5bbynB6M",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "5bbynB6M",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "6BBoNVPu",
+      "color": "w",
+      "first": 1,
+      "count": 54
+    },
+    {
+      "gameId": "6BBoNVPu",
+      "color": "b",
+      "first": 2,
+      "count": 54
+    },
+    {
+      "gameId": "hYGiKEDa",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "hYGiKEDa",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "ZcUo7XHv",
+      "color": "w",
+      "first": 1,
+      "count": 38
+    },
+    {
+      "gameId": "ZcUo7XHv",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "dHGW74a6",
+      "color": "w",
+      "first": 1,
+      "count": 51
+    },
+    {
+      "gameId": "dHGW74a6",
+      "color": "b",
+      "first": 2,
+      "count": 51
+    },
+    {
+      "gameId": "xvHxLaaZ",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "xvHxLaaZ",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "Aqb8qOvq",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "Aqb8qOvq",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "Q3Prttne",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "Q3Prttne",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "wnHSC082",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "wnHSC082",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "iGjyT5nf",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "iGjyT5nf",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "vEi7nKoS",
+      "color": "w",
+      "first": 1,
+      "count": 54
+    },
+    {
+      "gameId": "vEi7nKoS",
+      "color": "b",
+      "first": 2,
+      "count": 54
+    },
+    {
+      "gameId": "2hvXgQ0U",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "2hvXgQ0U",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "LNxnMfpe",
+      "color": "w",
+      "first": 1,
+      "count": 37
+    },
+    {
+      "gameId": "LNxnMfpe",
+      "color": "b",
+      "first": 2,
+      "count": 37
+    },
+    {
+      "gameId": "I5lnLg23",
+      "color": "w",
+      "first": 1,
+      "count": 38
+    },
+    {
+      "gameId": "I5lnLg23",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "HCriDCPO",
+      "color": "w",
+      "first": 1,
+      "count": 54
+    },
+    {
+      "gameId": "HCriDCPO",
+      "color": "b",
+      "first": 2,
+      "count": 54
+    },
+    {
+      "gameId": "tTZnOIYf",
+      "color": "w",
+      "first": 1,
+      "count": 44
+    },
+    {
+      "gameId": "tTZnOIYf",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "SxL0QPK2",
+      "color": "w",
+      "first": 1,
+      "count": 13
+    },
+    {
+      "gameId": "SxL0QPK2",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "eQniGtQf",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "eQniGtQf",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "9gw71W2F",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "9gw71W2F",
+      "color": "b",
+      "first": 2,
+      "count": 51
+    },
+    {
+      "gameId": "JpOLwsSt",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "JpOLwsSt",
+      "color": "b",
+      "first": 2,
+      "count": 52
+    },
+    {
+      "gameId": "aJaUO1zE",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "aJaUO1zE",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "SoVqHqxt",
+      "color": "w",
+      "first": 1,
+      "count": 51
+    },
+    {
+      "gameId": "SoVqHqxt",
+      "color": "b",
+      "first": 2,
+      "count": 50
+    },
+    {
+      "gameId": "UpUO1Qo5",
+      "color": "w",
+      "first": 1,
+      "count": 40
+    },
+    {
+      "gameId": "UpUO1Qo5",
+      "color": "b",
+      "first": 2,
+      "count": 40
+    },
+    {
+      "gameId": "oE4diboi",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "oE4diboi",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "ugTBkBKs",
+      "color": "w",
+      "first": 1,
+      "count": 61
+    },
+    {
+      "gameId": "ugTBkBKs",
+      "color": "b",
+      "first": 2,
+      "count": 60
+    },
+    {
+      "gameId": "4G3czeJs",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "4G3czeJs",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "cRNwmZLG",
+      "color": "w",
+      "first": 1,
+      "count": 19
+    },
+    {
+      "gameId": "cRNwmZLG",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "FEpLQhen",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "FEpLQhen",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "19qK5eix",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "19qK5eix",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "vNiDCYe6",
+      "color": "w",
+      "first": 1,
+      "count": 19
+    },
+    {
+      "gameId": "vNiDCYe6",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "xY5ckfc1",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "xY5ckfc1",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "ozCB4QO0",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "ozCB4QO0",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "QW77XFOL",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "QW77XFOL",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "4oVLxf6K",
+      "color": "w",
+      "first": 1,
+      "count": 67
+    },
+    {
+      "gameId": "4oVLxf6K",
+      "color": "b",
+      "first": 2,
+      "count": 67
+    },
+    {
+      "gameId": "dPSWBW0i",
+      "color": "w",
+      "first": 1,
+      "count": 75
+    },
+    {
+      "gameId": "dPSWBW0i",
+      "color": "b",
+      "first": 2,
+      "count": 75
+    },
+    {
+      "gameId": "YjD96v5W",
+      "color": "w",
+      "first": 1,
+      "count": 12
+    },
+    {
+      "gameId": "YjD96v5W",
+      "color": "b",
+      "first": 2,
+      "count": 11
+    },
+    {
+      "gameId": "3XEXK07B",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "3XEXK07B",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "dKQP77C2",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "dKQP77C2",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "AtM4hXtN",
+      "color": "w",
+      "first": 1,
+      "count": 37
+    },
+    {
+      "gameId": "AtM4hXtN",
+      "color": "b",
+      "first": 2,
+      "count": 37
+    },
+    {
+      "gameId": "OsaCWWDR",
+      "color": "w",
+      "first": 1,
+      "count": 37
+    },
+    {
+      "gameId": "OsaCWWDR",
+      "color": "b",
+      "first": 2,
+      "count": 37
+    },
+    {
+      "gameId": "qkJRS9xf",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "qkJRS9xf",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "kuoAYRtK",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "kuoAYRtK",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "RKYNvHGo",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "RKYNvHGo",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "pXm7jLCa",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "pXm7jLCa",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "K0HlsIRE",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "K0HlsIRE",
+      "color": "b",
+      "first": 2,
+      "count": 52
+    },
+    {
+      "gameId": "FffpJJdU",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "FffpJJdU",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "yEC3mU1n",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "yEC3mU1n",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "cE8Agq3Q",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "cE8Agq3Q",
+      "color": "b",
+      "first": 2,
+      "count": 52
+    },
+    {
+      "gameId": "WFz2RjeD",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "WFz2RjeD",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "3wpgwckR",
+      "color": "w",
+      "first": 1,
+      "count": 55
+    },
+    {
+      "gameId": "3wpgwckR",
+      "color": "b",
+      "first": 2,
+      "count": 54
+    },
+    {
+      "gameId": "ifUXOWB6",
+      "color": "w",
+      "first": 1,
+      "count": 15
+    },
+    {
+      "gameId": "ifUXOWB6",
+      "color": "b",
+      "first": 2,
+      "count": 14
+    },
+    {
+      "gameId": "2V118VZk",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "2V118VZk",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "pZs8hIEX",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "pZs8hIEX",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "EmR9wfPm",
+      "color": "w",
+      "first": 1,
+      "count": 13
+    },
+    {
+      "gameId": "EmR9wfPm",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "v9Ut336E",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "v9Ut336E",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "CmpGyhmh",
+      "color": "w",
+      "first": 1,
+      "count": 51
+    },
+    {
+      "gameId": "CmpGyhmh",
+      "color": "b",
+      "first": 2,
+      "count": 50
+    },
+    {
+      "gameId": "B87J7Uq9",
+      "color": "w",
+      "first": 1,
+      "count": 12
+    },
+    {
+      "gameId": "B87J7Uq9",
+      "color": "b",
+      "first": 2,
+      "count": 11
+    },
+    {
+      "gameId": "hojBd7tm",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "hojBd7tm",
+      "color": "b",
+      "first": 2,
+      "count": 52
+    },
+    {
+      "gameId": "k8kJUyl1",
+      "color": "w",
+      "first": 1,
+      "count": 37
+    },
+    {
+      "gameId": "k8kJUyl1",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "1habIH0p",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "1habIH0p",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "lZBeFAEM",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "lZBeFAEM",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "7m9pd57N",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "7m9pd57N",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "cQKZZQk5",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "cQKZZQk5",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "XA8h2rha",
+      "color": "w",
+      "first": 1,
+      "count": 54
+    },
+    {
+      "gameId": "XA8h2rha",
+      "color": "b",
+      "first": 2,
+      "count": 53
+    },
+    {
+      "gameId": "1b1qlRML",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "1b1qlRML",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "74iVMdxQ",
+      "color": "w",
+      "first": 1,
+      "count": 11
+    },
+    {
+      "gameId": "74iVMdxQ",
+      "color": "b",
+      "first": 2,
+      "count": 10
+    },
+    {
+      "gameId": "M9Mfzweo",
+      "color": "w",
+      "first": 1,
+      "count": 11
+    },
+    {
+      "gameId": "M9Mfzweo",
+      "color": "b",
+      "first": 2,
+      "count": 10
+    },
+    {
+      "gameId": "IIPMobE5",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "IIPMobE5",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "D1IBwcLP",
+      "color": "w",
+      "first": 1,
+      "count": 85
+    },
+    {
+      "gameId": "D1IBwcLP",
+      "color": "b",
+      "first": 2,
+      "count": 84
+    },
+    {
+      "gameId": "rJfLIcvm",
+      "color": "w",
+      "first": 1,
+      "count": 42
+    },
+    {
+      "gameId": "rJfLIcvm",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "wtzXQYip",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "wtzXQYip",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "eSlIuw4f",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "eSlIuw4f",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "kNofEmu8",
+      "color": "w",
+      "first": 1,
+      "count": 43
+    },
+    {
+      "gameId": "kNofEmu8",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "sjHFnq4c",
+      "color": "w",
+      "first": 1,
+      "count": 17
+    },
+    {
+      "gameId": "sjHFnq4c",
+      "color": "b",
+      "first": 2,
+      "count": 17
+    },
+    {
+      "gameId": "AQvGwHLm",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "AQvGwHLm",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "rHHZiRtw",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "rHHZiRtw",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "sMzaDwAq",
+      "color": "w",
+      "first": 1,
+      "count": 59
+    },
+    {
+      "gameId": "sMzaDwAq",
+      "color": "b",
+      "first": 2,
+      "count": 59
+    },
+    {
+      "gameId": "DlxN2uB5",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "DlxN2uB5",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "f8f2aWoN",
+      "color": "w",
+      "first": 1,
+      "count": 19
+    },
+    {
+      "gameId": "f8f2aWoN",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "efCC68ep",
+      "color": "w",
+      "first": 1,
+      "count": 60
+    },
+    {
+      "gameId": "efCC68ep",
+      "color": "b",
+      "first": 2,
+      "count": 60
+    },
+    {
+      "gameId": "qz61Frqz",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "qz61Frqz",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "0SLHTgW6",
+      "color": "w",
+      "first": 1,
+      "count": 38
+    },
+    {
+      "gameId": "0SLHTgW6",
+      "color": "b",
+      "first": 2,
+      "count": 37
+    },
+    {
+      "gameId": "lk8pab1C",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "lk8pab1C",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "bv6w5v5S",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "bv6w5v5S",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "pGOo33DH",
+      "color": "w",
+      "first": 1,
+      "count": 16
+    },
+    {
+      "gameId": "pGOo33DH",
+      "color": "b",
+      "first": 2,
+      "count": 16
+    },
+    {
+      "gameId": "v5MFDtDL",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "v5MFDtDL",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "vHoa1vbg",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "vHoa1vbg",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "bS7HM1TZ",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "bS7HM1TZ",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "Y8mlMfk2",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "Y8mlMfk2",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "diu2Pb1u",
+      "color": "w",
+      "first": 1,
+      "count": 37
+    },
+    {
+      "gameId": "diu2Pb1u",
+      "color": "b",
+      "first": 2,
+      "count": 37
+    },
+    {
+      "gameId": "jw66p4uN",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "jw66p4uN",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "wVl6PIYO",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "wVl6PIYO",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "erFAEpQ6",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "erFAEpQ6",
+      "color": "b",
+      "first": 2,
+      "count": 31
+    },
+    {
+      "gameId": "Rl2erQlC",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "Rl2erQlC",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "svazjGtk",
+      "color": "w",
+      "first": 1,
+      "count": 70
+    },
+    {
+      "gameId": "svazjGtk",
+      "color": "b",
+      "first": 2,
+      "count": 70
+    },
+    {
+      "gameId": "N51GwUa0",
+      "color": "w",
+      "first": 1,
+      "count": 12
+    },
+    {
+      "gameId": "N51GwUa0",
+      "color": "b",
+      "first": 2,
+      "count": 11
+    },
+    {
+      "gameId": "KgOT9zDe",
+      "color": "w",
+      "first": 1,
+      "count": 16
+    },
+    {
+      "gameId": "KgOT9zDe",
+      "color": "b",
+      "first": 2,
+      "count": 15
+    },
+    {
+      "gameId": "vosuiyY7",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "vosuiyY7",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "Mi9GaI4o",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "Mi9GaI4o",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "kaHXqSX2",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "kaHXqSX2",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "e6VJitw2",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "e6VJitw2",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "HKix9AXM",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "HKix9AXM",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "D013AoJa",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "D013AoJa",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "DO4ZMt7l",
+      "color": "w",
+      "first": 1,
+      "count": 66
+    },
+    {
+      "gameId": "DO4ZMt7l",
+      "color": "b",
+      "first": 2,
+      "count": 66
+    },
+    {
+      "gameId": "Cs0JU2XZ",
+      "color": "w",
+      "first": 1,
+      "count": 16
+    },
+    {
+      "gameId": "Cs0JU2XZ",
+      "color": "b",
+      "first": 2,
+      "count": 16
+    },
+    {
+      "gameId": "PvNtBqz6",
+      "color": "w",
+      "first": 1,
+      "count": 40
+    },
+    {
+      "gameId": "PvNtBqz6",
+      "color": "b",
+      "first": 2,
+      "count": 40
+    },
+    {
+      "gameId": "RuMqMYrB",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "RuMqMYrB",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "Rysd1qIz",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "Rysd1qIz",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "96m6I2xQ",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "96m6I2xQ",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "rTRidKCx",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "rTRidKCx",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "CYCJ5jGX",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "CYCJ5jGX",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "Yr5dK7mj",
+      "color": "w",
+      "first": 1,
+      "count": 46
+    },
+    {
+      "gameId": "Yr5dK7mj",
+      "color": "b",
+      "first": 2,
+      "count": 46
+    },
+    {
+      "gameId": "hlk7tnKv",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "hlk7tnKv",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "3sR02amX",
+      "color": "w",
+      "first": 1,
+      "count": 48
+    },
+    {
+      "gameId": "3sR02amX",
+      "color": "b",
+      "first": 2,
+      "count": 48
+    },
+    {
+      "gameId": "UiJj7v4l",
+      "color": "w",
+      "first": 1,
+      "count": 69
+    },
+    {
+      "gameId": "UiJj7v4l",
+      "color": "b",
+      "first": 2,
+      "count": 68
+    },
+    {
+      "gameId": "wHEQaLGG",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "wHEQaLGG",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "HVqRFOuQ",
+      "color": "w",
+      "first": 1,
+      "count": 69
+    },
+    {
+      "gameId": "HVqRFOuQ",
+      "color": "b",
+      "first": 2,
+      "count": 68
+    },
+    {
+      "gameId": "idQXCZQc",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "idQXCZQc",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "mCGCdRKM",
+      "color": "w",
+      "first": 1,
+      "count": 104
+    },
+    {
+      "gameId": "mCGCdRKM",
+      "color": "b",
+      "first": 2,
+      "count": 104
+    },
+    {
+      "gameId": "wQP13MZp",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "wQP13MZp",
+      "color": "b",
+      "first": 2,
+      "count": 51
+    },
+    {
+      "gameId": "fgCsVV2g",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "fgCsVV2g",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "P43r7YR1",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "P43r7YR1",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "F3TvuWZX",
+      "color": "w",
+      "first": 1,
+      "count": 54
+    },
+    {
+      "gameId": "F3TvuWZX",
+      "color": "b",
+      "first": 2,
+      "count": 53
+    },
+    {
+      "gameId": "adppareA",
+      "color": "w",
+      "first": 1,
+      "count": 43
+    },
+    {
+      "gameId": "adppareA",
+      "color": "b",
+      "first": 2,
+      "count": 42
+    },
+    {
+      "gameId": "LPxsWRDc",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "LPxsWRDc",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "xgRzHOuk",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "xgRzHOuk",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "8Mq1fiMd",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "8Mq1fiMd",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "fmxpkPo6",
+      "color": "w",
+      "first": 1,
+      "count": 55
+    },
+    {
+      "gameId": "fmxpkPo6",
+      "color": "b",
+      "first": 2,
+      "count": 55
+    },
+    {
+      "gameId": "S4olEIKw",
+      "color": "w",
+      "first": 1,
+      "count": 19
+    },
+    {
+      "gameId": "S4olEIKw",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "jgqu9MLe",
+      "color": "w",
+      "first": 1,
+      "count": 49
+    },
+    {
+      "gameId": "jgqu9MLe",
+      "color": "b",
+      "first": 2,
+      "count": 49
+    },
+    {
+      "gameId": "ctt55R9x",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "ctt55R9x",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "kuWdQ55F",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "kuWdQ55F",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "Chs6Y800",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "Chs6Y800",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "cNW44uzc",
+      "color": "w",
+      "first": 1,
+      "count": 61
+    },
+    {
+      "gameId": "cNW44uzc",
+      "color": "b",
+      "first": 2,
+      "count": 61
+    },
+    {
+      "gameId": "7TrczZ23",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "7TrczZ23",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "mwLwhTnD",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "mwLwhTnD",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "1nU4MKPr",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "1nU4MKPr",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "RYcqBsuC",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "RYcqBsuC",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "VFC3irsa",
+      "color": "w",
+      "first": 1,
+      "count": 13
+    },
+    {
+      "gameId": "VFC3irsa",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "POcw18Fp",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "POcw18Fp",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "KkBS9HRJ",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "KkBS9HRJ",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "svP53h4j",
+      "color": "w",
+      "first": 1,
+      "count": 56
+    },
+    {
+      "gameId": "svP53h4j",
+      "color": "b",
+      "first": 2,
+      "count": 55
+    },
+    {
+      "gameId": "h2D9Fugi",
+      "color": "w",
+      "first": 1,
+      "count": 54
+    },
+    {
+      "gameId": "h2D9Fugi",
+      "color": "b",
+      "first": 2,
+      "count": 54
+    },
+    {
+      "gameId": "JK4zhrK5",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "JK4zhrK5",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "caH2PrcV",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "caH2PrcV",
+      "color": "b",
+      "first": 2,
+      "count": 52
+    },
+    {
+      "gameId": "5wwNJXrf",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "5wwNJXrf",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "k3z1rVvC",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "k3z1rVvC",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "lknGjF3x",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "lknGjF3x",
+      "color": "b",
+      "first": 2,
+      "count": 18
+    },
+    {
+      "gameId": "d4b1cDI2",
+      "color": "w",
+      "first": 1,
+      "count": 40
+    },
+    {
+      "gameId": "d4b1cDI2",
+      "color": "b",
+      "first": 2,
+      "count": 40
+    },
+    {
+      "gameId": "Eu8bn37Y",
+      "color": "w",
+      "first": 1,
+      "count": 41
+    },
+    {
+      "gameId": "Eu8bn37Y",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "LKIDUW1J",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "LKIDUW1J",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "EEpuUSdI",
+      "color": "w",
+      "first": 1,
+      "count": 16
+    },
+    {
+      "gameId": "EEpuUSdI",
+      "color": "b",
+      "first": 2,
+      "count": 16
+    },
+    {
+      "gameId": "fVF0IYzf",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "fVF0IYzf",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "BSIQOY0R",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "BSIQOY0R",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "Y77mDnmA",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "Y77mDnmA",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "fhP7zxBp",
+      "color": "w",
+      "first": 1,
+      "count": 15
+    },
+    {
+      "gameId": "fhP7zxBp",
+      "color": "b",
+      "first": 2,
+      "count": 15
+    },
+    {
+      "gameId": "MLhNNHyr",
+      "color": "w",
+      "first": 1,
+      "count": 52
+    },
+    {
+      "gameId": "MLhNNHyr",
+      "color": "b",
+      "first": 2,
+      "count": 51
+    },
+    {
+      "gameId": "ig4tw2kr",
+      "color": "w",
+      "first": 1,
+      "count": 32
+    },
+    {
+      "gameId": "ig4tw2kr",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "K4uh1nu8",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "K4uh1nu8",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "Ki6F0jFk",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "Ki6F0jFk",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "PWWkNu6U",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "PWWkNu6U",
+      "color": "b",
+      "first": 2,
+      "count": 19
+    },
+    {
+      "gameId": "bGssv2cO",
+      "color": "w",
+      "first": 1,
+      "count": 44
+    },
+    {
+      "gameId": "bGssv2cO",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "jhg5Ni9P",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "jhg5Ni9P",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "GU9MrL8C",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "GU9MrL8C",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "HxbCYgYi",
+      "color": "w",
+      "first": 1,
+      "count": 12
+    },
+    {
+      "gameId": "HxbCYgYi",
+      "color": "b",
+      "first": 2,
+      "count": 12
+    },
+    {
+      "gameId": "1iBOgFUT",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "1iBOgFUT",
+      "color": "b",
+      "first": 2,
+      "count": 35
+    },
+    {
+      "gameId": "wUgy6MCO",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "wUgy6MCO",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "nTjvPdT0",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "nTjvPdT0",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "lAPpCznh",
+      "color": "w",
+      "first": 1,
+      "count": 21
+    },
+    {
+      "gameId": "lAPpCznh",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "G9T1RlKJ",
+      "color": "w",
+      "first": 1,
+      "count": 43
+    },
+    {
+      "gameId": "G9T1RlKJ",
+      "color": "b",
+      "first": 2,
+      "count": 43
+    },
+    {
+      "gameId": "4MTpxQp2",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "4MTpxQp2",
+      "color": "b",
+      "first": 2,
+      "count": 32
+    },
+    {
+      "gameId": "5jeGmUi8",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "5jeGmUi8",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "Z0GWNyVC",
+      "color": "w",
+      "first": 1,
+      "count": 25
+    },
+    {
+      "gameId": "Z0GWNyVC",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "IYXIdEmQ",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "IYXIdEmQ",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "gC3QBuH0",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "gC3QBuH0",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "DY7srBNs",
+      "color": "w",
+      "first": 1,
+      "count": 49
+    },
+    {
+      "gameId": "DY7srBNs",
+      "color": "b",
+      "first": 2,
+      "count": 48
+    },
+    {
+      "gameId": "DrFDjxnD",
+      "color": "w",
+      "first": 1,
+      "count": 62
+    },
+    {
+      "gameId": "DrFDjxnD",
+      "color": "b",
+      "first": 2,
+      "count": 61
+    },
+    {
+      "gameId": "vQ7X3vji",
+      "color": "w",
+      "first": 1,
+      "count": 34
+    },
+    {
+      "gameId": "vQ7X3vji",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "650LAxmU",
+      "color": "w",
+      "first": 1,
+      "count": 48
+    },
+    {
+      "gameId": "650LAxmU",
+      "color": "b",
+      "first": 2,
+      "count": 48
+    },
+    {
+      "gameId": "K2b8bVww",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "K2b8bVww",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "Kpza2apJ",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "Kpza2apJ",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "HGLJILpp",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "HGLJILpp",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "RvguzTYq",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "RvguzTYq",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "fGsOGt7K",
+      "color": "w",
+      "first": 1,
+      "count": 53
+    },
+    {
+      "gameId": "fGsOGt7K",
+      "color": "b",
+      "first": 2,
+      "count": 52
+    },
+    {
+      "gameId": "IokBfpTy",
+      "color": "w",
+      "first": 1,
+      "count": 31
+    },
+    {
+      "gameId": "IokBfpTy",
+      "color": "b",
+      "first": 2,
+      "count": 30
+    },
+    {
+      "gameId": "DHApMHae",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "DHApMHae",
+      "color": "b",
+      "first": 2,
+      "count": 17
+    },
+    {
+      "gameId": "27FFhOTM",
+      "color": "w",
+      "first": 1,
+      "count": 12
+    },
+    {
+      "gameId": "27FFhOTM",
+      "color": "b",
+      "first": 2,
+      "count": 11
+    },
+    {
+      "gameId": "M0l7UBmh",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "M0l7UBmh",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "zBCkba7q",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "zBCkba7q",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "InKWQhYG",
+      "color": "w",
+      "first": 1,
+      "count": 40
+    },
+    {
+      "gameId": "InKWQhYG",
+      "color": "b",
+      "first": 2,
+      "count": 40
+    },
+    {
+      "gameId": "LelnFErM",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "LelnFErM",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "wXaIiCik",
+      "color": "w",
+      "first": 1,
+      "count": 51
+    },
+    {
+      "gameId": "wXaIiCik",
+      "color": "b",
+      "first": 2,
+      "count": 50
+    },
+    {
+      "gameId": "ZGA6Rm0e",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "ZGA6Rm0e",
+      "color": "b",
+      "first": 2,
+      "count": 25
+    },
+    {
+      "gameId": "IycHV2Vx",
+      "color": "w",
+      "first": 1,
+      "count": 53
+    },
+    {
+      "gameId": "IycHV2Vx",
+      "color": "b",
+      "first": 2,
+      "count": 52
+    },
+    {
+      "gameId": "xjM3GIRG",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "xjM3GIRG",
+      "color": "b",
+      "first": 2,
+      "count": 39
+    },
+    {
+      "gameId": "467FOReI",
+      "color": "w",
+      "first": 1,
+      "count": 13
+    },
+    {
+      "gameId": "467FOReI",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "04rnJZFY",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "04rnJZFY",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "FoRYqtdg",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "FoRYqtdg",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "EIOcXGD1",
+      "color": "w",
+      "first": 1,
+      "count": 15
+    },
+    {
+      "gameId": "EIOcXGD1",
+      "color": "b",
+      "first": 2,
+      "count": 14
+    },
+    {
+      "gameId": "EPbsNH31",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "EPbsNH31",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "2pmfkxhz",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "2pmfkxhz",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    },
+    {
+      "gameId": "e8VVjKLp",
+      "color": "w",
+      "first": 1,
+      "count": 16
+    },
+    {
+      "gameId": "e8VVjKLp",
+      "color": "b",
+      "first": 2,
+      "count": 15
+    },
+    {
+      "gameId": "1pNSKepP",
+      "color": "w",
+      "first": 1,
+      "count": 38
+    },
+    {
+      "gameId": "1pNSKepP",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "UKxQoAuf",
+      "color": "w",
+      "first": 1,
+      "count": 26
+    },
+    {
+      "gameId": "UKxQoAuf",
+      "color": "b",
+      "first": 2,
+      "count": 26
+    },
+    {
+      "gameId": "2LVFQYMZ",
+      "color": "w",
+      "first": 1,
+      "count": 42
+    },
+    {
+      "gameId": "2LVFQYMZ",
+      "color": "b",
+      "first": 2,
+      "count": 41
+    },
+    {
+      "gameId": "5FoCplEB",
+      "color": "w",
+      "first": 1,
+      "count": 14
+    },
+    {
+      "gameId": "5FoCplEB",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "4eLPtn5c",
+      "color": "w",
+      "first": 1,
+      "count": 11
+    },
+    {
+      "gameId": "vJaT3M2l",
+      "color": "w",
+      "first": 1,
+      "count": 27
+    },
+    {
+      "gameId": "vJaT3M2l",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "WAC9EV4c",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "WAC9EV4c",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "Sux1VmgE",
+      "color": "w",
+      "first": 1,
+      "count": 29
+    },
+    {
+      "gameId": "Sux1VmgE",
+      "color": "b",
+      "first": 2,
+      "count": 28
+    },
+    {
+      "gameId": "YxKwv3Hi",
+      "color": "w",
+      "first": 1,
+      "count": 20
+    },
+    {
+      "gameId": "YxKwv3Hi",
+      "color": "b",
+      "first": 2,
+      "count": 20
+    },
+    {
+      "gameId": "gdmVrjhT",
+      "color": "w",
+      "first": 1,
+      "count": 53
+    },
+    {
+      "gameId": "gdmVrjhT",
+      "color": "b",
+      "first": 2,
+      "count": 53
+    },
+    {
+      "gameId": "p1daALze",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "p1daALze",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "SHGf5dt0",
+      "color": "w",
+      "first": 1,
+      "count": 59
+    },
+    {
+      "gameId": "SHGf5dt0",
+      "color": "b",
+      "first": 2,
+      "count": 59
+    },
+    {
+      "gameId": "7wb7B7Tz",
+      "color": "w",
+      "first": 1,
+      "count": 53
+    },
+    {
+      "gameId": "7wb7B7Tz",
+      "color": "b",
+      "first": 2,
+      "count": 53
+    },
+    {
+      "gameId": "Z4yW0tKT",
+      "color": "w",
+      "first": 1,
+      "count": 35
+    },
+    {
+      "gameId": "Z4yW0tKT",
+      "color": "b",
+      "first": 2,
+      "count": 34
+    },
+    {
+      "gameId": "xfKXOqbb",
+      "color": "w",
+      "first": 1,
+      "count": 39
+    },
+    {
+      "gameId": "xfKXOqbb",
+      "color": "b",
+      "first": 2,
+      "count": 38
+    },
+    {
+      "gameId": "1OTyeAt5",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "1OTyeAt5",
+      "color": "b",
+      "first": 2,
+      "count": 23
+    },
+    {
+      "gameId": "BfFiC2xP",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "BfFiC2xP",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "0e3EKO99",
+      "color": "w",
+      "first": 1,
+      "count": 36
+    },
+    {
+      "gameId": "0e3EKO99",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "4nMqHbye",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "4nMqHbye",
+      "color": "b",
+      "first": 2,
+      "count": 45
+    },
+    {
+      "gameId": "TeScrVLr",
+      "color": "w",
+      "first": 1,
+      "count": 28
+    },
+    {
+      "gameId": "TeScrVLr",
+      "color": "b",
+      "first": 2,
+      "count": 27
+    },
+    {
+      "gameId": "3MnOcC7o",
+      "color": "w",
+      "first": 1,
+      "count": 53
+    },
+    {
+      "gameId": "3MnOcC7o",
+      "color": "b",
+      "first": 2,
+      "count": 52
+    },
+    {
+      "gameId": "kTDSvlz1",
+      "color": "w",
+      "first": 1,
+      "count": 13
+    },
+    {
+      "gameId": "kTDSvlz1",
+      "color": "b",
+      "first": 2,
+      "count": 13
+    },
+    {
+      "gameId": "oFPQn4GJ",
+      "color": "w",
+      "first": 1,
+      "count": 30
+    },
+    {
+      "gameId": "oFPQn4GJ",
+      "color": "b",
+      "first": 2,
+      "count": 29
+    },
+    {
+      "gameId": "vExZNn7C",
+      "color": "w",
+      "first": 1,
+      "count": 24
+    },
+    {
+      "gameId": "vExZNn7C",
+      "color": "b",
+      "first": 2,
+      "count": 24
+    },
+    {
+      "gameId": "JgPlw4ob",
+      "color": "w",
+      "first": 1,
+      "count": 49
+    },
+    {
+      "gameId": "JgPlw4ob",
+      "color": "b",
+      "first": 2,
+      "count": 49
+    },
+    {
+      "gameId": "k3rifVWQ",
+      "color": "w",
+      "first": 1,
+      "count": 23
+    },
+    {
+      "gameId": "k3rifVWQ",
+      "color": "b",
+      "first": 2,
+      "count": 22
+    },
+    {
+      "gameId": "4vIaRdgg",
+      "color": "w",
+      "first": 1,
+      "count": 37
+    },
+    {
+      "gameId": "4vIaRdgg",
+      "color": "b",
+      "first": 2,
+      "count": 36
+    },
+    {
+      "gameId": "O05YHVy5",
+      "color": "w",
+      "first": 1,
+      "count": 67
+    },
+    {
+      "gameId": "O05YHVy5",
+      "color": "b",
+      "first": 2,
+      "count": 67
+    },
+    {
+      "gameId": "LECiE4zG",
+      "color": "w",
+      "first": 1,
+      "count": 18
+    },
+    {
+      "gameId": "LECiE4zG",
+      "color": "b",
+      "first": 2,
+      "count": 17
+    },
+    {
+      "gameId": "EgnlwWTx",
+      "color": "w",
+      "first": 1,
+      "count": 45
+    },
+    {
+      "gameId": "EgnlwWTx",
+      "color": "b",
+      "first": 2,
+      "count": 44
+    },
+    {
+      "gameId": "umMpflQD",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "umMpflQD",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "ioo9hYtD",
+      "color": "w",
+      "first": 1,
+      "count": 22
+    },
+    {
+      "gameId": "ioo9hYtD",
+      "color": "b",
+      "first": 2,
+      "count": 21
+    },
+    {
+      "gameId": "LPMOKraO",
+      "color": "w",
+      "first": 1,
+      "count": 33
+    },
+    {
+      "gameId": "LPMOKraO",
+      "color": "b",
+      "first": 2,
+      "count": 33
+    }
+  ],
+  "droppedSides": [
+    {
+      "gameId": "HsowT6Qd",
+      "color": "b",
+      "eligible": 9
+    },
+    {
+      "gameId": "4eLPtn5c",
+      "color": "b",
+      "eligible": 8
+    }
+  ]
+}

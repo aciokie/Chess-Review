@@ -4,6 +4,12 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { hashFile } from './io.mjs';
 
+// Hard wall for one search message. A depth budget has no node cap, so a depth-22 search on the
+// single-threaded builds legitimately reaches millions of nodes and can take many minutes on a hard
+// position (measured: p99 ~30 s, tail past a minute on real blitz games). The old 60 s wall aborted
+// the whole run on such a position; 45 minutes still catches a genuinely hung engine.
+const SEARCH_TIMEOUT_MS = 45 * 60 * 1000;
+
 export async function engineConfig(enginePath, budget) {
   const loaderSha256 = await hashFile(enginePath), wasmSha256 = await hashFile(enginePath.replace(/\.js$/, '.wasm'));
   const builds = [
@@ -35,7 +41,7 @@ export class Engine {
     this.child.stdin.on('error', fail);
   }
   send(command) { if (this.failure) throw this.failure; this.child.stdin.write(command + '\n'); }
-  until(predicate, timeout = 60000) {
+  until(predicate, timeout = 60000) {   // handshake/ready waits stay short; searches pass SEARCH_TIMEOUT_MS
     if (this.failure) return Promise.reject(this.failure);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.waiter?.finish(Error('Engine timeout')); this.close(); }, timeout);
@@ -67,7 +73,7 @@ export class Engine {
     this.send('position startpos' + (moves.length ? ' moves ' + moves.join(' ') : ''));
     const started = performance.now();
     this.send(`go ${budget.kind} ${budget.value}` + (played ? ` searchmoves ${played}` : ''));
-    const lines = await this.until(l => l.startsWith('bestmove '));
+    const lines = await this.until(l => l.startsWith('bestmove '), SEARCH_TIMEOUT_MS);
     const info = lines.filter(l => /^info .* score /.test(l) && !/\b(lowerbound|upperbound)\b/.test(l) && /\bpv /.test(l)).at(-1);
     if (!info) throw Error('Missing exact score from engine');
     const score = /\bscore (cp|mate) (-?\d+)/.exec(info);

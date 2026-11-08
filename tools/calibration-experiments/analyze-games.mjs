@@ -82,30 +82,37 @@ async function main() {
   try {
     const identities = await Promise.all(engines.map(e => e.init(config)));
     await save(path.join(o.out, 'uci.json'), identities[0]);
-    await Promise.all(engines.map(async engine => {
-      while (!stopping && next < games.length) {
-        const game = games[next++], chess = new Chess(), history = [];
-        if (o.sqlite && cache.completed(game.id)) { done++; continue; }
-        if (o['max-new-games'] && assigned >= integer(o['max-new-games'], 'max-new-games')) break;
-        assigned++;
-        let incomplete = false;
-        for (const played of game.moves) {
-          if (stopping) { incomplete = true; break; }
-          const best = await get(engine, history, null);
-          if (best.bestmove !== played) await get(engine, history, played);
-          chess.move({ from: played.slice(0, 2), to: played.slice(2, 4), promotion: played[4] });
-          history.push(played);
+    try {
+      await Promise.all(engines.map(async engine => {
+        while (!stopping && next < games.length) {
+          const game = games[next++], chess = new Chess(), history = [];
+          if (o.sqlite && cache.completed(game.id)) { done++; continue; }
+          if (o['max-new-games'] && assigned >= integer(o['max-new-games'], 'max-new-games')) break;
+          assigned++;
+          let incomplete = false;
+          for (const played of game.moves) {
+            if (stopping) { incomplete = true; break; }
+            const best = await get(engine, history, null);
+            if (best.bestmove !== played) await get(engine, history, played);
+            chess.move({ from: played.slice(0, 2), to: played.slice(2, 4), promotion: played[4] });
+            history.push(played);
+          }
+          if (incomplete) break;
+          if (o.sqlite) cache.complete(game.id);
+          done++; newCompleted++;
+          const elapsed = (performance.now() - started) / 1000;
+          console.log(`${done}/${games.length} games; ${newSearches} new searches; ${cacheHits} cache hits; ${(newSearches / elapsed).toFixed(1)} searches/s; ETA ${Math.round(elapsed / newCompleted * (o["max-new-games"] ? Math.max(0, Number(o["max-new-games"]) - newCompleted) : games.length - done))}s`);
+          await save(path.join(o.out, 'progress.json'), { updatedAt: new Date().toISOString(), pid: process.pid,
+            done, total: games.length, newCompleted, newSearches, cacheHits, elapsedSeconds: elapsed, workers,
+            freeMemoryBytes: os.freemem(), rss: process.memoryUsage().rss });
         }
-        if (incomplete) break;
-        if (o.sqlite) cache.complete(game.id);
-        done++; newCompleted++;
-        const elapsed = (performance.now() - started) / 1000;
-        console.log(`${done}/${games.length} games; ${newSearches} new searches; ${cacheHits} cache hits; ${(newSearches / elapsed).toFixed(1)} searches/s; ETA ${Math.round(elapsed / newCompleted * (o["max-new-games"] ? Math.max(0, Number(o["max-new-games"]) - newCompleted) : games.length - done))}s`);
-        await save(path.join(o.out, 'progress.json'), { updatedAt: new Date().toISOString(), pid: process.pid,
-          done, total: games.length, newCompleted, newSearches, cacheHits, elapsedSeconds: elapsed, workers,
-          freeMemoryBytes: os.freemem(), rss: process.memoryUsage().rss });
-      }
-    }));
+      }));
+    } catch (error) {
+      // A deadline/SIGINT stop closes the engines with searches in flight; those rejections are not
+      // run failures - every completed search is already durable in the cache - so a stop exits 0.
+      if (!stopping) throw error;
+      console.log('stopped early; the searches in flight were discarded (completed ones are cached)');
+    }
     const elapsedSeconds = (performance.now() - started) / 1000, after = os.cpus().map(c => c.times);
     let idle = 0, total = 0;
     after.forEach((t, i) => Object.keys(t).forEach(k => { const d = t[k] - cpuBefore[i][k]; total += d; if (k === 'idle') idle += d; }));
