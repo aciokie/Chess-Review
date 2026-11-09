@@ -153,10 +153,10 @@ function printStatus(report) {
   }
   if (report.past?.sessions) {
     const past = report.past;
-    console.log(`sessions so far: ${past.sessions}, searches performed across them: ${past.searchesDone}`);
+    const performed = Math.max(0, report.rows - (past.rowsAtFirstChunk || 0));
+    console.log(`sessions so far: ${past.sessions}, searches performed since the first chunk: ${performed}`);
     // The cumulative rate is the honest one: a short chunk also pays the cache re-walk.
-    const elapsed = past.elapsedSecondsTotal || past.lastElapsedSeconds || 0;
-    const rate = elapsed > 0 ? past.searchesDone / elapsed : null;
+    const rate = past.elapsedSecondsTotal > 0 ? performed / past.elapsedSecondsTotal : null;
     if (rate) {
       const remaining = Math.max(0, REFERENCE_SEARCHES - report.rows);
       const hours = remaining / rate / 3600;
@@ -203,9 +203,10 @@ export async function run({ minutes = 40, workers = WORKERS } = {}) {
   const after = await status();
   const sessions = (after.past?.sessions || 0) + 1;
   const rowsDone = Math.max(0, after.rows - report.rows);
-  const searchesDone = (after.past?.searchesDone || 0) + rowsDone;
   const lastElapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
-  await save(STATUS_FILE, { schemaVersion: 1, updatedAt: new Date().toISOString(), sessions, searchesDone,
+  await save(STATUS_FILE, { schemaVersion: 2, updatedAt: new Date().toISOString(), sessions,
+    // rowsAtFirstChunk is set once; every rate is (rows - that) over the accumulated chunk time.
+    rowsAtFirstChunk: after.past?.rowsAtFirstChunk ?? report.rows,
     lastMinutes: minutes, lastExitCode: code, lastRowsDone: rowsDone, lastElapsedSeconds,
     elapsedSecondsTotal: (after.past?.elapsedSecondsTotal || 0) + lastElapsedSeconds });
   console.log(`chunk finished (exit ${code}) after ${Math.round((Date.now() - startedAt) / 1000)}s`);
