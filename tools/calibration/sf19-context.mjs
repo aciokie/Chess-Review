@@ -2,10 +2,13 @@ import {hash} from './io.mjs';
 import {fitFullgameContext} from './fullgame-context.mjs';
 import {empiricalCrps} from './peer-quality.mjs';
 import {ratingGameQuality} from '../../lib/public-scoring.js';
+import {SF19_DEPTH} from '../../lib/scoring-builds.js';
 
 export function fitSf19Context(evidence) {
   const config = evidence.engineConfig;
-  if (config?.majorVersion !== 19 || config.budget?.kind !== 'nodes' || config.budget.value !== 20000
+  // The published SF19 evidence is observed at the scored protocol: an exact depth-22 search per
+  // position (the pre-depth-22 files used fixed 20,000-node budgets and no longer fit these models).
+  if (config?.majorVersion !== 19 || config.budget?.kind !== 'depth' || config.budget.value !== SF19_DEPTH
       || config.options?.Hash !== 32 || config.options?.MultiPV !== 1 || config.options?.['Skill Level'] !== 20) {
     throw Error('SF19 contextual search protocol differs');
   }
@@ -32,7 +35,7 @@ export function fitSf19Context(evidence) {
     loss += foldLoss; weight += foldWeight;
   }
   const crps = model.trainingCandidates[0].crps, baselineCrps = loss / weight;
-  const qualityDefinition = 'Arithmetic mean of 100 * (1 - fixed-node WDL expected-point loss) over nonforced decisions; top moves have zero loss.';
+  const qualityDefinition = 'Arithmetic mean of 100 * (1 - depth-22 WDL expected-point loss) over nonforced decisions; top moves have zero loss.';
   return {candidateVersion: hash(JSON.stringify({config, qualityDefinition, model})), model, engineConfig: config, qualityDefinition,
     developmentValidation: {games: model.games, sides: model.sides, folds: 5, crps, baselineCrps,
       improvementFraction: 1 - crps / baselineCrps, baselineFolds: folds,

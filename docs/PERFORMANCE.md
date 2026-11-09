@@ -41,6 +41,12 @@ What this says:
 
 ## Spike: is the fixed-node protocol cacheable? (A11)
 
+> Historical note (2026-11-10): the scored SF19 protocol is now an **exact depth-22 search** (no node
+> cap; it reaches 0.7-19M nodes per position), with the models refitted at that protocol. The
+> measurements below were taken under the earlier fixed 20,000-node protocol and are kept as the
+> record of that work; thread-count independence of scoring still holds, now enforced for depth
+> budgets too (the native helper pins every scoring search to one thread, see `ChessReviewHost.cs`).
+
 Driven headlessly in Node against the bundled single-threaded builds, real protocol options
 (`Threads 1`, `Hash 32`, `UCI_ShowWDL true`, `MultiPV 1`), same position searched repeatedly:
 
@@ -75,12 +81,14 @@ Multithreaded build (`stockfish-19.js/.wasm`, 99 MB) loaded in Node, same positi
 | 8 | 1,724,371 | ×8.3 | 24 | cp 35 · wdl 71/924/5 | **d2d4** |
 
 - **Threads are worth a lot**: ×2.9 at two, ×6.0 at four, ×8.3 at eight nodes/second.
-- **But they must never touch scoring.** At the fixed 20,000-node protocol the score moves with the
-  thread count, and at eight threads the node limit broke down completely (74,863 nodes searched and
-  a different best move). Our published models were fitted single-threaded, and CI's
-  `reproduce-public` replay would no longer match.
+- **But they must never touch scoring.** At a fixed search budget the score moves with the thread
+  count (under the old 20,000-node protocol, eight threads even broke the node limit: 74,863 nodes
+  and a different best move; a fixed *depth* is thread-dependent in the same way). Our published
+  models were fitted single-threaded, and CI's `reproduce-public` replay would no longer match.
 - Therefore: threads are for the **non-scoring** paths only — live board, engine-panel candidates,
-  explore board and practice hints — while scored reviews stay `Threads 1` at 20,000 nodes.
+  explore board and practice hints — while scored reviews stay `Threads 1`. The native helper pins
+  every scoring search to one thread for both budget kinds (node *and* exact-depth, the current
+  depth-22 protocol); only panel/live depth searches use the configured count.
 
 ### Cross-origin isolation is not needed
 

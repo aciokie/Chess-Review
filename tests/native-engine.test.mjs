@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { NativeEngine, probeNativeHost, nativeMessagingSupported, NATIVE_MAX_HISTORY_MOVES } from '../engine/native.js';
+import { SF19_DEPTH } from '../lib/scoring-builds.js';
 import { app, loadGame, settle } from './helpers/app.mjs';
 
 // The public models decide which protocol scores a review; without them loaded everything reads as
@@ -652,6 +653,46 @@ test('a chosen native build that cannot run never claims the Stockfish 19 protoc
   assert.match(a.call('scoringNote'), /Depth, hash and strength therefore still matter/i);
 });
 
+test('the WASM opt-out keeps the fast estimate; native always runs the public depth-22 model', (t) => {
+  const a = withPublicModels(app(t));
+  const S = a.state;
+  Object.assign(S.settings, { enginePath: 'sf19full', engineDepth: 16, engineHash: 16, engineSkill: 20, classifyLines: 1 });
+  assert.equal(a.call('publicScoringApplies', 'sf19full', S.settings), true);
+  assert.match(a.call('scoringNote'), /Depth-22 scoring on this build is slow/);
+  const keyPublic = a.call('analysisSettingsKey');
+  // The explicit opt-out switches this build to the legacy path: the settings key must change so a
+  // saved public review is re-analysed instead of being restored.
+  S.settings.sf19FastEstimate = true;
+  assert.equal(a.call('publicScoringApplies', 'sf19full', S.settings), false);
+  assert.notEqual(a.call('analysisSettingsKey'), keyPublic);
+  assert.match(a.call('scoringNote'), /Fast earlier estimate is on for this build/);
+  // Native is never opted out: it always scores the public depth-22 model.
+  S.settings.enginePath = 'native19';
+  S.nativeScoring = true;
+  assert.equal(a.call('publicScoringApplies', 'native19', S.settings), true);
+  assert.match(a.call('scoringNote'), /depth-22 exact search/);
+});
+
+test('SF19 annotations reach the scored depth and a shallower search can never become evidence', (t) => {
+  const a = withPublicModels(app(t));
+  const S = loadGame(a, '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6');
+  Object.assign(S.settings, { enginePath: 'sf19full', engineDepth: 16, classifyLines: 1 });
+  S.activeEngineBuild = 'sf19full';
+  assert.equal(a.call('annotationDepth'), SF19_DEPTH, 'SF19 annotations run at the scored depth, never the depth-16 picker');
+  const pair = (depth) => ({ bestmove: 'g1f3', lines: [
+    { multipv: 1, depth, bound: 'exact', pv: 'g1f3 d7d5', score: { cp: 20 } },
+    { multipv: 2, depth, bound: 'exact', pv: 'b1c3 d7d5', score: { cp: 10 } }] });
+  assert.equal(a.call('annotationSearchFor', 0, pair(16), 2), null, 'a shallower pair is refused as badge evidence');
+  assert.ok(a.call('annotationSearchFor', 0, pair(SF19_DEPTH), 2), 'the scored-depth pair is accepted');
+  // The depth picker is obeyed: it can only deepen the annotated search to the scored depth, never
+  // shallow it below (the UI's Depth slider tops out at 22 today).
+  S.settings.engineDepth = 22;
+  assert.equal(a.call('annotationDepth'), SF19_DEPTH);
+  // Non-SF19 builds keep using the picker directly.
+  S.activeEngineBuild = 'nnue';
+  assert.equal(a.call('annotationDepth'), 22);
+});
+
 test('a native helper that is running still gets the fixed protocol, even if the probe is stale', (t) => {
   // The guard must not talk a working helper out of the protocol it just reported: an old "not
   // available" probe is worthless once a native engine has started and answered for itself.
@@ -695,7 +736,7 @@ test('a review scored by the fallback is not reused after the native engine is i
     evals: S.positions.map(() => ({ cp: 0 })),
     bests: S.positions.map(() => ({
       bestmove: 'e2e4', lines: [], score: { cp: 20 }, playedScore: { cp: 20 },
-      calibration: { version: calib.version, build: engineBuild, nodes: 20000 },
+      calibration: { version: calib.version, build: engineBuild, depth: SF19_DEPTH },
       ratingEvidence: { candidateVersion: calib.movesOnly?.sf19?.candidateVersion },
     })),
     classif: S.positions.map(() => 'best'),

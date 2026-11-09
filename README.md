@@ -85,12 +85,14 @@ fitted by the reproducible pipeline in `tools/calibration`):
 | Build | Search used for scoring | Accuracy / rating |
 |-------|-------------------------|-------------------|
 | Stockfish 18 NNUE (default) | depth 16, Hash 16 MB, full strength, 1 line | Public SF18 model |
-| Stockfish 19 Lite, Stockfish 19 Full, Stockfish 19 (Native) | fixed 20,000 nodes, Hash 32 MB, full strength, one thread | Public SF19 model (identical logic for all three) |
+| Stockfish 19 Lite, Stockfish 19 Full, Stockfish 19 (Native) | exact depth-22 search (no node cap - it reaches 0.7-19M nodes per position), Hash 32 MB, full strength, one thread | Public SF19 model (identical logic for all three) |
 | Stockfish 18 NNUE with non-default depth/hash/skill/lines | your settings | Earlier accuracy/rating estimate (`data/calibration-legacy.json`) |
 
-All Stockfish 19 builds run the same fixed-node protocol, so depth/hash/strength settings only affect the
-live engine panel for them. The SF19 accuracy curve (Lichess's public winning-chance curve) does not depend on
-which SF19 build searched. The SF19 *rating* models were fitted from Stockfish 19 **Lite** observations; Full and
+All Stockfish 19 builds run the same depth-22 protocol, so depth/hash/strength settings only affect the
+live engine panel for them (the Engine tab's **Scoring** choice can also switch a WASM build to the fast
+earlier estimate, at the cost of the public model). Depth 22 costs time: about a minute or two per game on
+the native engine, 10-20 minutes on a WASM build, and the Engine tab says so. The SF19 accuracy curve
+(Lichess's public winning-chance curve) does not depend on which SF19 build searched. The SF19 *rating* models were fitted from Stockfish 19 **Lite** observations; Full and
 Native use them as-is, so their rating estimate is not separately calibrated. Scored native reviews need
 native helper 1.1 or newer (re-run `Install Native Engine.bat`); an older helper keeps working with the
 earlier estimate and the Engine tab says so.

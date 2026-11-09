@@ -23,7 +23,7 @@ definitions, source records and interpretation limits.
 | `sf19-cohort.json` | The frozen cohort contract: 750 training games, 1,498 player sides, 52,239 plies, and a hash. Two black sides (HsowT6Qd, 4eLPtn5c) are dropped because they have fewer than ten nonforced decisions - the moves-only minimum - which is exactly the 20-ply difference to the cohort games' 52,259 plies. |
 | `human-policy.mjs`, `grouped-human-choice.mjs` | Fit expected human points and game-weighted legal-move choice. |
 | `peer-quality.mjs`, `fullgame-context.mjs` | Fit and assess the recorded-rating contextual model. |
-| `sf19-context.mjs` | Reconstruct SF19 contextual peers from fixed-node WDL evidence and compare game-separated CRPS with an unconditional baseline. |
+| `sf19-context.mjs` | Reconstruct SF19 contextual peers from depth-22 WDL evidence and compare game-separated CRPS with an unconditional baseline. |
 | `fit-rating.mjs`, `fit-huber.mjs`, `core.mjs`, `io.mjs` | Shared mathematics, rating regression and provenance/hash helpers. |
 | `engine.mjs`, `engine-host.cjs` | Reusable local engine harness, retained for the real-engine regression test and future evidence collection. Not used by offline replay. |
 | `category-benchmark.mjs` | Evaluates supplied independent human annotations, reporting disagreement and abstention. No validated benchmark dataset is bundled. |

@@ -8,7 +8,7 @@ import { publicGameAccuracy, sf19GameAccuracy, expectedPoints, SF19_OUTCOME } fr
 import { moveGrade } from '../../lib/move-grades.js';
 import { calibratedReview, scoringEvidenceComplete } from '../../lib/calibrated-review.js';
 import { analyseCalibratedPosition } from '../../lib/calibrated-search.js';
-import { isSf19Build, SF19_NODES } from '../../lib/scoring-builds.js';
+import { isSf19Build, SF19_DEPTH } from '../../lib/scoring-builds.js';
 import { NATIVE_SCORING_CAPABILITY } from '../../engine/native.js';
 import { matedKingSquare, mateMark } from '../../lib/mate-mark.js';
 import { rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY } from '../../lib/player-history.js';
@@ -48,7 +48,7 @@ export function app(t, { url = 'https://extension.test/analysis.html#explore', h
     URL, TextEncoder, btoa, console, Chess, flagCodeForCountryId, countryNameForId, browserAPI,
     canonicalGameId, analysisCacheKey, simpleHash,
     publicGameAccuracy, sf19GameAccuracy, calibratedReview, scoringEvidenceComplete, analyseCalibratedPosition,
-    isSf19Build, SF19_NODES, NATIVE_SCORING_CAPABILITY, expectedPoints, SF19_OUTCOME, moveGrade,
+    isSf19Build, SF19_DEPTH, NATIVE_SCORING_CAPABILITY, expectedPoints, SF19_OUTCOME, moveGrade,
     matedKingSquare, mateMark,
     rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY, libraryFlip,
     fullHdReferenceLayout, panelScale, panelGroupBounds, scalePanelGroup, movePanelGroup, createAccuracyNavigation,

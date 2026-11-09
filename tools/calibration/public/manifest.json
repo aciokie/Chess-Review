@@ -18,9 +18,9 @@
       "uncompressedSha256": "c4f3b5caeb78511d34ce4c9031b53ab6e00338871bad5119d488bfc0e8f365f7"
     },
     "sf19-rating-evidence.json.gz": {
-      "sha256": "8ac253f86fa87a945c06e86f2b7c82d4f2b7e8c96ae9b990a6efadbac9f7d721",
-      "bytes": 683399,
-      "uncompressedSha256": "cea288e5a8eeb7f2f5202b7d8fd526b7a454d9b597eaf4ee61c1e0dcaf080ecc"
+      "sha256": "5522dfc5583fda999e1fb576faef73a483bcf9164f2463d1f102ac0f80220d65",
+      "bytes": 718164,
+      "uncompressedSha256": "16681f397a7f95f9980bfa4209ddb85a9274e23eb7371618adba56a4eb80c98f"
     },
     "expected-scores.json": {
       "sha256": "969664315be01fab6f719ce158926741c45ec59ef8e3accfe28f0dcc595b7df6",
@@ -39,7 +39,7 @@
     }
   },
   "qualityCandidateVersion": "242d48d1bd9c88be962738f8c630581c0163d5c28c6fff392a940ccdf971c4ac",
-  "contextCandidateVersion": "f597086cd654b34ff235cbe4c223fde7d58741bbaa29752bbb4ddb4a662b80df",
+  "contextCandidateVersion": "c0cfb7364156335e3a91292b4c7225350c50ed0d74a2a086ab9b9b59d1556b7f",
   "recipe": {
     "seed": "public-depth16-calibration-v1",
     "trainingGames": 100,

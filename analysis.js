@@ -13,7 +13,7 @@ import { canonicalGameId, analysisCacheKey } from "./gameid.js";
 import { publicGameAccuracy, sf19GameAccuracy, expectedPoints, SF19_OUTCOME } from "./lib/public-scoring.js";
 import { calibratedReview, scoringEvidenceComplete } from "./lib/calibrated-review.js";
 import { analyseCalibratedPosition } from "./lib/calibrated-search.js";
-import { isSf19Build, SF19_NODES } from "./lib/scoring-builds.js";
+import { isSf19Build, SF19_DEPTH } from "./lib/scoring-builds.js";
 import { moveGrade } from "./lib/move-grades.js";
 import { gameStatistics } from "./lib/game-statistics.js";
 import { rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY } from "./lib/player-history.js";
@@ -96,7 +96,7 @@ async function loadBook() {
  *
  *  - PUBLIC_CALIB (data/calibration.json): the public, reproducible per-engine models — accuracy,
  *    recorded-rating context and moves-only rating — fitted by tools/calibration. They exist for
- *    Stockfish 18 NNUE (depth 16, Hash 16, Skill 20) and Stockfish 19 Lite (20,000 nodes) only, and
+ *    Stockfish 18 NNUE (depth 16, Hash 16, Skill 20) and the Stockfish 19 family (depth 22) only, and
  *    drive review accuracy and estimated rating for those builds (see lib/calibrated-review.js).
  *  - CALIB (data/calibration-legacy.json): the earlier tuned win%/aggregation parameters. Builds
  *    without a public model (Stockfish 19 Full, the native build, or a changed depth/hash/skill)
@@ -153,12 +153,26 @@ function nativeScoringPossible() {
 // The public models exist for exactly these protocols. Anything else is scored by the legacy path.
 function publicScoringApplies(build, settings = S.settings) {
   if (!PUBLIC_CALIB) return false;
-  // Every Stockfish 19 build (Full, Lite, Native) is scored by the same fixed 20,000-node protocol
+  // Every Stockfish 19 build (Full, Lite, Native) is scored by the same depth-22 protocol
   // (lib/calibrated-search.js), so depth/hash/strength do not affect its scores. That is only true
   // of a native build that can actually run.
-  if (isSf19Build(build)) return build !== NATIVE_BUILD || nativeScoringPossible();
+  if (isSf19Build(build)) {
+    // Explicit opt-out for the WASM builds: depth 22 on one WASM thread costs 10-20 minutes per
+    // game, so a user can choose the fast earlier estimate instead (the legacy path at their own
+    // Analysis depth). Native is never opted out - it reaches the same depth in a minute or two.
+    if (build !== NATIVE_BUILD && settings.sf19FastEstimate === true) return false;
+    return build !== NATIVE_BUILD || nativeScoringPossible();
+  }
   return build === "nnue" && settings.engineDepth === 16 && settings.engineHash === 16
     && settings.engineSkill === 20 && (settings.classifyLines || 1) === 1;
+}
+// The depth every annotation search must reach: the scored protocol's depth for SF19 builds, the
+// user's setting otherwise. Great/Brilliant must never compare a depth-22 runner-up with a shallower
+// scored pair, and a shallower warmed/panel search must never be stored as annotation evidence (see
+// annotationSearchFor, which enforces the same minimum before storing).
+function annotationDepth() {
+  return isSf19Build(S.activeEngineBuild || S.settings.enginePath)
+    ? Math.max(S.settings.engineDepth, SF19_DEPTH) : S.settings.engineDepth;
 }
 // True once any analyzed root carries a public-scoring observation (data-driven, so it also holds
 // for restored reviews and while a streaming review is still filling in).
@@ -267,7 +281,7 @@ const ELO_INFO = "A rough estimate of the rating you played at in this game. It 
 const ENGINE_INFO = {
   engineLines:   "How many candidate moves (lines) the engine panel shows for the position you're viewing. Extra lines are searched on demand — changing this doesn't re-analyze the game.",
   classifyLines: "Lines searched per position during the analysis batch. 1 is fastest and is all the move classification needs; raising it measures your move in the same search (steadier accuracy/Elo) and pre-fills the panel. Re-analyzes the game.",
-  engineDepth:   "How many plies (half-moves) deep Stockfish searches each position. Higher depth gives more accurate evaluations and fewer false mistakes, but takes longer.",
+  engineDepth:   "How many plies (half-moves) deep Stockfish searches its own live queries - the engine panel, suggestions and practice hints. Higher depth is more accurate but takes longer. The scored review protocol follows the selected build instead: Stockfish 18 scores at depth 16 and the Stockfish 19 builds at their fixed depth 22, because the public accuracy and rating models are fitted for exactly those searches.",
   engineWorkers: "Number of Stockfish instances analysing positions in parallel. The default uses available CPU cores, up to four workers. Your selection is respected; if a worker fails to start, the review continues with the workers that did start. Search depth and scoring settings stay the same.",
   fastAnalysis:  "Trades quality for speed: the classification pass uses fewer engine lines. ~1.3×/1.6× faster, but evals shift slightly and clean games can pick up a few false inaccuracies.",
   enginePath:    "Stockfish 18 NNUE is the default. Stockfish 19 Full is the strongest bundled build. Stockfish 19 Lite uses a smaller evaluation network for a compact alternative. Stockfish 19 (Native) runs a Stockfish 19 executable you installed on Windows through a small local helper — faster than WASM, and it falls back to the bundled builds if the helper isn't installed.",
@@ -422,6 +436,10 @@ const DEFAULT_SETTINGS = {
   // Estimated-rating mode for builds with a public model: "context" compares your performance with
   // public players near the rating saved in the game; "moves" ignores it and estimates from moves alone.
   ratingMode: "context",
+  // Explicit opt-out from the depth-22 public protocol for the WASM SF19 builds (see
+  // publicScoringApplies/scoringNote): reviews then run at the Analysis-depth setting and use the
+  // earlier accuracy/rating estimate. Native always scores the public depth-22 model.
+  sf19FastEstimate: false,
   // Parallel analysis workers: independent single-threaded Stockfish instances that pull
   // positions from a shared queue. Each position is still searched identically (cold, same
   // depth/lines), so results are unchanged — only the wall-clock is parallelized. Default ≈
@@ -1503,7 +1521,9 @@ function engineContextKey(fen, history) {
 // depth, legal and distinct, and the first line must agree with the engine's best move.
 function annotationSearchFor(i, result, count) {
   const top = result?.lines?.find(line => line.multipv === 1);
-  if (count < 2 || !top || !Number.isInteger(top.depth) || top.depth < S.settings.engineDepth
+  // SF19 builds must reach the scored depth (annotationDepth()); a shallower search is refused here
+  // so it can never become badge evidence.
+  if (count < 2 || !top || !Number.isInteger(top.depth) || top.depth < annotationDepth()
     || result.bestmove !== (top.pv || "").split(" ")[0]) return null;
   let legal;
   try { legal = new Set(new Chess(S.positions[i].fen).moves({ verbose: true }).map(move => move.lan)); } catch { return null; }
@@ -4543,7 +4563,11 @@ function analysisProgressText() {
     const refined = S.progress - S.total;
     return `Refining critical mistakes … ${refined}`;
   }
-  return `Analyzing … ${done}/${S.total}`;
+  // Say up front that a WASM build pays for depth 22 with time, so a long review is expected rather
+  // than looking stuck. Native reaches the same depth fast and never shows this.
+  const build = S.activeEngineBuild || S.settings.enginePath;
+  const slow = isSf19Build(build) && build !== NATIVE_BUILD && publicScoringApplies(build);
+  return `Analyzing … ${done}/${S.total}` + (slow ? " — Analysis runs at depth 22 on a WASM build and can take 10\u201320 minutes per game." : "");
 }
 function renderReview() {
   // In-place progress text during analysis (so the loader animation doesn't restart each move).
@@ -6680,6 +6704,23 @@ function motorSettings() {
         ),
       ),
       el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, scoringNote())),
+      // Depth-22 scoring costs 10-20 minutes per game on a WASM build, so the user can explicitly
+      // choose the fast earlier estimate instead. Native never shows this: it always runs the public
+      // depth-22 model. Toggling it re-analyzes (the settings key changes with the scoring path).
+      isSf19Build(S.settings.enginePath) && S.settings.enginePath !== NATIVE_BUILD && !!PUBLIC_CALIB
+        ? el("div", { class: "set-row" },
+            setLabel("Scoring"),
+            el("div", { class: "set-seg" },
+              el("button", { class: S.settings.sf19FastEstimate === true ? "" : "on", "aria-pressed": String(S.settings.sf19FastEstimate !== true),
+                onclick: () => setEngineSetting("sf19FastEstimate", false) }, "Use the depth-22 public model"),
+              el("button", { class: S.settings.sf19FastEstimate === true ? "on" : "", "aria-pressed": String(S.settings.sf19FastEstimate === true),
+                onclick: () => setEngineSetting("sf19FastEstimate", true) }, "Use the fast earlier estimate for this build"),
+            ))
+        : null,
+      isSf19Build(S.settings.enginePath) && S.settings.enginePath !== NATIVE_BUILD && !!PUBLIC_CALIB
+        ? el("div", { class: "set-row hint" }, el("span", { class: "set-note" },
+            "Reviews then run at the Analysis-depth setting (seconds per game) and use the earlier accuracy/rating estimate \u2014 not the public depth-22 model."))
+        : null,
       engineSlider("Strength (Skill)", "engineSkill", 0, 20, 1, { fmt: (v) => (v >= 20 ? "Max (20)" : String(v)), info: ENGINE_INFO.engineSkill }),
       engineSlider("Hash (MB)", "engineHash", 16, 256, 16, { fmt: (v) => v + " MB", info: ENGINE_INFO.engineHash }),
       el("div", { class: "set-row hint" },
@@ -6868,9 +6909,15 @@ function scoringNote() {
   const build = S.activeEngineBuild || S.settings.enginePath;
   if (!PUBLIC_CALIB) return "Public scoring models could not be loaded, so reviews use the earlier accuracy and rating estimate.";
   if (publicScoringApplies(build, S.settings)) {
-    return isSf19Build(build)
-      ? `Accuracy and rating use the public Stockfish 19 model (fixed ${SF19_NODES.toLocaleString("en-US")}-node search, the same for ${ENGINE_NAME[build]}). Depth, hash and strength sliders only affect the live engine panel.`
-      : "Accuracy and rating use the public Stockfish 18 NNUE model (depth 16, Hash 16 MB, full strength, 1 line).";
+    if (!isSf19Build(build)) return "Accuracy and rating use the public Stockfish 18 NNUE model (depth 16, Hash 16 MB, full strength, 1 line).";
+    // The native build reaches depth 22 in about a minute or two per game; the WASM builds take
+    // 10-20 minutes, so they carry the slow label (their opt-out is the Scoring row above).
+    return build === NATIVE_BUILD
+      ? "Accuracy and rating use the public Stockfish 19 model (depth-22 exact search, single thread). Depth, hash and strength sliders only affect the live engine panel."
+      : "Depth-22 scoring on this build is slow: roughly 10\u201320 minutes per game on one WASM thread. The native Stockfish 19 reaches the same depth in about 1\u20132 minutes and is the strongest build.";
+  }
+  if (isSf19Build(build) && build !== NATIVE_BUILD && S.settings.sf19FastEstimate === true) {
+    return "Fast earlier estimate is on for this build: reviews run at the Analysis-depth setting (seconds per game) and use the earlier accuracy/rating estimate, not the public depth-22 model.";
   }
   if (build === "nnue") return "These engine settings differ from the public Stockfish 18 model's protocol (depth 16, Hash 16 MB, full strength, 1 line), so the earlier accuracy and rating estimate is used. Reset to default to use the public model.";
   if (build === NATIVE_BUILD) {
@@ -7335,7 +7382,8 @@ function currentGameId() {
 // runner-up evidence, so Great and a won-position Brilliant would silently stay Best/Excellent when
 // that old save is restored. Bumping the key makes those saves analyse once more instead of being
 // shown without the categories.
-const ANNOTATION_VERSION = 2;
+// 3: SF19 reviews score at depth 22 and annotate at that depth (was 20,000 nodes + depth 16).
+const ANNOTATION_VERSION = 3;
 function analysisSettingsKey() {
   // Stockfish 19 builds are scored by one fixed-node protocol, so depth, hash and strength do not
   // change a finished review's scores (they only matter for the extra annotation lines, i.e. when
@@ -7973,7 +8021,9 @@ async function startAnalysis() {
         // the played move with the runner-up. It never replaces the scored best/played pair above.
         if (next && multipv > 1) {
           try {
-            const extra = await eng.analyse(S.positions[i].fen, S.settings.engineDepth, multipv, searchHistory(S.positions, i));
+            // The same depth the scored pair used for SF19 builds (annotationDepth), so the runner-up
+            // comparison is never carried out at a shallower search than the scores beside it.
+            const extra = await eng.analyse(S.positions[i].fen, annotationDepth(), multipv, searchHistory(S.positions, i));
             if (!stillCurrent()) return;
             const search = annotationSearchFor(i, extra, multipv);
             if (search) res.annotationSearch = search;
@@ -8059,7 +8109,9 @@ async function annotateKeyMoves(engines, stillCurrent, max = KEY_MOVE_SEARCH_MAX
       // (that silently costs Great and a won-position Brilliant for every ply still queued).
       if (S.bests[i]) S.bests[i].annotationTried = true;
       try {
-        const extra = await eng.analyse(S.positions[i].fen, S.settings.engineDepth, 2, searchHistory(S.positions, i));
+        // Scored depth for SF19 builds (annotationDepth), so Great/Brilliant never compare a
+        // depth-22 reviewed pair with a shallower runner-up search.
+        const extra = await eng.analyse(S.positions[i].fen, annotationDepth(), 2, searchHistory(S.positions, i));
         if (!stillCurrent()) return;
         const search = annotationSearchFor(i, extra, 2);
         if (search && S.bests[i]) S.bests[i].annotationSearch = search;

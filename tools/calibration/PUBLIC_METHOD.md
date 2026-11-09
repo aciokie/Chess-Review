@@ -33,7 +33,7 @@ Only training observations fit coefficients. Development validation is consumed;
 it does not provide untouched final-test confirmation.
 
 Runtime admission requires current calibration metadata and a recognized engine;
-SF19 observations must use the fixed 20,000-node protocol. Each player's displayed
+SF19 observations must use the fixed depth-22 exact protocol (no node cap). Each player's displayed
 whole-game accuracy requires valid observations for every played move. Missing,
 malformed or stale observations do not become an average over an undisclosed
 excerpt. Valid individual move scores remain available. Fixed-node WDL rating
@@ -112,11 +112,12 @@ extrapolations, not established playing strength.
 
 SF18 retains its existing depth16 quality distribution. SF19 has its own model
 under `context.sf19`, reconstructed by `sf19-context.mjs` from the published
-`sf19-rating-evidence.json.gz`: 750 whole training games and 1,498 player-sides.
+`sf19-rating-evidence.json.gz`: 750 whole training games and 1,498 player-sides,
+observed at the depth-22 protocol.
 Its contextual quality is the arithmetic mean of
 `100 * (1 - max(0, E_WDL(best) - E_WDL(played)))` over nonforced decisions, with
 engine-top moves assigned zero loss. The reviewed game and peer games use exactly
-the same fixed-node WDL statistic. This statistic is separate from SF19's
+the same depth-22 WDL statistic. This statistic is separate from SF19's
 centipawn-based displayed accuracy; the SF18 quality distribution is never reused.
 WDL saturation can hide centipawn deterioration in already winning or lost positions.
 Standard-start history and complete, version-matched rating evidence are required
@@ -132,10 +133,11 @@ contain the training move evidence used to reconstruct these fixed recipes.
 At least ten nonforced decisions are required. The archive target is public
 blitz rating level; cross-platform transfer is unvalidated.
 
-Rating searches use 20,000 nodes, Hash32, full skill, cold history and restricted
+SF18 rating searches use 20,000 nodes, Hash32, full skill, cold history and restricted
 played-root evaluations. Selecting moves-only for SF18 adds these separate
 observations; it never feeds depth16 WDL into a fixed-node regression. SF19 uses
-its own fixed-node WDL observations for rating; no SF18 coefficients
+its own depth-22 WDL observations for rating (the same one-thread, cold, restricted
+protocol that scores its reviews); no SF18 coefficients
 are assigned to SF19. Its displayed accuracy is a separate estimate using the
 [Lichess public centipawn winning-chance curve](https://lichess.org/page/accuracy)
 and exponential move-accuracy transform, with the one-point search uncertainty
@@ -168,8 +170,11 @@ cache/settings migration, mate handling and annotation independence.
 The SF19 peer model uses the existing five game-disjoint training folds to select
 rating bandwidth. Each game's two sides stay together and have unit total weight.
 The baseline uses the same training-fold peers and weights, with no rating kernel.
-The selected model's CRPS is **2.11243352**, versus **2.21289067** for that baseline:
-**4.54% lower** distribution prediction error. CRPS measures how well the predicted
+At the depth-22 protocol the selected model's CRPS is **2.25618121**, versus
+**2.34856905** for that baseline: **3.93% lower** distribution prediction error.
+(The pre-depth-22 protocol's numbers were 2.11243352 / 2.21289067 / 4.54%; the
+absolute CRPS is not comparable across protocols because the WDL quality scale
+moved with the deeper search.) CRPS measures how well the predicted
 quality distribution matches the excluded games' observed quality; lower is better.
 These values concern the WDL quality distribution, not rating prediction error,
 and are not comparable to SF18's CRPS on a different quality scale. Bandwidth

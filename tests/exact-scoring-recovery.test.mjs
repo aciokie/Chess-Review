@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {Chess} from '../lib/chess.js';
 import {analyseCalibratedPosition} from '../lib/calibrated-search.js';
+import {SF19_DEPTH} from '../lib/scoring-builds.js';
 import {Engine} from '../engine/uci.js';
 const calibration=JSON.parse(await readFile(new URL('../data/calibration.json',import.meta.url)));
 for(const build of ['nnue','sf19lite']) {
@@ -32,7 +33,12 @@ test('unrelated search failures are not masked or retried',async()=>{
   assert.equal(calls,1);
 });
 
-test('actual browser scoring coordinator recovers a bundled SF19 bounded final PV',async t=>{
+// The real bundled engine through the real browser coordinator, on the scored depth-22 protocol:
+// the root search completes exactly, the played move (which the engine does not choose itself) is
+// searched restricted at the same depth, and the review carries the depth tag. (The fixed-node
+// protocol needed the recovery path for a bounded final PV; a completed depth-22 search answers
+// exactly by construction, and the two fake-engine tests above still cover the recovery logic.)
+test('actual browser scoring coordinator runs a complete depth-22 played search on bundled SF19',async t=>{
   const previous=globalThis.Worker;
   globalThis.Worker=class {
     commands=[];
@@ -49,10 +55,12 @@ test('actual browser scoring coordinator recovers a bundled SF19 bounded final P
   t.after(()=>{engine.terminate();globalThis.Worker=previous;});
   const moves='e2e4 c7c5 g1f3 e7e6 d2d4 c5d4 f3d4 g8f6 b1c3 b8c6'.split(' '),chess=new Chess(),initialFen=chess.fen();
   for(const move of moves)chess.move({from:move.slice(0,2),to:move.slice(2,4),promotion:move[4]});
-  const root=await analyseCalibratedPosition(engine,{fen:chess.fen(),history:{initialFen,moves},played:'c1f4',calibration,
+  const root=await analyseCalibratedPosition(engine,{fen:chess.fen(),history:{initialFen,moves},played:'h2h3',calibration,
     settings:{enginePath:'sf19lite',engineDepth:16,engineHash:32,engineSkill:20,classifyLines:1}});
-  assert.equal(root.bestmove,root.pv.split(' ')[0]);assert.equal(root.exactRecovery,true);
-  assert.ok(engine.worker.commands.includes('go nodes 20000 searchmoves c1f4'));
+  assert.equal(root.bestmove,root.pv.split(' ')[0]);
+  assert.notEqual(root.bestmove,'h2h3','the played move is not the engine choice, so the restricted search must run');
+  assert.ok(engine.worker.commands.includes(`go depth ${SF19_DEPTH} searchmoves h2h3`));
   assert.ok(root.lines.every(line=>line.bound==='exact'));
-  assert.equal(root.playedScore,root.score);
+  assert.ok(root.playedScore&&(Number.isFinite(root.playedScore.cp)||root.playedScore.mate!=null));
+  assert.equal(root.calibration.depth,SF19_DEPTH);
 });
