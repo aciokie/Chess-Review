@@ -2576,6 +2576,57 @@ function exportPanelLayout() {
   const url = window.URL.createObjectURL(blob), link = el("a", { href: url, download: "chess-review-layout.json" });
   document.body.append(link); link.click(); link.remove(); setTimeout(() => window.URL.revokeObjectURL(url), 1000);
 }
+// Read a file written by exportPanelLayout(). Its `layout` holds the expanded Accuracy baseline, the
+// same form saveLayout() stores. Panels missing from the file keep the current box; boxes for panels
+// this build has no module for are ignored the same way. A file that is not a layout, or that carries
+// an invalid box, is refused whole — never half-applied.
+function parsePanelLayout(data) {
+  if (!data || data.schema !== "chess-review-layout-v1" || !data.layout || typeof data.layout !== "object") return null;
+  // In production S.layout is always set before any UI exists; the fallback keeps the parser usable
+  // on a blank page and in the test harness, which runs the app without its startup.
+  const baseline = layoutForSave() || DEFAULT_LAYOUT, layout = {};
+  let found = 0;
+  for (const key of Object.keys(baseline)) {
+    const box = data.layout[key];
+    if (box === undefined) { layout[key] = structuredClone(baseline[key]); continue; }
+    const valid = box && ["x", "y", "w", "h"].every((p) => Number.isFinite(box[p])) && box.w > 0 && box.h > 0
+      && (box.scale === undefined || (Number.isFinite(box.scale) && box.scale > 0));
+    if (!valid) return null;
+    layout[key] = { x: box.x, y: box.y, w: box.w, h: box.h, ...(box.scale === undefined ? {} : { scale: box.scale }) };
+    found++;
+  }
+  return found ? { layout, layoutMode: data.layoutMode === "custom" ? "custom" : "auto" } : null;
+}
+async function applyPanelLayout(data) {
+  const imported = parsePanelLayout(data);
+  if (!imported) { toast("That file isn't a Chess Review panel layout."); return false; }
+  S._accReflow = null;
+  if (S.reorganize) toggleReorganize();   // an import replaces the arrangement; leave the canvas
+  S.layout = imported.layout;
+  S.layoutMode = imported.layoutMode;
+  applyLayoutMode();
+  saveLayout();
+  if (UI.settings && !UI.settings.hidden) renderSettings();
+  toast("Panel layout imported.");
+  return true;
+}
+// The file picker: a real <input type="file"> keeps the browser's own dialog, and the work happens
+// off the click path. `cancel` fires when the dialog is dismissed, so the throwaway input is removed.
+function importPanelLayout() {
+  const inp = el("input", { type: "file", accept: "application/json,.json", style: { display: "none" } });
+  inp.addEventListener("cancel", () => inp.remove());
+  inp.addEventListener("change", async () => {
+    const file = inp.files && inp.files[0];
+    inp.remove();
+    if (!file) return;
+    if (file.size > 1024 * 1024) { toast("That file is too large to be a panel layout."); return; }
+    let data = null;
+    try { data = JSON.parse(await file.text()); } catch {}
+    await applyPanelLayout(data);
+  });
+  document.body.append(inp);
+  inp.click();
+}
 function renderReorgBanner() {
   let banner = document.querySelector(".reorg-banner");
   if (!S.reorganize) { cleanupReorgToolbar?.(); cleanupReorgToolbar = null; banner?.remove(); return; }
@@ -6422,6 +6473,13 @@ function visualSettings() {
       el("button", { class: "set-reset reorg-toggle-btn", onclick: toggleReorganize }, S.reorganize ? "Done reorganizing" : "Reorganize panels"),
       el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Reorganize lets you drag and resize the panels, and your arrangement is saved. The layout bar's ✓ selects several panels to move or scale them together, and can export the arrangement. Reset layout goes back to the automatic layout that fits any window.")),
       el("button", { class: "set-reset", onclick: resetLayout }, "Reset layout"),
+      // Export/Import as one row: an arrangement can be filed, shared and read back. The Reorganize
+      // toolbar keeps its quick Export; this is the round-trip door (upstream groups them the same way).
+      el("div", { class: "set-row layout-file" },
+        el("span", { class: "set-lbl" }, "Layout file"),
+        el("div", { class: "set-button-pair" },
+          el("button", { class: "set-reset", title: "Save this panel arrangement as a file", onclick: exportPanelLayout }, "Export"),
+          el("button", { class: "set-reset", title: "Load a panel arrangement from an exported file", onclick: importPanelLayout }, "Import"))),
       el("button", { class: "set-reset", onclick: openScreenSizePreview }, "Preview at other screen sizes"),
       el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Opens a new tab that renders the review at desktop, laptop, tablet and phone sizes, with fit/actual views and rotation. The preview carries this game and your layout, and saves nothing.")),
     ),

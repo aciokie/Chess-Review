@@ -1186,6 +1186,9 @@ button { font-family: inherit; cursor: pointer; }
 /* a label with an explanation tooltip on hover */
 .set-lbl.has-info { cursor: default; text-decoration: underline dotted color-mix(in oklab, var(--ink-3) 70%, transparent); text-underline-offset: 3px; width: fit-content; }
 .set-note { font-size: 11px; color: var(--ink-3); line-height: 1.4; }
+/* Export/Import sit side by side in one row (the buttons otherwise stack full width). */
+.layout-file .set-button-pair { display: flex; gap: 6px; }
+.layout-file .set-button-pair .set-reset { flex: 1; margin-top: 0; }
 
 .set-select { width: 100%; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2);
   color: var(--ink); padding: 7px 9px; font-size: 12px; font-weight: 600; cursor: pointer; transition: .12s; }
