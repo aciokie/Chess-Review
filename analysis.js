@@ -411,13 +411,14 @@ const DEFAULT_SETTINGS = {
   soundVolume: 50,
   // Custom board colours (used when boardTheme === "custom" — the colour-picker chip, shown first).
   boardCustomLight: "#f9f9f9", boardCustomDark: "#e1a652",
-  // Per-event sound mapping + knobs (see FX_SOUNDS / SOUND_EVENTS). snd = an FX_SOUNDS id or "default"
-  // (the original cue); pitch in semitones; speed is a duration multiplier (1 = unchanged).
+  // Per-event sound mapping + knobs (see FX_SOUNDS / SOUND_EVENTS). snd = an FX_SOUNDS id, "default"
+  // (the original cue) or "none" (event silent); pitch in semitones; speed is a duration multiplier
+  // (1 = unchanged); volume is this event's share of the master volume (0–100).
   soundFx: {
-    move:    { snd: "default", pitch: 0, speed: 1 },
-    capture: { snd: "default", pitch: 0, speed: 1 },
-    check:   { snd: "default", pitch: 0, speed: 1 },
-    castle:  { snd: "default", pitch: 0, speed: 1 },
+    move:    { snd: "default", pitch: 0, speed: 1, volume: 100 },
+    capture: { snd: "default", pitch: 0, speed: 1, volume: 100 },
+    check:   { snd: "default", pitch: 0, speed: 1, volume: 100 },
+    castle:  { snd: "default", pitch: 0, speed: 1, volume: 100 },
   },
   // Best-move arrow (the engine's recommendation in the current position)
   bestArrow: true, bestArrowColor: "#85ae4a", arrowOpacity: 0.65, arrowShaft: 0.2, arrowHead: 0.4,
@@ -564,6 +565,12 @@ const ICONS = {
   library: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16M9 4v16M14 5l4 15M18.5 4.2 14 5"/></svg>`,
   info: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.6" r="0.4" fill="currentColor"/></svg>`,
   close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
+  // Settings-category icons (upstream's set).
+  palette: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1.6-3.2 1.8 1.8 0 0 1 1.4-2.9h1a4 4 0 0 0 4-4C21 6.5 17 3 12 3Z"/><circle cx="7.5" cy="10" r=".8"/><circle cx="10" cy="6.8" r=".8"/><circle cx="14" cy="6.8" r=".8"/><circle cx="17" cy="10" r=".8"/></svg>`,
+  chat: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11a8 8 0 0 1-8 8H5l-3 3V11a9.5 9.5 0 0 1 19 0Z"/><path d="M8 9h8M8 13h5"/></svg>`,
+  cpu: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4"/><rect x="10" y="10" width="4" height="4" rx="1"/></svg>`,
+  sound: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m11 4-5 4H3v8h3l5 4V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></svg>`,
+  code: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m7 7-5 5 5 5m10-10 5 5-5 5M14 4l-4 16"/></svg>`,
 };
 
 /* ---------------- DOM helper ---------------- */
@@ -675,11 +682,13 @@ const SOUND_EVENTS = [
 ];
 const _fxFileById = (id) => (FX_SOUNDS.find(([x]) => x === id) || [])[2] || null;
 const _eventDef = (ev) => SOUND_EVENTS.find(([k]) => k === ev) || SOUND_EVENTS[0];
-// Per-event config { snd, pitch, speed }, with safe fallbacks for old/missing stored settings.
+// Per-event config { snd, pitch, speed, volume }, with safe fallbacks for old/missing stored
+// settings. "none" is a valid choice: the event is silent.
 function fxConfig(ev) {
   const c = (S.settings.soundFx && S.settings.soundFx[ev]) || {};
-  const snd = c.snd === "default" || _fxFileById(c.snd) ? c.snd : "default";
-  return { snd, pitch: Number.isFinite(+c.pitch) ? +c.pitch : 0, speed: +c.speed > 0 ? +c.speed : 1 };
+  const snd = c.snd === "default" || c.snd === "none" || _fxFileById(c.snd) ? c.snd : "default";
+  return { snd, pitch: Number.isFinite(+c.pitch) ? +c.pitch : 0, speed: +c.speed > 0 ? +c.speed : 1,
+    volume: Number.isFinite(+c.volume) ? Math.max(0, Math.min(100, +c.volume)) : 100 };
 }
 function setFx(ev, field, val) {
   // Write fresh objects rather than mutating in place — S.settings.soundFx may still be aliased to the
@@ -689,9 +698,10 @@ function setFx(ev, field, val) {
   S.settings.soundFx = fx;
   browserAPI.storage.local.set({ settings: S.settings });
 }
-// Resolve an event's chosen sound to a packaged URL.
+// Resolve an event's chosen sound to a packaged URL (null when the event is switched off).
 function fxUrl(ev) {
   const cfg = fxConfig(ev);
+  if (cfg.snd === "none") return null;
   if (cfg.snd === "default") return _url(_eventDef(ev)[2]);
   return _url(_fxFileById(cfg.snd) || _eventDef(ev)[2]);
 }
@@ -778,12 +788,13 @@ function processedFx(url, pitch, speed) {
 function triggerFx(ev) {
   const ctx = audioCtx();
   if (!ctx) return;
-  if (ctx.state === "suspended") ctx.resume().catch(() => {});
   const cfg = fxConfig(ev);
+  if (cfg.snd === "none") return;               // this event is switched off
+  if (ctx.state === "suspended") ctx.resume().catch(() => {});
   processedFx(fxUrl(ev), cfg.pitch, cfg.speed).then((fx) => {
     const src = ctx.createBufferSource(), gain = ctx.createGain();
     src.buffer = fx.buffer; src.playbackRate.value = fx.rate;
-    gain.gain.value = masterVol();
+    gain.gain.value = masterVol() * (cfg.volume / 100);
     src.connect(gain).connect(ctx.destination);
     src.start();
   }).catch(() => {});
@@ -2125,9 +2136,10 @@ function buildUI() {
         } }, "⟳ Rescan"), libCount),
       libControls, libList),
   );
-  // Close any open library dropdown when clicking elsewhere.
+  // Close any open dropdown when clicking elsewhere (a settings category menu also hides its
+  // top-layer popover, or it would stay floating over the page).
   document.addEventListener("mousedown", (e) => {
-    if (!e.target.closest(".lib-dd-field")) document.querySelectorAll(".lib-dd-field.open").forEach((d) => d.classList.remove("open"));
+    if (!e.target.closest(".lib-dd-field")) closeOpenDropdowns();
   });
 
   // Floating "a review has not been saved" status with its retry button (see saveToLibrary).
@@ -6333,10 +6345,9 @@ const ARROW_SETTING_KEYS = ["bestArrow", "showThreat", "bestArrowColor", "arrowO
 const BACKGROUND_SETTING_KEYS = ["bg", "bgFit", "bgTile", "bgCustom", "bgHue", "bgSat", "bgLight"];
 const VISUAL_SETTING_KEYS = [
   "theme", "accent", "accentCustom", "density", "evalView", "mlStyle", "badgeStyle", "badgeScale",
-  "graphStyle", "graphDesign", "barStyle", "insightFont", "panelSizePct", "layoutGridSize", "showCoords", "coordSize", "boardFrame", "coordsOutside",
+  "graphStyle", "graphDesign", "barStyle", "panelSizePct", "layoutGridSize", "showCoords", "coordSize", "boardFrame", "coordsOutside",
   ...BACKGROUND_SETTING_KEYS,
-  "coach", "coachPlain", "boardTheme", "pieceStyle", "boardCustomLight", "boardCustomDark",
-  "sound", "soundVolume", "soundFx", ...ARROW_SETTING_KEYS,
+  "boardTheme", "pieceStyle", "boardCustomLight", "boardCustomDark", ...ARROW_SETTING_KEYS,
   "moveAnim", "animSpeed", "loaderStyle",
 ];
 function resetSettingKeys(keys) {
@@ -6358,13 +6369,73 @@ async function resetVisualSettings() {
   closeBoardColorPicker();
   delete S.settings.wrongSound; // remove obsolete saved choices from older versions
   await resetSettingKeys(VISUAL_SETTING_KEYS);
-  S.coach = null;
-  _ipSig = null;
-  if (S.practice) S.practice.coachTyped = false;
   resetLayout();
   applySettings(); buildBoard(); renderEvalBar(); renderGraph(); renderMoves();
   renderCoachAvatar(); renderReview(); renderStats(); renderControls();
   renderSettings();
+}
+// Review & Coach: the commentary and the character. The reset reloads the coach bank, so the default
+// personality comes back with its own voice settings.
+const REVIEW_SETTING_KEYS = ["coach", "coachPlain", "insightFont"];
+async function resetReviewSettings() {
+  await resetSettingKeys(REVIEW_SETTING_KEYS);
+  S.coach = null;
+  _ipSig = null;
+  if (S.practice) S.practice.coachTyped = false;
+  applySettings();
+  renderCoachAvatar(); renderReview();
+  if (UI.settings && !UI.settings.hidden) renderSettings();
+}
+function reviewSettings() {
+  return el("div", {},
+    section("Coach",
+      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Who appears and narrates. Switch any time — the new coach picks up right where you are.")),
+      coachPicker(),
+      el("div", { class: "set-row" },
+        setLabel("Special replies", "On = the coach narrates in their own voice. Off = neutral, plain commentary (the coach still appears and reacts on the board)."),
+        el("div", { class: "set-seg" },
+          el("button", { class: !S.settings.coachPlain ? "on" : "", onclick: () => setCoachPlain(false) }, "On"),
+          el("button", { class: S.settings.coachPlain ? "on" : "", onclick: () => setCoachPlain(true) }, "Off"),
+        ),
+      ),
+    ),
+    section("Insights",
+      slider("Text size", "insightFont", 11, 25, 1, {
+        fmt: (v) => v + " px",
+        onChange: (v) => document.documentElement.style.setProperty("--ip-font", v + "px"),
+      }),
+      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Font size of the move commentary in the Insight panel.")),
+    ),
+    el("button", { class: "set-reset", onclick: resetReviewSettings }, "Reset all Review & Coach settings"),
+  );
+}
+// Sound: one collapsible section per board event, so the list stays readable (upstream's layout).
+const SOUND_SETTING_KEYS = ["sound", "soundVolume", "soundFx"];
+async function resetSoundSettings() {
+  await resetSettingKeys(SOUND_SETTING_KEYS);
+  if (UI.settings && !UI.settings.hidden) renderSettings();
+}
+function soundSettings() {
+  return el("div", {},
+    section("General",
+      toggleRow("Sound effects", "sound"),
+      slider("Master volume", "soundVolume", 0, 100, 1, { fmt: (v) => v + " %" }),
+    ),
+    el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Pick a sound for each board event, then shape it with the volume, pitch and speed knobs. Changes preview as you make them.")),
+    ...SOUND_EVENTS.map(([key, label]) => section(label, fxEventControls(key, label))),
+    el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "A missed practice move plays the Incorrect cue.")),
+    el("button", { class: "set-reset", onclick: resetSoundSettings }, "Reset all sound settings"),
+  );
+}
+// Developer tools: things that show the workspace rather than change it (upstream keeps the
+// screen-size preview here, out of the day-to-day settings).
+function developerSettings() {
+  return el("div", {},
+    section("Screen-size preview",
+      el("button", { class: "set-reset", onclick: openScreenSizePreview }, "Open screen-size preview"),
+      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Opens a new tab that renders the review at desktop, laptop, tablet and phone sizes, with fit/actual views and rotation. The preview carries this game and your layout, and saves nothing.")),
+    ),
+  );
 }
 // Controls for the "Background" section: preset/custom picker, fit mode, tile size, upload button.
 function bgControls() {
@@ -6480,8 +6551,6 @@ function visualSettings() {
         el("div", { class: "set-button-pair" },
           el("button", { class: "set-reset", title: "Save this panel arrangement as a file", onclick: exportPanelLayout }, "Export"),
           el("button", { class: "set-reset", title: "Load a panel arrangement from an exported file", onclick: importPanelLayout }, "Import"))),
-      el("button", { class: "set-reset", onclick: openScreenSizePreview }, "Preview at other screen sizes"),
-      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Opens a new tab that renders the review at desktop, laptop, tablet and phone sizes, with fit/actual views and rotation. The preview carries this game and your layout, and saves nothing.")),
     ),
     section("Move list",
       seg("Style", "mlStyle", ["rows", "cards", "compact"]),
@@ -6491,33 +6560,8 @@ function visualSettings() {
         onChange: (v) => document.documentElement.style.setProperty("--badge-scale", v),
       }),
     ),
-    section("Coach",
-      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Who appears and narrates. Switch any time — the new coach picks up right where you are.")),
-      coachPicker(),
-      el("div", { class: "set-row" },
-        setLabel("Special replies", "On = the coach narrates in their own voice. Off = neutral, plain commentary (the coach still appears and reacts on the board)."),
-        el("div", { class: "set-seg" },
-          el("button", { class: !S.settings.coachPlain ? "on" : "", onclick: () => setCoachPlain(false) }, "On"),
-          el("button", { class: S.settings.coachPlain ? "on" : "", onclick: () => setCoachPlain(true) }, "Off"),
-        ),
-      ),
-    ),
     section("Background", ...bgControls()),
-    section("Insights",
-      slider("Text size", "insightFont", 11, 25, 1, {
-        fmt: (v) => v + " px",
-        onChange: (v) => document.documentElement.style.setProperty("--ip-font", v + "px"),
-      }),
-      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Font size of the move commentary in the Insight panel.")),
-    ),
-    section("Sound",
-      toggleRow("Move sound", "sound"),
-      slider("Volume", "soundVolume", 0, 100, 1, { fmt: (v) => v + " %" }),
-      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Pick a sound for each board event, then shape it with the pitch and speed knobs. Changes preview as you make them.")),
-      ...SOUND_EVENTS.map(([key, label]) => fxEventControls(key, label)),
-      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "A missed practice move plays the Incorrect cue.")),
-    ),
-    el("button", { class: "set-reset", onclick: resetVisualSettings }, "Reset to default"),
+    el("button", { class: "set-reset", onclick: resetVisualSettings }, "Reset all visual settings"),
   );
 }
 // Coach personality dropdown — only personalities that have a built animated character. Uses the
@@ -6529,19 +6573,20 @@ function coachPicker() {
   return el("div", { class: "set-row" }, el("span", { class: "set-lbl" }, "Personality"),
     ddField(cur, opts, (v) => setCoach(v)));
 }
-// Controls for one board event: a sound dropdown (the 9 base sounds + the original cue) plus pitch and
-// speed knobs. Everything previews on change. The dropdown re-renders the panel so its label updates;
-// the sliders save + preview live without a rebuild (so the drag isn't interrupted).
+// Controls for one board event: a sound dropdown (the 9 base sounds, the original cue or Off) plus
+// volume, pitch and speed knobs. Everything previews on change. The dropdown re-renders the panel so
+// its label updates; the sliders save + preview live without a rebuild (so the drag isn't interrupted).
 function fxEventControls(ev, label) {
   const cfg = fxConfig(ev);
-  const opts = [["default", "Lichess"], ...FX_SOUNDS.map(([id, l]) => [id, l])];
+  const opts = [["default", "Lichess"], ...FX_SOUNDS.map(([id, l]) => [id, l]), ["none", "Off"]];
   return el("div", { class: "set-fx" },
-    el("div", { class: "set-row" }, el("span", { class: "set-lbl" }, label),
+    el("div", { class: "set-row" }, el("span", { class: "set-lbl" }, "Sound"),
       ddField(cfg.snd, opts, (v) => {
         setFx(ev, "snd", v);
         triggerFx(ev);
         if (UI.settings && !UI.settings.hidden) renderSettings();
       })),
+    fxSlider(ev, "volume", "Volume", 0, 100, 1, (v) => v + " %"),
     fxSlider(ev, "pitch", "Pitch", -12, 12, 1, (v) => (v > 0 ? "+" : "") + v + " st"),
     fxSlider(ev, "speed", "Speed", 0.5, 2, 0.05, (v) => (+v).toFixed(2) + "×"),
   );
@@ -6784,17 +6829,84 @@ function motorSettings() {
       el("div", { class: "set-row hint" },
         el("span", { class: "set-note" }, "Engine build & search options. Changes here re-analyze the game.")),
     ),
-    el("button", { class: "set-reset", onclick: resetEngineSettings }, "Reset to default"),
+    el("button", { class: "set-reset", onclick: resetEngineSettings }, "Reset all engine settings"),
   );
 }
-function renderSettings() {
+// The settings categories (upstream's navigation): one icon-led picker instead of a tab row, so the
+// panel can grow without the tabs overflowing. Each category adds its own sections and its own
+// "reset all" button.
+const SETTINGS_CATEGORIES = [
+  { id: "visual", label: "Visual", description: "Make the workspace yours", icon: "palette", render: visualSettings },
+  { id: "review", label: "Review & Coach", description: "Commentary, character & reactions", icon: "chat", render: reviewSettings },
+  { id: "engine", label: "Engine", description: "Analysis power & rating estimates", icon: "cpu", render: motorSettings },
+  { id: "sound", label: "Sound", description: "Every move, your sound", icon: "sound", render: soundSettings },
+  { id: "developer", label: "Developer tools", description: "Screen previews & layout files", icon: "code", render: developerSettings },
+];
+const settingsScroll = new Map();
+function selectSettingsCategory(id) {
+  if (!SETTINGS_CATEGORIES.some((category) => category.id === id)) return;
+  const changed = S.settingsTab !== id;
+  settingsScroll.set(S.settingsTab, UI.settings.scrollTop);
+  // Sections start closed again when the viewer really moves to another category (upstream keeps
+  // this overview behaviour; a setting change in the same category keeps the opened ones).
+  if (changed) for (const title of Object.keys(S.setOpen)) S.setOpen[title] = false;
+  S.settingsTab = id;
+  renderSettings(changed);
+  UI.settings.scrollTop = settingsScroll.get(id) || 0;
+  UI.settings.querySelector(".set-category .lib-dd-btn")?.focus({ preventScroll: true });
+}
+// The category picker: one dropdown carrying the current category's icon, name and description.
+function settingsCategoryPicker() {
+  const current = SETTINGS_CATEGORIES.find((category) => category.id === S.settingsTab) || SETTINGS_CATEGORIES[0];
+  const choice = (id, label) => {
+    const category = SETTINGS_CATEGORIES.find((item) => item.id === id);
+    return el("span", { class: "set-category-choice" },
+      el("span", { class: "set-category-icon", "aria-hidden": "true" }, icon(category.icon)),
+      el("span", { class: "set-category-copy" }, el("span", { class: "set-category-name" }, label),
+        el("span", { class: "set-category-description" }, category.description)));
+  };
+  const field = ddField(S.settingsTab, SETTINGS_CATEGORIES.map(({ id, label }) => [id, label]), selectSettingsCategory, choice);
+  field.classList.add("set-category");
+  const button = field.querySelector(".lib-dd-btn"), menu = field.querySelector(".lib-dd-menu");
+  button.setAttribute("aria-label", "Settings category: " + current.label);
+  button.setAttribute("aria-haspopup", "menu");
+  button.setAttribute("aria-controls", "settingsCategoryMenu");
+  menu.id = "settingsCategoryMenu"; menu.setAttribute("role", "menu"); menu.setAttribute("aria-label", "Settings categories");
+  // The top layer keeps this overlay outside the scrolling panel's clipping bounds.
+  if (menu.showPopover) menu.setAttribute("popover", "manual");
+  [...menu.children].forEach((option, index) => {
+    const category = SETTINGS_CATEGORIES[index];
+    option.dataset.category = category.id;
+    option.setAttribute("role", "menuitemradio");
+    option.setAttribute("aria-checked", String(category.id === S.settingsTab));
+    option.setAttribute("tabindex", "-1");
+    option.setAttribute("aria-controls", "settingsCategoryContent");
+    option.append(el("span", { class: "set-category-check", "aria-hidden": "true" }, category.id === S.settingsTab ? "✓" : ""));
+  });
+  field.addEventListener("focusout", (event) => {
+    // During native pointer focus changes activeElement can briefly be body; relatedTarget keeps the
+    // menu open while focus moves into it.
+    if (field.contains(event.relatedTarget)) return;
+    field.classList.remove("open");
+    button.setAttribute("aria-expanded", "false");
+    field.querySelector(".lib-dd-menu[popover]")?.hidePopover?.();
+  });
+  return field;
+}
+function renderSettings(animate = false) {
   closeArrowColorPicker();
+  const category = SETTINGS_CATEGORIES.find((item) => item.id === S.settingsTab) || SETTINGS_CATEGORIES[0];
+  S.settingsTab = category.id;
   const scroll = UI.settings.scrollTop; // keep scroll position when a setting changes
-  const tabs = el("div", { class: "set-tabs" },
-    el("button", { class: "set-tab" + (S.settingsTab === "visual" ? " on" : ""), onclick: () => { S.settingsTab = "visual"; renderSettings(); } }, "Visual"),
-    el("button", { class: "set-tab" + (S.settingsTab === "engine" ? " on" : ""), onclick: () => { S.settingsTab = "engine"; renderSettings(); } }, "Engine"),
-  );
-  UI.settings.replaceChildren(tabs, S.settingsTab === "engine" ? motorSettings() : visualSettings());
+  const content = category.render();
+  content.id = "settingsCategoryContent";
+  content.classList.add("set-category-content");
+  content.setAttribute("role", "region");
+  content.setAttribute("aria-label", category.label + " settings");
+  // A short entrance cascade when switching category; reduced-motion users get it via CSS opt-out.
+  content.dataset.enter = String(animate);
+  [...content.children].forEach((child, index) => child.style.setProperty("--set-order", Math.min(index, 5)));
+  UI.settings.replaceChildren(settingsCategoryPicker(), content);
   UI.settings.scrollTop = scroll;
   positionSettings();
 }
@@ -6804,9 +6916,13 @@ function positionSettings() {
   // offset to the analysis panels made it drift left on wide windows and briefly reuse
   // stale panel geometry when the automatic/custom layout was reset.
   UI.settings.style.right = window.innerWidth <= 520 ? "" : "24px";
+  // An open category menu lives in the top layer; keep it under its button.
+  const picker = UI.settings.querySelector(".set-category.open");
+  if (picker) positionSettingsDropdown(picker);
 }
 async function toggleSettings() {
   closeArrowColorPicker();
+  closeOpenDropdowns();
   UI.settings.hidden = !UI.settings.hidden;
   if (!UI.settings.hidden) renderSettings();
 }
@@ -7775,20 +7891,43 @@ async function rescanLibraryForBrilliants(onProgress) {
 // [[value, label], …]. Clicking outside closes it (handled by a global listener in buildUI).
 // ddField is the standalone control (button + menu); libDropdown wraps it with an inline label for
 // the library rail, and the settings panel reuses ddField on its own so its menus match (no blue).
-function ddField(value, options, onChange) {
-  const current = (options.find(([v]) => v === value) || options[0] || ["", "—"])[1];
+function ddField(value, options, onChange, renderOption = null) {
+  const selected = options.find(([v]) => v === value) || options[0] || ["", "—"];
   const menu = el("div", { class: "lib-dd-menu" },
     ...options.map(([v, t]) => el("button", { class: "lib-dd-opt" + (v === value ? " sel" : ""),
-      onclick: (e) => { e.stopPropagation(); onChange(v); } }, t)));
+      onclick: (e) => { e.stopPropagation(); onChange(v); } }, renderOption ? renderOption(v, t) : t)));
   const field = el("div", { class: "lib-dd-field" },
     el("button", { class: "lib-dd-btn", onclick: (e) => {
       e.stopPropagation();
       const willOpen = !field.classList.contains("open");
-      document.querySelectorAll(".lib-dd-field.open").forEach((d) => d.classList.remove("open"));
+      closeOpenDropdowns();
       field.classList.toggle("open", willOpen);
-    } }, el("span", { class: "lib-dd-cur" }, current), el("span", { class: "lib-dd-chev", html: ICONS.chevron })),
+      if (willOpen) positionSettingsDropdown(field);
+    } }, el("span", { class: "lib-dd-cur" }, renderOption ? renderOption(selected[0], selected[1]) : selected[1]),
+      el("span", { class: "lib-dd-chev", html: ICONS.chevron })),
     menu);
   return field;
+}
+// Close every open themed dropdown — and any top-layer menu a settings picker left open.
+function closeOpenDropdowns() {
+  document.querySelectorAll(".lib-dd-field.open").forEach((d) => {
+    d.classList.remove("open");
+    d.querySelector(".lib-dd-menu[popover]")?.hidePopover?.();
+  });
+}
+// Settings category menus open in the top layer so the scrolling panel cannot clip them; setting the
+// fixed coordinates directly is the fallback where popover is unavailable (and in tests).
+function positionSettingsDropdown(field) {
+  if (!field.classList.contains("set-category")) return;
+  const menu = field.querySelector(".lib-dd-menu");
+  if (!menu) return;
+  let popoverOpen = false;
+  try { popoverOpen = !!menu.matches(":popover-open"); } catch {}
+  if (menu.showPopover && !popoverOpen) menu.showPopover();
+  const rect = field.getBoundingClientRect();
+  menu.style.left = rect.left + "px";
+  menu.style.top = rect.bottom + 6 + "px";
+  menu.style.width = rect.width + "px";
 }
 function libDropdown(label, value, options, onChange) {
   return el("div", { class: "lib-dd" }, el("span", { class: "lib-dd-lbl" }, label), ddField(value, options, onChange));
