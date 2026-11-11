@@ -21,6 +21,8 @@ import { libraryFlip } from "./lib/library-seat.js";
 import { fullHdReferenceLayout, panelScale } from "./lib/full-hd-layout.js";
 import { panelGroupBounds, scalePanelGroup, movePanelGroup } from "./lib/panel-layout.js";
 import { createAccuracyNavigation } from "./lib/accuracy-navigation.js";
+import { PANEL_DESIGNS, panelDesign, normalizePanelDesigns } from "./lib/panel-designs.js";
+import { UI_SETUPS } from "./lib/ui-setups.js";
 
 // Development-only diagnostics for game identity / cache routing. Silent in production; enable by
 // opening the page with ?debug (analysis.html?debug#<job>) or setting globalThis.CHESS_REVIEW_DEBUG.
@@ -380,7 +382,11 @@ const DEFAULT_SETTINGS = {
   theme: "dark", accent: "#7fb45f", accentCustom: "#9b72d0", density: "compact",
   evalView: "both", mlStyle: "rows", badgeStyle: "icon", badgeScale: 1,
   // Eval-graph look (see renderGraph), eval-BAR look (see renderEvalBar) and the Insight-panel text size (px).
-  graphStyle: "area", graphDesign: "bars3", barStyle: "gradient", insightFont: 18,
+  graphStyle: "area", barStyle: "flat2", insightFont: 18,
+  // Panel design choices (lib/panel-designs.js) and which premade setup last selected them: picking
+  // an individual design (or importing a layout) marks the setup "Custom".
+  ...Object.fromEntries(PANEL_DESIGNS.map((design) => [design.setting, design.default])),
+  uiSetup: "custom",
   // Panel area width as a percentage of the board in the automatic layout (two columns). 75 keeps
   // the board dominant; raising it lets the panels take the window's leftover width.
   panelSizePct: 75,
@@ -2618,6 +2624,8 @@ async function applyPanelLayout(data) {
   S.layoutMode = imported.layoutMode;
   applyLayoutMode();
   saveLayout();
+  // An imported arrangement is a custom choice; a premade setup no longer describes this interface.
+  if (S.settings.uiSetup !== "custom") { S.settings.uiSetup = "custom"; browserAPI.storage.local.set({ settings: S.settings }); }
   if (UI.settings && !UI.settings.hidden) renderSettings();
   toast("Panel layout imported.");
   return true;
@@ -3930,9 +3938,13 @@ function renderEvalBar() {
   const clamp = Math.max(-600, Math.min(600, cp));
   const whiteShare = e.mate != null ? (e.mate > 0 ? 100 : 0) : 50 + (clamp / 600) * 46;
   bar.title = "Eval " + evalText(e);
+  const text = evalBarText(e);
+  // The score font scales with the bar's own width (container query) and the reading's length, so a
+  // long score (e.g. "+12.3" or "M12") never overflows the rail (upstream's --score-chars).
+  bar.style.setProperty("--score-chars", String(text.length));
   bar.querySelector(".white-fill").style.height = whiteShare + "%";
-  bar.querySelector(".score.top").textContent = cp < 0 ? evalBarText(e) : "";
-  bar.querySelector(".score.bot").textContent = cp >= 0 ? evalBarText(e) : "";
+  bar.querySelector(".score.top").textContent = cp < 0 ? text : "";
+  bar.querySelector(".score.bot").textContent = cp >= 0 ? text : "";
 }
 
 /* ---------------- Player strips ---------------- */
@@ -5140,13 +5152,14 @@ function fitGraphFoot() {
   if (S.layout.graph && S.layout.graph.h !== h) { S.layout.graph.h = h; growCanvas(); }
   mod.style.height = h + "px";
 }
-// Upstream's graph designs (lib/panel-designs.js): "original" keeps the classic curve (graphStyle:
-// area / line / color / minimal); the modern designs replace it with their own drawing — the Move
-// bars (v1–v4) and the timeline fields whose HTML overlay keeps the move dots round.
-const GRAPH_DESIGNS = ["original", "timeline", "bars", "bars2", "bars3", "bars4", "minimal"];
+// The graph's design comes from the shared registry (lib/panel-designs.js): the menu offers
+// Default (bars3), Original, Timeline and Colored bars. "original" keeps the classic curve
+// (graphStyle: area / line / color / minimal); the modern designs replace it with their own drawing
+// — the Move bars and the timeline fields whose HTML overlay keeps the move dots round — and this
+// fork's earlier stand-in values (bars / bars2 / minimal) remain renderable for saved reviews and
+// migrate on load.
 function graphDesign() {
-  const value = S.settings.graphDesign;
-  return GRAPH_DESIGNS.includes(value) ? value : "bars3";
+  return panelDesign("graph", S.settings);
 }
 function graphPositionText(ply) {
   if (!ply) return "Starting position";
@@ -5471,7 +5484,19 @@ function highlightCurrentMove(forceScroll = false) {
 let _movesSig = null;
 let _movesClassSig = null;
 let _varSig = null;
+// The move-list design lives in the panel's data-design attribute; the stylesheet hides the
+// heading/footer for the modern designs (upstream removes those nodes — this fork's fixed skeleton
+// is switched by CSS instead, which keeps the count element alive for the analysis flush).
+function updateMovesDesign() {
+  const panel = UI.movesBody?.closest(".moves-panel");
+  if (!panel) return;
+  const design = panelDesign("moves", S.settings);
+  if (panel.dataset.design === design) return;
+  panel.dataset.design = design;
+  highlightCurrentMove(true);
+}
 function renderMoves() {
+  updateMovesDesign();
   const isExplore = S.meta?.explore === true;
   if (isExplore && S.variation) {
     // In explore mode, show the variation moves
@@ -5633,9 +5658,52 @@ function renderVarBlocks() {
 
 /* ---------------- Engine lines ---------------- */
 
+// Focus and Minimal share the variation controls; Minimal moves playback into the header and adds
+// the add/remove-line buttons (upstream's engine designs; "minimal" is the Modern setup's choice).
+function focusedEnginePanel(content, { locked = false, playable = false } = {}) {
+  const name = activeEngineName();
+  const minimal = panelDesign("engine", S.settings) === "minimal";
+  const count = Math.max(1, S.settings.engineLines || 1);
+  const limit = ENGINE_MAX_LINES;
+  const lineControl = (delta, label) => el("button", {
+    type: "button", class: delta > 0 ? "engine-minimal-add" : "engine-minimal-remove",
+    disabled: locked || (delta > 0 ? !playable : false),
+    "aria-label": delta > 0 ? "Add another engine line" : "Remove the last engine line",
+    onclick: async (e) => {
+      e.currentTarget.disabled = true;
+      await setEngineSetting("engineLines", Math.max(1, Math.min(limit, count + delta)));
+      const target = UI.engine.querySelector(delta > 0 ? ".engine-minimal-add" : ".engine-minimal-remove")
+        || UI.engine.querySelector(".engine-minimal-controls button");
+      target?.focus({ preventScroll: true });
+    },
+  }, label);
+  const play = el("button", { type: "button", class: "engine-focus-play" + (S.bestWalking ? " on" : ""),
+    disabled: locked || (!playable && !S.bestWalking),
+    "aria-label": S.bestWalking ? "Stop playing best moves" : "Play best moves from this position",
+    onclick: () => { if (S.bestWalking) { stopBestWalk(); renderControls(); renderEngineCurrent(); } else playBestMoves(); },
+  }, minimal ? (S.bestWalking ? "■" : "▶") : S.bestWalking ? "■ Stop" : "▶ Play best moves from here");
+  const panel = el("div", { class: "panel engine-focus" + (minimal ? " engine-minimal" : ""),
+    "data-design": minimal ? "minimal" : "focus", "aria-label": "Engine" },
+    el("div", { class: "panel-head engine-focus-head" }, el("h3", {}, "Engine"),
+      el("span", { class: "count", title: locked ? "Engine lines are hidden during practice" : name + " · target search depth " + S.settings.engineDepth },
+        locked ? "Practice" : minimal ? "Depth " + S.settings.engineDepth : name + " · depth " + S.settings.engineDepth),
+      minimal ? play : null),
+    el("div", { class: "panel-body engine-body" }, content,
+      minimal ? el("div", { class: "engine-minimal-controls" },
+        count > 1 ? lineControl(-1, "− Remove line") : null,
+        count < limit ? lineControl(1, "+ Add line") : null) : null),
+    minimal ? null : el("div", { class: "engine-focus-foot" }, play));
+  UI.engine.replaceChildren(panel);
+  fitEnginePanel();
+}
 // While solving a practice position, the engine lines would give the answer away → hide them.
 function renderEnginePractice() {
   UI.engineRenderKey = null;                 // whatever the normal panel rendered is no longer shown
+  if (panelDesign("engine", S.settings) !== "original") {
+    focusedEnginePanel(el("div", { class: "engine-empty", role: "status" },
+      "Find a stronger move — engine lines are hidden until you solve it."), { locked: true });
+    return;
+  }
   UI.engine.replaceChildren(el("div", { class: "panel" },
     el("div", { class: "panel-head" }, el("h3", {}, "Engine"), el("span", { class: "count" }, "Practice")),
     el("div", { class: "panel-body engine-body" },
@@ -5893,7 +5961,10 @@ function fitEnginePanel() {
 }
 function renderEngine(lines, padFromCache = false) {
   const curFen = activePos().fen;
-  const want = S.settings.engineLines;
+  // The engine panel's design (lib/panel-designs.js): "original" is the classic panel, "minimal"
+  // (the Modern setup) shrinks each candidate to one line with the controls in the header.
+  const design = panelDesign("engine", S.settings), focus = design !== "original";
+  const want = Math.max(1, S.settings.engineLines || 1);
   // The last full set of real lines we rendered, kept (with the fen they were computed for, so the
   // SAN stays correct) to fill slots that the new position hasn't searched yet — and to hold the
   // panel steady while the engine re-computes (lines === null, e.g. "Play best moves from here").
@@ -5901,7 +5972,7 @@ function renderEngine(lines, padFromCache = false) {
   // The panel is rebuilt on every navigation and every analysis flush, but its content only depends
   // on the lines for the shown position and a few labels - so an unchanged panel is left mounted
   // (upstream 852839b4 keeps unchanged engine panels for the same reason).
-  const renderKey = JSON.stringify([curFen, lines, padFromCache, want, S.settings.engineDepth,
+  const renderKey = JSON.stringify([design, curFen, lines, padFromCache, want, S.settings.engineDepth,
     activeEngineName(), S.bestWalking, S.liveError || null]);
   if (UI.engineRenderKey === renderKey && UI.engine.firstChild?.isConnected) return;
   UI.engineRenderKey = renderKey;
@@ -5929,14 +6000,34 @@ function renderEngine(lines, padFromCache = false) {
     // don't wipe the previous second line we still want to show.
     if (cur.length >= want) S._lastEngineLines = { lines: cur, fen: curFen };
     body = el("div", {},
-      ...slots.map((slot) => {
+      ...slots.map((slot, index) => {
         // Empty slot (a forced move with no second line, etc.) → a blank row of the same height so
         // the panel keeps the size of `want` lines and never resizes between moves.
-        if (!slot) return el("div", { class: "engine-line" }, el("span", { class: "ev" }, " "), el("span", { class: "moves" }, " "));
+        if (!slot) return focus ? el("div", { class: "engine-focus-pending", role: "status" },
+          padFromCache ? "Finding another line…" : "No other candidate")
+          : el("div", { class: "engine-line" }, el("span", { class: "ev" }, " "), el("span", { class: "moves" }, " "));
         const { l, fen } = slot;
         const wr = whiteRel(l.score, fen); const cp = scoreToCp(wr);
         const evTxt = wr.mate != null ? evalText(wr) : (cp >= 0 ? "+" : "") + (cp / 100).toFixed(2);
         const toks = uciLineToSan(fen, (l.pv || "").split(/\s+/).filter(Boolean), 6);
+        if (focus) {
+          // Score on the left, notation on the right (upstream's focus rows). Click a row → play the
+          // whole line out as a variation, like the classic rows.
+          const moves = [...toks];
+          if (moves.length && fen.split(" ")[1] === "b") moves[0] = fen.split(" ")[5] + "… " + moves[0];
+          const evaluation = wr.mate != null ? `${cp >= 0 ? "White" : "Black"} can force mate in ${Math.abs(wr.mate)}`
+            : cp === 0 ? "Equal position" : `${cp > 0 ? "White" : "Black"} has an advantage of ${Math.abs(cp / 100).toFixed(2)} pawns`;
+          return el("button", { type: "button", class: "engine-focus-candidate", disabled: !moves.length,
+            "aria-label": `${index === 0 ? "Best line" : "Alternative " + (index + 1)}: ${moves.join(" ")}. ${evaluation}. Explore variation.`,
+            onclick: () => playLine(l.pv) },
+            el("span", { class: "ev engine-focus-eval " + (cp >= 0 ? "pos" : "neg") }, evTxt),
+            el("span", { class: "moves engine-focus-variation" }, ...moves.flatMap((move, i) => {
+              const number = move.match(/^\d+[.…]\s*/)?.[0] || "";
+              return [el("span", { class: "engine-focus-token" },
+                number ? el("span", { class: "engine-focus-number" }, number) : null,
+                el(i === 0 ? "strong" : "span", {}, move.slice(number.length))), " "];
+            })));
+        }
         // Click a line → play the whole line out as a variation (analysis mode).
         return el("div", { class: "engine-line clickable", onclick: () => playLine(l.pv) },
           el("span", { class: "ev " + (cp >= 0 ? "pos" : "neg") }, evTxt),
@@ -5948,6 +6039,12 @@ function renderEngine(lines, padFromCache = false) {
   // "Play best moves from here": re-analyzes each position and plays the engine's actual best
   // move until mate/draw (or until the user takes over). Not a fixed line — so the moves are
   // always the genuine best, unlike an engine line's (unreliable) tail.
+  if (focus) {
+    const playable = !S.liveError && lines?.length !== 0
+      && !!(lines?.some((line) => line.pv?.trim()) || cached?.lines?.some((line) => line.pv?.trim()));
+    focusedEnginePanel(el("div", { class: "engine-candidates" }, body), { playable });
+    return;
+  }
   const bestWalkBtn = el("button", {
     class: "engine-bestwalk" + (S.bestWalking ? " on" : ""),
     onclick: () => { if (S.bestWalking) { stopBestWalk(); renderControls(); renderEngineCurrent(); } else playBestMoves(); },
@@ -5955,7 +6052,7 @@ function renderEngine(lines, padFromCache = false) {
   UI.engine.replaceChildren(el("div", { class: "panel" },
     el("div", { class: "panel-head" }, el("h3", {}, "Engine"),
       el("span", { class: "count" }, `${activeEngineName()} · depth ${S.settings.engineDepth}`)),
-    el("div", { class: "panel-body engine-body" }, body, bestWalkBtn),
+    el("div", { class: "panel-body engine-body" }, el("div", { class: "engine-candidates" }, body), bestWalkBtn),
   ));
   fitEnginePanel();
 }
@@ -6345,7 +6442,8 @@ const ARROW_SETTING_KEYS = ["bestArrow", "showThreat", "bestArrowColor", "arrowO
 const BACKGROUND_SETTING_KEYS = ["bg", "bgFit", "bgTile", "bgCustom", "bgHue", "bgSat", "bgLight"];
 const VISUAL_SETTING_KEYS = [
   "theme", "accent", "accentCustom", "density", "evalView", "mlStyle", "badgeStyle", "badgeScale",
-  "graphStyle", "graphDesign", "barStyle", "panelSizePct", "layoutGridSize", "showCoords", "coordSize", "boardFrame", "coordsOutside",
+  "graphStyle", "barStyle", "uiSetup", ...PANEL_DESIGNS.map((design) => design.setting),
+  "panelSizePct", "layoutGridSize", "showCoords", "coordSize", "boardFrame", "coordsOutside",
   ...BACKGROUND_SETTING_KEYS,
   "boardTheme", "pieceStyle", "boardCustomLight", "boardCustomDark", ...ARROW_SETTING_KEYS,
   "moveAnim", "animSpeed", "loaderStyle",
@@ -6437,6 +6535,53 @@ function developerSettings() {
     ),
   );
 }
+/* ---------------- Panel designs & interface setups ---------------- */
+// A design choice repaints its panel and no longer matches a premade setup, so the setup label
+// follows the same rule as upstream: it becomes "Custom" the moment the designs stop matching.
+function markUiSetupCustom() {
+  if (S.settings.uiSetup === "custom") return;
+  const setup = UI_SETUPS[S.settings.uiSetup];
+  if (setup?.designs && Object.entries(setup.designs).every(([key, value]) => S.settings[key] === value)) return;
+  S.settings.uiSetup = "custom";
+}
+function setDesignSetting(setting, value) {
+  const design = PANEL_DESIGNS.find((item) => item.setting === setting);
+  if (!design) return;
+  S.settings[setting] = design.versions.some((version) => version.id === value) ? value : design.default;
+  markUiSetupCustom();
+  browserAPI.storage.local.set({ settings: S.settings });
+  // Repaint just the panel the choice belongs to (plus the canvas, where the panel's size changes).
+  if (setting === "graphDesign") renderGraph();
+  if (setting === "movesDesign") renderMoves();
+  if (setting === "engineDesign") { UI.engineRenderKey = null; renderEngineCurrent(); applyLayout(); }
+  if (setting === "evalbarDesign") renderEvalBar();
+  if (UI.settings && !UI.settings.hidden) renderSettings();
+}
+// A premade setup selects every panel design at once. The arrangement is deliberately untouched:
+// this fork's automatic composition already places the panels the way upstream's Modern layout does,
+// and Reorganize / the layout file own the arrangement.
+function applyUiSetup(id) {
+  const setup = UI_SETUPS[id];
+  if (!setup) return;
+  S.settings.uiSetup = id;
+  if (setup.designs) Object.assign(S.settings, setup.designs);
+  browserAPI.storage.local.set({ settings: S.settings });
+  UI.engineRenderKey = null;
+  renderGraph(); renderMoves(); renderEngineCurrent(); renderEvalBar();
+  applySettings();
+  applyLayout();
+  if (UI.settings && !UI.settings.hidden) renderSettings();
+}
+// One panel-design dropdown row (Visual > Tabs). Panels with a single version are not shown: there
+// is nothing to choose, exactly as upstream hides them.
+function designDropdown(label, setting) {
+  const design = PANEL_DESIGNS.find((item) => item.setting === setting);
+  if (!design || design.versions.length < 2) return null;
+  return el("div", { class: "set-row" }, setLabel(label),
+    ddField(panelDesign(design.panel, S.settings),
+      design.versions.map(({ id, label: name }) => [id, name]),
+      (value) => setDesignSetting(setting, value)));
+}
 // Controls for the "Background" section: preset/custom picker, fit mode, tile size, upload button.
 function bgControls() {
   const swatch = (c, css) => { c.style.background = css; c.style.backgroundSize = "cover"; c.style.backgroundPosition = "center"; };
@@ -6494,6 +6639,21 @@ function visualSettings() {
     render: (chip) => { chip.classList.add("chip-custom"); chip.style.background = S.settings.accentCustom;
       chip.append(el("span", { class: "chip-edit" }, "✎")); } });
   return el("div", {},
+    section("Interface presets",
+      el("div", { class: "set-row" },
+        setLabel("Setup", "Old and Modern select every panel design at once (graph, engine and move list). Picking an individual design later marks the setup Custom. Your panel arrangement is not touched."),
+        el("div", { class: "set-seg" },
+          ...["modern", "old", "custom"].map((id) => el("button", { class: S.settings.uiSetup === id ? "on" : "", onclick: () => applyUiSetup(id) }, UI_SETUPS[id].label)))),
+    ),
+    section("Tabs",
+      designDropdown("Evaluation", "graphDesign"),
+      designDropdown("Engine", "engineDesign"),
+      designDropdown("Move list", "movesDesign"),
+      el("div", { class: "set-row" }, setLabel("Evaluation bar", "The evaluation bar's look. Flat fills the board's height with a square rail; the colours follow the theme."),
+        ddField(S.settings.barStyle || "flat2", [["flat2", "Flat"], ["gradient", "Gradient"], ["classic", "Solid"], ["mono", "Mono"], ["accent", "Accent"]],
+          (value) => setSetting("barStyle", value))),
+      el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Designs for the panelled views. Remaining panels have a single design today.")),
+    ),
     section("Theme",
       colorChips("Accent", "accent", accentEntries),
     ),
@@ -6537,8 +6697,6 @@ function visualSettings() {
     ),
     section("Layout",
       seg("Eval", "evalView", ["both", "bar", "graph"]),
-      seg("Bar", "barStyle", ["classic", "gradient", "mono", "accent"]),
-      seg("Design", "graphDesign", ["original", "timeline", "bars", "bars2", "bars3", "bars4", "minimal"]),
       seg("Curve", "graphStyle", ["area", "line", "color", "minimal"]),
       slider("Panels", "panelSizePct", 40, 120, 5, { fmt: (v) => v + "% of the board", onChange: () => applyLayout() }),
       el("button", { class: "set-reset reorg-toggle-btn", onclick: toggleReorganize }, S.reorganize ? "Done reorganizing" : "Reorganize panels"),
@@ -8633,12 +8791,14 @@ async function resetLegacyZoom() {
     delete S.settings.learningTransition;
     const visualAssetsMigrated = migrateVisualAssetSettings(S.settings);
     migrateEngineSettings(S.settings);
+    // Panel designs: unknown or retired ids migrate to a supported choice (upstream retires the same way).
+    const designsMigrated = normalizePanelDesigns(S.settings);
     // The Concepts feature was removed; drop its stored settings so an old save cannot revive it.
     let conceptsRemoved = false;
     for (const key of ["conceptsEnabled", "conceptGroups", "disabledConcepts", "conceptsView"]) {
       if (Object.hasOwn(S.settings, key)) { delete S.settings[key]; conceptsRemoved = true; }
     }
-    if (visualAssetsMigrated || conceptsRemoved || S.settings.enginePath !== store.settings?.enginePath) {
+    if (visualAssetsMigrated || designsMigrated || conceptsRemoved || S.settings.enginePath !== store.settings?.enginePath) {
       await browserAPI.storage.local.set({ settings: S.settings });
     }
     delete S.settings.wrongSound; // older selectable mistake cues were removed

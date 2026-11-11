@@ -16,6 +16,8 @@ import { libraryFlip } from '../../lib/library-seat.js';
 import { fullHdReferenceLayout, panelScale } from '../../lib/full-hd-layout.js';
 import { panelGroupBounds, scalePanelGroup, movePanelGroup } from '../../lib/panel-layout.js';
 import { createAccuracyNavigation } from '../../lib/accuracy-navigation.js';
+import { PANEL_DESIGNS, panelDesign, normalizePanelDesigns } from '../../lib/panel-designs.js';
+import { UI_SETUPS } from '../../lib/ui-setups.js';
 
 // Execute the real application in a DOM, stubbing only browser/engine boundaries.
 // Automatic startup and imports are omitted; production needs no test exports.
@@ -52,6 +54,7 @@ export function app(t, { url = 'https://extension.test/analysis.html#explore', h
     matedKingSquare, mateMark,
     rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY, libraryFlip,
     fullHdReferenceLayout, panelScale, panelGroupBounds, scalePanelGroup, movePanelGroup, createAccuracyNavigation,
+    PANEL_DESIGNS, panelDesign, normalizePanelDesigns, UI_SETUPS,
     Engine: class { constructor() { throw Error('Unexpected real engine'); } },
     fetch: async () => { throw Error('Unexpected network access'); },
     requestAnimationFrame: () => 0, cancelAnimationFrame() {},

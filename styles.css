@@ -235,6 +235,27 @@ button { font-family: inherit; cursor: pointer; }
   background: var(--q-book); font-family: var(--font-mono);
 }
 .moves-foot b { color: var(--ink); font-weight: 700; }
+/* ---- move-list designs (Settings → Visual → Tabs → Move list) ---- */
+/* The modern designs drop the heading/footer nodes and give the space to the list (upstream removes
+   them from the DOM; this fork's fixed skeleton hides them) and let the body stretch edge to edge. */
+.moves-panel:not([data-design="original"]) > .panel-head,
+.moves-panel:not([data-design="original"]) > .moves-foot { display: none; }
+.moves-panel:is([data-design="full"], [data-design="zoomed"], [data-design="zoom20"]) { overflow: hidden; }
+.mod .moves-panel:is([data-design="full"], [data-design="zoomed"], [data-design="zoom20"]) > #movesBody { flex: 1 1 auto; min-height: 0; border-radius: inherit; }
+.moves-panel[data-design="original"] > .moves-foot { flex: none; }
+/* Large text: enlarge only the list contents, keeping the surrounding panel geometry intact. */
+.moves-panel[data-design="zoomed"] .ml-pair { grid-template-columns: 40px minmax(0,1fr) minmax(0,1fr); }
+.moves-panel[data-design="zoomed"] .ml-move {
+  min-width: 0; min-height: 48px; height: auto; box-sizing: border-box;
+  padding: 10px 4px; gap: 4px; font-size: 18px; line-height: 1.4;
+}
+.moves-panel[data-design="zoomed"] .ml-num { font-size: 15px; }
+.moves-panel[data-design="zoomed"] .ml-move .pc { font-size: 22px; }
+.moves-panel[data-design="zoomed"] .qb.icon { width: 22px; height: 22px; }
+.moves-panel[data-design="zoomed"] .qb.dot { width: 11px; height: 11px; }
+.moves-panel[data-design="zoomed"] .qb.label { font-size: 11px; }
+/* A gentler version scales the original rows, cards or compact list uniformly. */
+.moves-panel[data-design="zoom20"] .movelist { zoom: 1.2; }
 @media (max-width: 900px) { .side-col .moves-panel { max-height: 440px; } }
 
 /* horizontal eval bar */
@@ -356,6 +377,7 @@ button { font-family: inherit; cursor: pointer; }
 /* eval bar */
 .evalbar {
   width: 26px; border-radius: 8px; overflow: hidden; position: relative;
+  container-type: inline-size;   /* the score font scales with the bar's own width */
   background: #2b2b2b; flex: none;
   border: 1px solid var(--line);
   /* clip-path (not just overflow:hidden) so the rounded corners also clip the .white-fill while it's
@@ -369,7 +391,10 @@ button { font-family: inherit; cursor: pointer; }
 }
 .evalbar .score {
   position: absolute; left: 0; right: 0; text-align: center;
-  font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: -.3px;
+  font-family: var(--font-mono); font-weight: 700; letter-spacing: -.3px; white-space: nowrap;
+  /* Leave room inside the bar, including multi-digit scores and mates (--score-chars is set per
+     render from the reading's length). */
+  font-size: min(12px, calc((100cqw - 2px) / (var(--score-chars, 4) * .6)));
 }
 .evalbar .score.top { top: 4px; color: #cfcdc4; }
 .evalbar .score.bot { bottom: 4px; color: #2a2a2a; }
@@ -383,10 +408,14 @@ button { font-family: inherit; cursor: pointer; }
 .evalbar.flipped .score.top { top: auto; bottom: 4px; }
 .evalbar.flipped .score.bot { bottom: auto; top: 4px; }
 
-/* ---- eval-bar look variants (Settings → Visual → Layout → "Bar") ---- */
-/* classic = the base rules above. gradient: a soft glossy sheen on each half. */
-.evalbar.eb-gradient { background: linear-gradient(180deg, #343434, #232323); }
-.evalbar.eb-gradient .white-fill { background: linear-gradient(180deg, #ffffff, #e6e3d8); }
+/* ---- eval-bar look variants (Settings → Visual → Tabs → Evaluation bar) ---- */
+/* classic = the base rules above. gradient/flat2: a soft glossy sheen on each half; flat2
+   (upstream's Flat v2 default) puts it on a wider, square rail that fills the board's height. */
+.evalbar.eb-gradient, .evalbar.eb-flat2 { background: linear-gradient(180deg, #343434, #232323); }
+.evalbar.eb-gradient .white-fill, .evalbar.eb-flat2 .white-fill { background: linear-gradient(180deg, #ffffff, #e6e3d8); }
+.evalbar.eb-flat2 { width: 30px; border: 0; border-radius: 0; clip-path: none; }
+.mod[data-mod="evalbar"] .evalbar.eb-flat2 { width: calc(100% + 4px); margin-inline: -2px; }
+.evalbar.eb-flat2 .score { font-size: min(14px, calc((100cqw - 4px) / (var(--score-chars, 4) * .6))); letter-spacing: 0; }
 /* mono: maximum contrast, crisp pure white over near-black. */
 .evalbar.eb-mono { background: #111; }
 .evalbar.eb-mono .white-fill { background: #fff; }

@@ -69,7 +69,7 @@ test('an unknown stored category falls back to Visual', (t) => {
   a.state.settingsTab = 'library';
   a.call('renderSettings');
   assert.equal(a.state.settingsTab, 'visual');
-  assert.deepEqual(heads(a), ['Theme', 'Board / Pieces', 'Best-move arrow', 'Loading', 'Move animation', 'Layout', 'Move list', 'Background']);
+  assert.deepEqual(heads(a), ['Interface presets', 'Tabs', 'Theme', 'Board / Pieces', 'Best-move arrow', 'Loading', 'Move animation', 'Layout', 'Move list', 'Background']);
 });
 
 test('per-event sound config: volume knob, Off, and safe defaults', (t) => {
