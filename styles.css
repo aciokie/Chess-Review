@@ -238,8 +238,10 @@ button { font-family: inherit; cursor: pointer; }
 /* ---- move-list designs (Settings → Visual → Tabs → Move list) ---- */
 /* The modern designs drop the heading/footer nodes and give the space to the list (upstream removes
    them from the DOM; this fork's fixed skeleton hides them) and let the body stretch edge to edge. */
-.moves-panel:not([data-design="original"]) > .panel-head,
-.moves-panel:not([data-design="original"]) > .moves-foot { display: none; }
+/* [data-design] gates the rule: until renderMoves stamps the attribute the classic panel is
+   assumed, so the heading is never hidden in the first paint. */
+.moves-panel[data-design]:not([data-design="original"]) > .panel-head,
+.moves-panel[data-design]:not([data-design="original"]) > .moves-foot { display: none; }
 .moves-panel:is([data-design="full"], [data-design="zoomed"], [data-design="zoom20"]) { overflow: hidden; }
 .mod .moves-panel:is([data-design="full"], [data-design="zoomed"], [data-design="zoom20"]) > #movesBody { flex: 1 1 auto; min-height: 0; border-radius: inherit; }
 .moves-panel[data-design="original"] > .moves-foot { flex: none; }

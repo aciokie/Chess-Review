@@ -63,6 +63,13 @@ test('applyPanelLayout applies the boxes and the mode', async (t) => {
   const mod = a.dom.window.document.querySelector('[data-mod="moves"]').style;
   assert.equal(mod.left, '12px');
   assert.equal(mod.top, '34px');
+  // An import marks a premade interface setup Custom — it no longer describes the arrangement.
+  a.state.settings.uiSetup = 'modern';
+  await a.call('applyPanelLayout', {
+    schema: 'chess-review-layout-v1', layoutMode: 'custom',
+    layout: { moves: { x: 22, y: 34, w: 300, h: 400 } },
+  });
+  assert.equal(a.state.settings.uiSetup, 'custom');
   // A refused file leaves the arrangement untouched.
   const before = snapshot(a);
   assert.equal(await a.call('applyPanelLayout', { schema: 'nope' }), false);

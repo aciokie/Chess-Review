@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { app, loadGame } from './helpers/app.mjs';
+import { app, loadGame, settle } from './helpers/app.mjs';
 
 // The shared panel-design registry (lib/panel-designs.js), the premade setups (lib/ui-setups.js)
 // and the variants this fork renders: engine minimal, move-list designs and the flat eval bar.
@@ -56,7 +56,7 @@ test('premade setups select every design, and a manual choice marks the setup Cu
   assert.ok(optTexts.includes('Edge-to-edge'));
 });
 
-test('the engine minimal design renders the focus shell with the line controls', (t) => {
+test('the engine minimal design renders the focus shell with the line controls', async (t) => {
   const a = withApp(t);
   a.state.bests[a.state.idx] = { bestmove: 'e2e4', score: { cp: 20 }, lines: [{ pv: 'e2e4 e7e5 g1f3', score: { cp: 30 } }] };
   a.call('setDesignSetting', 'engineDesign', 'minimal');
@@ -68,6 +68,12 @@ test('the engine minimal design renders the focus shell with the line controls',
   a.state.settings.engineLines = 2;
   a.call('renderEngineCurrent');
   assert.ok(doc(a).querySelector('.engine-minimal-remove'));
+  // The +Add control changes the setting (the panel refreshes without re-analysing).
+  a.state.settings.engineLines = 1;
+  a.call('renderEngineCurrent');
+  doc(a).querySelector('.engine-minimal-add').click();
+  await settle();
+  assert.equal(a.state.settings.engineLines, 2);
   // Back to the classic panel.
   a.call('setDesignSetting', 'engineDesign', 'original');
   assert.equal(doc(a).querySelector('.engine-focus'), null);
@@ -84,6 +90,16 @@ test('the move list records its design; the modern designs hide head and footer'
   assert.equal(doc(a).querySelector('.moves-panel').dataset.design, 'zoom20');
   a.call('setDesignSetting', 'movesDesign', 'zoomed');
   assert.equal(doc(a).querySelector('.moves-panel').dataset.design, 'zoomed');
+});
+
+test('the visual reset returns the designs and the setup label to their defaults', async (t) => {
+  const a = withApp(t);
+  a.call('applyUiSetup', 'modern');
+  await a.call('resetVisualSettings');
+  assert.equal(a.state.settings.uiSetup, 'custom');
+  assert.equal(a.state.settings.graphDesign, 'bars3');
+  assert.equal(a.state.settings.engineDesign, 'original');
+  assert.equal(a.state.settings.movesDesign, 'original');
 });
 
 test('the eval bar offers the flat rail and remembers the classic look', async (t) => {

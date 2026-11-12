@@ -7037,7 +7037,8 @@ function settingsCategoryPicker() {
     option.dataset.category = category.id;
     option.setAttribute("role", "menuitemradio");
     option.setAttribute("aria-checked", String(category.id === S.settingsTab));
-    option.setAttribute("tabindex", "-1");
+    // No tabindex="-1" here (upstream's menu carries its own roving focus; this fork's ddField has
+    // none), so a keyboard user can Tab from the button into the options and press Enter.
     option.setAttribute("aria-controls", "settingsCategoryContent");
     option.append(el("span", { class: "set-category-check", "aria-hidden": "true" }, category.id === S.settingsTab ? "✓" : ""));
   });
@@ -8055,21 +8056,24 @@ function ddField(value, options, onChange, renderOption = null) {
     ...options.map(([v, t]) => el("button", { class: "lib-dd-opt" + (v === value ? " sel" : ""),
       onclick: (e) => { e.stopPropagation(); onChange(v); } }, renderOption ? renderOption(v, t) : t)));
   const field = el("div", { class: "lib-dd-field" },
-    el("button", { class: "lib-dd-btn", onclick: (e) => {
+    el("button", { class: "lib-dd-btn", "aria-haspopup": "menu", onclick: (e) => {
       e.stopPropagation();
       const willOpen = !field.classList.contains("open");
       closeOpenDropdowns();
       field.classList.toggle("open", willOpen);
+      e.currentTarget.setAttribute("aria-expanded", String(willOpen));
       if (willOpen) positionSettingsDropdown(field);
     } }, el("span", { class: "lib-dd-cur" }, renderOption ? renderOption(selected[0], selected[1]) : selected[1]),
       el("span", { class: "lib-dd-chev", html: ICONS.chevron })),
     menu);
   return field;
 }
-// Close every open themed dropdown — and any top-layer menu a settings picker left open.
+// Close every open themed dropdown — and any top-layer menu a settings picker left open. The
+// button's aria-expanded follows, so the state is announced wherever a dropdown closes from.
 function closeOpenDropdowns() {
   document.querySelectorAll(".lib-dd-field.open").forEach((d) => {
     d.classList.remove("open");
+    d.querySelector(".lib-dd-btn")?.setAttribute("aria-expanded", "false");
     d.querySelector(".lib-dd-menu[popover]")?.hidePopover?.();
   });
 }

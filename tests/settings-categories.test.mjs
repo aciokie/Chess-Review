@@ -26,6 +26,11 @@ test('the settings panel renders one category at a time with a picker', (t) => {
   assert.equal(doc.querySelector('#settings .lib-dd-opt[data-category="visual"]').getAttribute('aria-checked'), 'true');
   assert.equal(doc.querySelector('#settings .lib-dd-opt[data-category="sound"]').getAttribute('aria-checked'), 'false');
   assert.ok(doc.querySelector('#settings .set-category-check'));
+  // Keyboard reachability: the options carry no tabindex="-1", so Tab walks from the button into
+  // the list and Enter selects (this fork's dropdown has no roving-focus handler of its own).
+  for (const option of doc.querySelectorAll('#settings .set-category .lib-dd-opt')) {
+    assert.equal(option.getAttribute('tabindex'), null);
+  }
   assert.equal(doc.querySelector('#settings #settingsCategoryContent').getAttribute('aria-label'), 'Visual settings');
   // The old tab row is gone.
   assert.equal(doc.querySelector('#settings .set-tabs'), null);
