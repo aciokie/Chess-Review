@@ -127,13 +127,89 @@ test('without a saved review the estimate is computed once and cached', async ()
 
 test('a failed lookup is labelled with a reason the page can explain', () => {
   assert.equal(previewFailureReason({ code: 'GAME_NOT_ARCHIVED' }), 'archive');
+  assert.equal(previewFailureReason({ code: 'GAME_NOT_FINISHED' }), 'unfinished');
+  assert.equal(previewFailureReason({ code: 'PREVIEW_UNSUPPORTED' }), 'unsupported');
   assert.equal(previewFailureReason({ code: 'PREVIEW_ENGINE_UNAVAILABLE' }), 'engine');
   assert.equal(previewFailureReason({ code: 'PREVIEW_HOST_UNAVAILABLE' }), 'host');
   assert.equal(previewFailureReason({ code: 'PREVIEW_TIMEOUT' }), 'timeout');
   assert.equal(previewFailureReason({ code: 'IMPORT_TIMEOUT' }), 'timeout');
   assert.equal(previewFailureReason({ code: 'PREVIEW_GAME_CHANGED' }), 'changed');
-  assert.equal(previewFailureReason({ code: 'IMPORT_CANCELLED' }), 'unknown');
+  // A deliberate stop (a review is opening, the tab moved on) is not a broken preview: the card must
+  // be able to tell them apart or it reports a scary failure and retries while the review loads.
+  assert.equal(previewFailureReason({ code: 'IMPORT_CANCELLED' }), 'canceled');
   assert.equal(previewFailureReason(Error('boom')), 'unknown', 'no code is still a diagnosable failure');
+});
+
+// A game that is not finished (or is not standard chess) is a property of the GAME, not of this
+// machine: the card must say so, and asking again cannot change the answer while the page stays open.
+test('a game that cannot be previewed names itself, not the browser', async () => {
+  const game = (extra, result = '1-0') =>
+    `[Event "Preview probe"]\n${extra}[Result "${result}"]\n\n1. e4 e5 2. Nf3 Nc6 ${result}`;
+  const PLAYERS = '[White "Alice"]\n[Black "Bob"]\n';
+  const cases = [
+    { pgn: game(PLAYERS, '*'), reason: 'unfinished', note: 'a game still in progress' },
+    { pgn: game('[SetUp "1"]\n[FEN "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"]\n' + PLAYERS),
+      reason: 'unsupported', note: 'a position, not a game' },
+    { pgn: game('[Variant "Chess960"]\n' + PLAYERS), reason: 'unsupported', note: 'a variant' },
+  ];
+  for (const { pgn, reason, note } of cases) {
+    let previews = 0;
+    const service = createButtonPreviewService({
+      api: { storage: { local: { get: async () => ({ username: '', library: [] }) } } },
+      loadGame: async () => ({ pgn, meta: { url: 'https://www.chess.com/game/live/12345678' } }),
+      runPreview: async () => { previews++; throw Error('must not run'); },
+    });
+    const result = await service.get(7, 'chesscom:12345678');
+    assert.equal(result.reason, reason, note);
+    assert.equal(result.ok, false);
+    assert.equal(result.key, 'chesscom:12345678', 'the answer names the game so the card can use it');
+    assert.equal(previews, 0, note);
+  }
+});
+
+// The user clicked "Analyze with Chess Review", or the tab navigated: the preview is stopped on
+// purpose. Reporting that as a failure would put "Unavailable" on the page and re-fetch the PGN five
+// times while the review opens.
+test('a preview that is stopped on purpose is not reported as a failure', async () => {
+  const service = createButtonPreviewService({
+    api: { storage: { local: { get: async () => ({ username: '', library: [] }) } } },
+    loadGame: async () => ({ pgn: PGN, meta: { url: 'https://www.chess.com/game/live/12345678' } }),
+    runPreview: (pgn, signal) => new Promise((resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+    }),
+  });
+  const pending = service.get(7, 'chesscom:12345678');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  service.cancel(7, 'chesscom:12345678');
+  const result = await pending;
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'canceled');
+  assert.equal(result.key, 'chesscom:12345678');
+});
+
+// Every answer must be shaped, even the ones the guards answer to: an unshaped "no" reaches the card
+// as "the preview couldn't be computed", which is both vague and retried for nothing.
+test('a refused or saturated request still answers with a key and a reason', async () => {
+  const hanging = (pgn, signal) => new Promise((resolve, reject) => {
+    signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+  });
+  const service = createButtonPreviewService({
+    api: { storage: { local: { get: async () => ({ username: '', library: [] }) } } },
+    loadGame: async () => ({ pgn: PGN, meta: { url: 'https://www.chess.com/game/live/12345678' } }),
+    runPreview: hanging,
+  });
+  const refused = await service.get(7, 'not-a-game-key');
+  assert.deepEqual(refused, { ok: false, key: 'not-a-game-key', reason: 'unknown', error: 'Unsupported preview request' });
+
+  const jobs = [];
+  for (let tabId = 1; tabId <= 8; tabId++) jobs.push(service.get(tabId, 'chesscom:12345678'));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const busy = await service.get(9, 'chesscom:12345678');
+  assert.equal(busy.ok, false);
+  assert.equal(busy.reason, 'busy');
+  assert.equal(busy.key, 'chesscom:12345678');
+  for (let tabId = 1; tabId <= 8; tabId++) service.cancel(tabId);
+  assert.equal((await Promise.all(jobs)).every((job) => job.reason === 'canceled'), true);
 });
 
 test('an engine that never starts is an environment failure, not a bad game', async () => {
@@ -287,6 +363,91 @@ test('the in-page card renders the estimate with accuracy and only the notable b
   dom.window.close();
 });
 
+// A review saved while the page is open must replace the estimate (its numbers are exact, and it is
+// the only source of Brilliant/Great/Miss badges). The card learns about it from storage.onChanged.
+test('a review saved while the page is open replaces the estimate', async () => {
+  const dom = new JSDOM('<div class="row"><button id="review">Analyze</button></div>', {
+    url: 'https://www.chess.com/game/live/12345678', runScripts: 'outside-only', pretendToBeVisual: true,
+  });
+  const w = dom.window;
+  let storedListener = null;
+  let requests = 0;
+  w.chrome = {
+    runtime: { getURL: (path) => 'chrome-extension://test/' + path, sendMessage: async (message) => {
+      if (message.type !== 'buttonPreview') return { ok: true };
+      requests++;
+      if (requests === 1) return { ok: true, key: 'chesscom:12345678', estimated: true, players: { w: 'Alice', b: 'Bob' },
+        accuracy: { w: 70.5, b: 65.1 }, counts: { w: { inacc: 3 }, b: { blunder: 2 } }, me: 'w' };
+      return { ok: true, key: 'chesscom:12345678', estimated: false, players: { w: 'Alice', b: 'Bob' },
+        accuracy: { w: 88.1, b: 77.2 }, counts: { w: { great: 1, miss: 1 }, b: { blunder: 1 } }, me: 'w' };
+    } },
+    storage: { onChanged: { addListener: (listener) => { storedListener = listener; } } },
+  };
+  w.eval(readFileSync(new URL('../button-preview-content.js', import.meta.url), 'utf8'));
+  const button = w.document.getElementById('review');
+  w.ChessReviewButtonPreview.register(button, { getContext: () => ({ key: 'chesscom:12345678' }), api: w.chrome });
+  await new Promise((resolve) => w.setTimeout(resolve, 0));
+
+  const card = button.nextElementSibling;
+  assert.equal(card.dataset.state, 'ready');
+  assert.equal(card.querySelector('.chess-review-preview-tag').textContent, 'Estimate');
+  assert.equal(card.querySelector('.chess-review-preview-acc').textContent, '~70.5%');
+
+  assert.ok(storedListener, 'the card watches the library');
+  storedListener({ library: { newValue: [{ id: '12345678' }] } }, 'local');
+  await new Promise((resolve) => w.setTimeout(resolve, 20));
+
+  assert.equal(requests, 2, 'the saved review is asked for again');
+  assert.equal(card.querySelector('.chess-review-preview-tag').textContent, 'Full review');
+  assert.equal(card.querySelector('.chess-review-preview-tag').dataset.estimate, 'false');
+  assert.equal(card.querySelector('.chess-review-preview-acc').textContent, '88.1%', 'no "~" on exact numbers');
+  assert.match(card.querySelector('.chess-review-preview-note').textContent, /saved review/);
+  // Only the saved review can carry these two: they must survive the upgrade.
+  const cats = [...card.querySelectorAll('.chess-review-preview-badge')].map((chip) => chip.dataset.cat);
+  assert.deepEqual(cats.slice(0, 2), ['great', 'miss']);
+  dom.window.close();
+});
+
+// A packaged icon can be missing, or the runtime can already be gone. The chip must degrade to the
+// plain glyph — never a broken image, and never an empty src (which requests the page itself).
+test('a badge falls back to its glyph when the icon cannot be used', async () => {
+  const open = (runtime) => {
+    const dom = new JSDOM('<div class="row"><button id="review">Analyze</button></div>', {
+      url: 'https://www.chess.com/game/live/12345678', runScripts: 'outside-only', pretendToBeVisual: true,
+    });
+    const w = dom.window;
+    w.chrome = { runtime: { ...runtime, sendMessage: async (message) => {
+      if (message.type !== 'buttonPreview') return { ok: true };
+      return { ok: true, key: 'chesscom:12345678', estimated: false, players: { w: 'Alice', b: 'Bob' },
+        accuracy: { w: 91.2, b: 84.4 }, counts: { w: { miss: 2 }, b: { blunder: 1 } }, me: null };
+    } } };
+    w.eval(readFileSync(new URL('../button-preview-content.js', import.meta.url), 'utf8'));
+    const button = w.document.getElementById('review');
+    w.ChessReviewButtonPreview.register(button, { getContext: () => ({ key: 'chesscom:12345678' }), api: w.chrome });
+    return { dom, w, button };
+  };
+
+  // The packaged icon exists but cannot load: the error handler swaps in the glyph.
+  const loading = open({ getURL: (path) => 'chrome-extension://test/' + path });
+  await new Promise((resolve) => loading.w.setTimeout(resolve, 0));
+  const missChip = loading.button.nextElementSibling.querySelector('[data-cat="miss"]');
+  const icon = missChip.querySelector('img');
+  assert.match(icon.src, /icons\/miss\.svg$/);
+  icon.dispatchEvent(new loading.w.Event('error'));
+  assert.equal(missChip.querySelector('img'), null, 'the broken image is gone');
+  assert.equal(missChip.querySelector('b').textContent, '×');
+  assert.equal(missChip.querySelector('.chess-review-preview-badge-count').textContent, '2');
+
+  // No getURL at all (a runtime that is already invalidated): the glyph, straight away.
+  const gone = open({});
+  await new Promise((resolve) => gone.w.setTimeout(resolve, 0));
+  const blunderChip = gone.button.nextElementSibling.querySelector('[data-cat="blunder"]');
+  assert.equal(blunderChip.querySelector('img'), null);
+  assert.equal(blunderChip.querySelector('b').textContent, '??');
+  loading.dom.window.close();
+  gone.dom.window.close();
+});
+
 // "Unavailable" with no explanation and no way back was the worst failure mode: name the reason and
 // let the user ask again.
 test('an unavailable card explains itself and retries on demand', async () => {
@@ -327,6 +488,76 @@ test('an unavailable card explains itself and retries on demand', async () => {
   assert.equal(card.dataset.state, 'ready');
   assert.equal(card.querySelector('.chess-review-preview-acc').textContent, '~80.0%');
   dom.window.close();
+});
+
+// A failure the background answers without naming a game (an older/partial reply) documents a real
+// problem; the card must keep that reason instead of flattening it to "couldn't be computed".
+test('a failure that arrives without a key is still explained', async () => {
+  const dom = new JSDOM('<div class="row"><button id="review">Analyze</button></div>', {
+    url: 'https://www.chess.com/game/live/12345678', runScripts: 'outside-only', pretendToBeVisual: true,
+  });
+  const w = dom.window;
+  const warnings = [];
+  w.console.warn = (...args) => warnings.push(args.join(' '));
+  w.chrome = { runtime: { sendMessage: async (message) => {
+    if (message.type !== 'buttonPreview') return { ok: true };
+    return { ok: false, reason: 'host', error: 'no offscreen document' };
+  } } };
+  w.eval(readFileSync(new URL('../button-preview-content.js', import.meta.url), 'utf8'));
+  const button = w.document.getElementById('review');
+  w.ChessReviewButtonPreview.register(button, { getContext: () => ({ key: 'chesscom:12345678' }), api: w.chrome });
+  await new Promise((resolve) => w.setTimeout(resolve, 0));
+
+  const card = button.nextElementSibling;
+  assert.equal(card.dataset.state, 'unavailable');
+  assert.equal(card.dataset.reason, 'host');
+  assert.match(card.querySelector('.chess-review-preview-wait').textContent, /didn't come up/);
+  assert.equal(card.querySelector('.chess-review-preview-wait').getAttribute('title'), 'no offscreen document');
+  assert.match(warnings.join('\n'), /preview unavailable \(host\)/);
+  dom.window.close();
+});
+
+// Two failures a page must not treat as "the browser is broken": the game is not over (asking again
+// re-fetches the same PGN), and the preview was stopped on purpose while the review opens. Neither
+// may start the automatic retry ladder, and a cancel is not worth a console warning.
+test('a refusal about the game and a deliberate stop do not retry by themselves', async () => {
+  const open = (answer) => {
+    const dom = new JSDOM('<div class="row"><button id="review">Analyze</button></div>', {
+      url: 'https://www.chess.com/game/live/12345678', runScripts: 'outside-only', pretendToBeVisual: true,
+    });
+    const w = dom.window;
+    const warnings = [];
+    w.console.warn = (...args) => warnings.push(args.join(' '));
+    let requests = 0;
+    w.chrome = { runtime: { sendMessage: async (message) => {
+      if (message.type !== 'buttonPreview') return { ok: true };
+      requests++;
+      return { ok: false, key: 'chesscom:12345678', ...answer };
+    } } };
+    w.eval(readFileSync(new URL('../button-preview-content.js', import.meta.url), 'utf8'));
+    const button = w.document.getElementById('review');
+    w.ChessReviewButtonPreview.register(button, { getContext: () => ({ key: 'chesscom:12345678' }), api: w.chrome });
+    return { dom, w, button, warnings, requests: () => requests };
+  };
+  const unfinished = open({ reason: 'unfinished', error: 'Preview requires a completed game' });
+  const canceled = open({ reason: 'canceled', error: 'Import canceled.' });
+  // Past the first automatic retry (2 s): only a reason that can still change may ask again.
+  await new Promise((resolve) => setTimeout(resolve, 2200));
+
+  const game = unfinished.button.nextElementSibling;
+  assert.equal(game.dataset.reason, 'unfinished');
+  assert.match(game.querySelector('.chess-review-preview-wait').textContent, /has no result yet/);
+  assert.ok(game.querySelector('.chess-review-preview-retry'), 'the user can still ask again');
+  assert.equal(unfinished.requests(), 1, 'a game that has not finished is not re-fetched in a loop');
+
+  const stopped = canceled.button.nextElementSibling;
+  assert.equal(stopped.dataset.reason, 'canceled');
+  assert.match(stopped.querySelector('.chess-review-preview-wait').textContent, /stopped before it finished/);
+  assert.equal(canceled.requests(), 1, 'a deliberate stop is not retried');
+  assert.deepEqual(canceled.warnings, [], 'a stop is not a failure to report');
+  assert.equal(unfinished.warnings.length, 1, 'the real refusal is still logged once');
+  unfinished.dom.window.close();
+  canceled.dom.window.close();
 });
 
 // After an extension update the old content script can never talk to the new background. Saying so

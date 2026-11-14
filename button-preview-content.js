@@ -24,17 +24,29 @@
   // that just ended, a browser that could not start the bundled engine, a slow machine).
   const REASONS = {
     archive: "This game isn't in the public archive yet — it can take a few seconds to appear.",
+    unfinished: "This game has no result yet, so there is nothing to estimate.",
+    unsupported: "This game can't be estimated — the preview only scores standard chess.",
+    busy: "Too many previews are running at once. Try again in a moment.",
     engine: "The preview engine couldn't start in this browser. The full review uses a different engine and still works.",
     host: "The preview engine didn't come up. Try again, or open the full review.",
     timeout: "Scoring took too long on this machine. Try again, or open the full review.",
     changed: "The game changed while the preview was being computed.",
+    canceled: "The preview stopped before it finished.",
     unknown: "The preview couldn't be computed for this game. The full review still works.",
     reload: "The extension was updated or reloaded — reload this page to reconnect.",
   };
   const RETRY_DELAYS = [2000, 5000, 10000, 20000, 30000];
-  // Retrying a timeout or a game that changed under the tab only burns CPU; those keep the button.
-  // "reload" cannot succeed from this page at all: the old content script lost its extension context.
-  const AUTO_RETRY = { archive: true, engine: true, host: true, unknown: true, timeout: false, changed: false, reload: false };
+  const AUTO_RETRY = {
+    archive: true, busy: true, engine: true, host: true, unknown: true,
+    // The game's own state cannot change while this page stays open, and a finished game's archive
+    // lag arrives as "archive" (which does retry): asking again only re-fetches the same PGN.
+    unfinished: false, unsupported: false,
+    // Retrying a timeout or a game that changed under the tab only burns CPU; those keep the button.
+    timeout: false, changed: false,
+    // "reload" cannot succeed from this page at all: the old content script lost its extension context.
+    // A cancel is deliberate (the review is opening, or the tab moved on), not a failure to retry.
+    reload: false, canceled: false,
+  };
 
   const entries = new Set();
   let api = null;
@@ -97,20 +109,27 @@
     catch { return ""; }
   }
 
+  function glyph(category) {
+    return h("b", { text: CATEGORY_SYMBOLS[category] || "•" });
+  }
+
   function badge(category, count) {
     const chip = h("span", {
       class: "chess-review-preview-badge", "data-cat": category,
       title: CATEGORY_LABELS[category] + ": " + count,
     });
     const src = iconUrl(category);
-    const icon = h("img", {
-      class: "chess-review-preview-badge-icon", src, alt: CATEGORY_LABELS[category], draggable: "false",
-    });
-    // If a packaged icon is ever missing, fall back to the plain glyph rather than a broken image.
-    icon.addEventListener("error", () => {
-      icon.replaceWith(h("b", { text: CATEGORY_SYMBOLS[category] || "•" }));
-    });
-    chip.append(icon, h("span", { class: "chess-review-preview-badge-count", text: String(count) }));
+    // No URL (a runtime that is already gone) or a missing packaged icon: the plain glyph, never a
+    // broken image or an empty src that would request the page itself.
+    if (!src) chip.append(glyph(category));
+    else {
+      const icon = h("img", {
+        class: "chess-review-preview-badge-icon", src, alt: CATEGORY_LABELS[category], draggable: "false",
+      });
+      icon.addEventListener("error", () => icon.replaceWith(glyph(category)));
+      chip.append(icon);
+    }
+    chip.append(h("span", { class: "chess-review-preview-badge-count", text: String(count) }));
     return chip;
   }
 
@@ -248,12 +267,14 @@
           const first = [...entries].find((entry) => entry.card?.isConnected);
           if (!first || contextOf(first).key !== key) return;
           state.done = true;
-          state.result = result?.key === key ? result : null;
+          // A result that names another game is never shown here. A failure carrying no key at all
+          // is still ours — it has no numbers to attribute — so its reason is kept, not discarded.
+          state.result = result && (result.key === key || (!result.key && result.ok === false)) ? result : null;
           const reason = state.result?.reason || "unknown";
           if (reason === "reload") dead = true;
           for (const entry of entries) renderEntry(entry);
           if (!state.result?.ok) {
-            logFailure(key, reason, state.result?.error);
+            if (reason !== "canceled") logFailure(key, reason, state.result?.error);
             const attempt = failures.get(key) || 0;
             failures.set(key, attempt + 1);
             while (failures.size > 8) failures.delete(failures.keys().next().value);
@@ -267,7 +288,14 @@
             }
           }
         });
-    } catch { state.done = true; }
+    } catch (error) {
+      // Nothing was sent at all (a broken runtime object). Say so rather than leaving the card on
+      // "Estimating…" for ever — a silent hang is worse than any honest failure.
+      state.done = true;
+      state.result = { ok: false, key, reason: "unknown", error: String(error?.message || error || "") };
+      for (const entry of entries) renderEntry(entry);
+      logFailure(key, "unknown", state.result.error);
+    }
   }
 
   // A host-page quirk inside one of our selectors must never break injection for the whole page.

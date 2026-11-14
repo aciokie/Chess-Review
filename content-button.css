@@ -145,6 +145,13 @@ button.chess-analyzer-free-review > .chess-analyzer-free-review-label {
   letter-spacing: .04em !important;
 }
 
+/* The green tag means the review's own exact numbers. An estimate (and the "Estimating…" wait)
+   must never look like that: a bounded 20,000-node pass is amber, and says so. */
+.chess-review-preview .chess-review-preview-tag[data-estimate="true"] {
+  background: rgba(245, 158, 11, .14) !important;
+  color: #e0b25f !important;
+}
+
 .chess-review-preview[data-state="unavailable"] .chess-review-preview-tag {
   background: rgba(255, 255, 255, .08) !important;
   color: #b9b5a6 !important;
