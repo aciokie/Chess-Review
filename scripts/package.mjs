@@ -14,8 +14,9 @@ if (manifest.version !== pkg.version) throw new Error('Package and manifest vers
 
 // Explicit allowlist: development files, old ZIPs, and node_modules can never ship.
 const files = ['analysis.html', 'analysis.js', 'analyze-flow.js', 'background.js',
-  'browser-compat.js', 'chesscom.js', 'content.js', 'content-button.css', 'flags.js', 'gamecache.js',
-  'gameid.js', 'lichess-content.js', 'lichess.js', 'popup.html', 'popup.js', 'progress.html', 'progress.js', 'recent-games.js', 'screen-preview.html', 'styles.css',
+  'browser-compat.js', 'button-preview-content.js', 'chesscom.js', 'content.js', 'content-button.css',
+  'flags.js', 'gamecache.js', 'gameid.js', 'lichess-content.js', 'lichess.js', 'popup.html', 'popup.js',
+  'preview.html', 'preview.js', 'progress.html', 'progress.js', 'recent-games.js', 'screen-preview.html', 'styles.css',
   'LICENSE', 'ATTRIBUTIONS.md', 'THIRD_PARTY_NOTICES.md', 'PRIVACY.md', 'README.md', 'RELEASE.md'];
 const directories = ['backgrounds', 'data', 'engine', 'flags', 'icons', 'lib', 'pieces-img', 'sounds'];
 // Explicitly retain only the two selectable GPLv2+ piece sets.
@@ -79,6 +80,9 @@ for (const browser of ['chrome', 'firefox']) {
   } else {
     delete target.minimum_chrome_version;
     delete target.background.service_worker;
+    // Firefox has no offscreen documents; its module background page runs the preview engine
+    // directly (see lib/preview-runner.js), so the Chrome-only permission is not requested there.
+    target.permissions = (target.permissions || []).filter((permission) => permission !== "offscreen");
   }
   await writeFile(path.join(sourceDir, 'manifest.json'), JSON.stringify(target, null, 2) + '\n');
   const filename = `chess-review-${manifest.version}-${browser}.zip`;

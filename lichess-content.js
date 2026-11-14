@@ -199,6 +199,13 @@ function resetLiReviewButton(btn, label) {
   btn.disabled = false;
   btn.removeAttribute("title");
   label.textContent = LI_REVIEW_LABEL;
+  globalThis.ChessReviewButtonPreview?.refresh();
+}
+
+// What the post-game preview needs: which game this page shows, and whose side is at the bottom.
+function reviewPreviewContext() {
+  const id = detectGameId();
+  return { key: id ? "lichess:" + id : null, flip: detectFlip() };
 }
 
 function injectLichessReviewButton(followUp) {
@@ -218,6 +225,7 @@ function injectLichessReviewButton(followUp) {
   label.className = "chess-analyzer-review-label";
   label.textContent = LI_REVIEW_LABEL;
   btn.append(logo, " ", label);
+  globalThis.ChessReviewButtonPreview?.register(btn, { getContext: reviewPreviewContext, api: browserAPI });
   getLogoDataUrl().then((url) => { if (url) logo.src = url; });
   let resetTimer = null;
 
@@ -270,7 +278,7 @@ function injectLichessReviewButton(followUp) {
   const tryInject = () => {
     const followUp = firstEl(document, LI.followUp);
     followUpRoot = followUp;
-    if (followUp) { injectLichessReviewButton(followUp); return; }
+    if (followUp) { injectLichessReviewButton(followUp); globalThis.ChessReviewButtonPreview?.refresh(); return; }
     // No follow-up row found. If clear post-game controls are on screen, the markup likely changed —
     // recheck shortly (the row can lag the rest of the post-game UI), then warn once.
     if (firstEl(document, LI.postGame) && !warnTimer) {
@@ -279,6 +287,8 @@ function injectLichessReviewButton(followUp) {
         if (firstEl(document, LI.postGame) && !firstEl(document, LI.followUp)) warnMarkupChanged();
       }, 4000);
     }
+    // No post-game row (mid-game, or a new page): the preview belongs to the finished game only.
+    globalThis.ChessReviewButtonPreview?.refresh();
   };
   // Lichess mutates the page continuously (clocks, chat, ratings). Only work that can create or
   // replace our follow-up row is worth a scan, and a burst of it in one frame is one scan.

@@ -1,6 +1,6 @@
 # Privacy Policy — Chess Review
 
-_Last updated: 2026-09-30_
+_Last updated: 2026-11-14_
 
 Chess Review is a browser extension that reviews the chess games you play on
 **Chess.com** and **Lichess**. This policy explains exactly what the extension
@@ -14,6 +14,13 @@ service by the extension.** Sharing a game is an explicit user action described 
   PGN) and analyzes it locally using a **Stockfish chess engine that is bundled
   inside the extension** and runs in your browser. It then shows accuracy scores,
   move classifications, an evaluation graph, and an estimated rating.
+- On a finished game's page it also shows a **review preview** without being asked:
+  a quick, bounded search of the same game (20,000 nodes per position) that
+  estimates both players' accuracy and move-quality counts, so you can see the
+  shape of the game before opening a review. It runs locally with the same bundled
+  engine, requests nothing beyond the game lookup described below, and is labelled
+  as an estimate. If you have already reviewed that game, the preview shows your
+  saved review's numbers instead.
 - To fetch a game you ask it to review, it calls the **public Chess.com and
   Lichess APIs** (for example to retrieve the PGN of the game by its id, or the
   games of the username you provide). These requests go directly from your
@@ -37,6 +44,8 @@ browser's `chrome.storage.local`:
 - Chess.com monthly archive responses can contain other games and optional
   platform-provided accuracy fields. Those responses may be cached locally;
   displayed review scores are calculated by the extension, not read from those fields.
+- A review preview is **not** stored: its estimate lives in memory and is discarded
+  when the page closes (the game PGN it read may remain in the ordinary game cache).
 
 The cache, preferences, and computed analysis stay on your device. A public username
 or game ID is sent to the relevant chess platform when needed for a game lookup,

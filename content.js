@@ -242,6 +242,13 @@ function warnMarkupChanged(key, what) {
 function resetFreeReviewButton(btn, label) {
   btn.disabled = false;
   label.textContent = FREE_REVIEW_LABEL;
+  globalThis.ChessReviewButtonPreview?.refresh();
+}
+
+// What the post-game preview needs: which game this page shows, and whose side is at the bottom.
+function reviewPreviewContext() {
+  const parsed = parseGameId(location.pathname);
+  return { key: parsed ? "chesscom:" + parsed.id : null, flip: detectFlip() };
 }
 
 // Appearance and placement-specific sizing come from the extension's content-button.css.
@@ -266,6 +273,9 @@ function buildReviewButton(placement, mt = 14, mb = 3) {
   label.className = "chess-analyzer-free-review-label";
   label.textContent = FREE_REVIEW_LABEL;
   btn.append(mark, label);
+  // The game review preview (accuracy + badge tally) mounts beneath this button once the game is
+  // over. It is a convenience layer only: the button and the review work without it.
+  globalThis.ChessReviewButtonPreview?.register(btn, { getContext: reviewPreviewContext, api: browserAPI });
   let resetTimer = null;
 
   btn.addEventListener("click", () => {
@@ -376,6 +386,9 @@ function injectSidebarReviewButton(emphasisContent) {
         }, 6000);
       }
     }
+    // The preview card lives beside our button; chess.com re-renders these rows, so a dropped card
+    // is re-mounted (and a page that moved to another game re-asks) by the same scan.
+    globalThis.ChessReviewButtonPreview?.refresh();
   };
   // The page mutates constantly (clocks, tallies, animated coach speech). Only work that can affect
   // our injection point is worth a scan, and several such changes in one frame are one scan.

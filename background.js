@@ -7,16 +7,39 @@
 // from there. (openPopup() can't anchor a popup for an unpinned action, which is why we don't drive
 // the click from here anymore.)
 
-import { analyzeActiveTab, openAnalysisTab, reloadActiveAndAnalyze } from "./analyze-flow.js";
+import { analyzeActiveTab, openAnalysisTab, reloadActiveAndAnalyze, loadGameFromTab, isSupportedChessUrl } from "./analyze-flow.js";
 import { browserAPI } from "./browser-compat.js";
+import { createButtonPreviewService } from "./lib/button-preview-service.js";
+import { createPreviewRunner } from "./lib/preview-runner.js";
+
+// The post-game preview: a bounded local estimate of a finished game's accuracy and badge tally,
+// shown under the in-page review button. It is never review evidence and never touches saved reviews.
+const buttonPreviews = createButtonPreviewService({
+  api: browserAPI,
+  loadGame: loadGameFromTab,
+  runPreview: createPreviewRunner(browserAPI),
+});
+browserAPI.tabs?.onRemoved?.addListener((tabId) => buttonPreviews.cancel(tabId));
+browserAPI.tabs?.onUpdated?.addListener((tabId, change) => {
+  if (change.url || change.status === "loading") buttonPreviews.cancel(tabId);
+});
 
 // Shared game (from a share link caught by content.js) → open the analysis.
 // "Free game review" button injected into the chess.com game-over modal → same flow as the popup.
 browserAPI.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && (msg.type === "buttonPreview" || msg.type === "cancelButtonPreview")) {
+    if (sender.frameId !== 0 || !sender.tab) return;
+    if (!isSupportedChessUrl(sender.url || sender.tab.url)) return;
+    if (msg.type === "cancelButtonPreview") { buttonPreviews.cancel(sender.tab.id, msg.key); return; }
+    buttonPreviews.get(sender.tab.id, msg.key).then((result) => { try { sendResponse(result); } catch {} });
+    return true; // keep the message channel open for the async answer
+  }
   if (msg && msg.type === "openShared" && msg.payload && msg.payload.pgn) {
     openAnalysisTab(msg.payload);
   }
   if (msg && msg.type === "freeGameReview") {
+    // The review supersedes the preview (and a hidden estimate must never outlive it).
+    buttonPreviews.cancel(sender.tab?.id);
     // Reply once the flow finishes so the in-page button can drop its "Opening review" cue
     // immediately (instead of waiting out its 5s hard cap) and report a failure honestly
     // rather than pretending the review opened.

@@ -23,6 +23,7 @@ import { panelGroupBounds, scalePanelGroup, movePanelGroup } from "./lib/panel-l
 import { createAccuracyNavigation } from "./lib/accuracy-navigation.js";
 import { PANEL_DESIGNS, panelDesign, normalizePanelDesigns } from "./lib/panel-designs.js";
 import { UI_SETUPS } from "./lib/ui-setups.js";
+import { BUTTON_PREVIEW_VERSION } from "./lib/button-preview.js";
 
 // Development-only diagnostics for game identity / cache routing. Silent in production; enable by
 // opening the page with ?debug (analysis.html?debug#<job>) or setting globalThis.CHESS_REVIEW_DEBUG.
@@ -7909,6 +7910,13 @@ function saveToLibrary() {
       meSide: S.meSide,
       myName: savedName(S.meSide), opName: savedName(opSide),
       myAcc: S.acc[S.meSide], opAcc: S.acc[opSide],
+      // A compact, versioned summary that the post-game page preview reuses instead of estimating:
+      // the review's exact accuracy and its own classifier tally (which also has Brilliant/Great/Book).
+      buttonSummary: {
+        version: BUTTON_PREVIEW_VERSION,
+        accuracy: { w: S.acc.w, b: S.acc.b },
+        counts: { w: S.counts?.w || null, b: S.counts?.b || null },
+      },
       myRating: parseInt(S.players[S.meSide].rating, 10) || null,
       opRating: parseInt(S.players[opSide].rating, 10) || null,
       // The rating this review estimates for each side (the "≈ N elo" on the board), so Progress

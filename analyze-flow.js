@@ -6,6 +6,7 @@ import { parseLichessGameId, parseLichessFlip, fetchGamePgn as fetchLichessPgn }
 import { browserAPI } from "./browser-compat.js";
 import { canonicalGameId } from "./gameid.js";
 import { archivePlayers } from "./lib/player-history.js";
+import { checkImport, waitImport } from "./lib/import-request.js";
 
 // Dev-only diagnostics; set globalThis.CHESS_REVIEW_DEBUG = true to see game-identity resolution.
 function dbg(...args) { if (globalThis.CHESS_REVIEW_DEBUG === true) console.log("[Chess Review]", ...args); }
@@ -77,7 +78,8 @@ export async function analyzeActiveTab(username, tabId = null) {
   const tab = tabId == null ? await getActiveTab() : await browserAPI.tabs.get(tabId);
   if (!tab) throw new Error("Could not find the active tab.");
   try {
-    await analyzeTab(tab, username);
+    const payload = await loadTabGamePayload(tab, username);
+    await openAnalysisTab(payload);
   } catch (err) {
     // Keep retries attached to this game even if the user changes the active tab.
     err.tabId = tab.id;
@@ -85,7 +87,21 @@ export async function analyzeActiveTab(username, tabId = null) {
   }
 }
 
-async function analyzeTab(tab, username) {
+/**
+ * Read-only import shared with the post-game preview. Never opens a tab, reloads the source or
+ * changes review settings — it only resolves the game the tab is showing.
+ */
+export async function loadGameFromTab(tabId, { signal } = {}) {
+  checkImport(signal);
+  const tab = await waitImport(browserAPI.tabs.get(tabId), signal);
+  if (!isSupportedChessUrl(tab?.url)) throw Error("Unsupported game page");
+  // `remember: false`: a page the user merely visited must never overwrite the account handle that
+  // seats reviews (and drives the Progress page). Only an actual review may learn it.
+  return loadTabGamePayload(tab, undefined, signal, { remember: false });
+}
+
+async function loadTabGamePayload(tab, username, signal, { remember = true } = {}) {
+  checkImport(signal);
   const info = (await getGameInfoFromTab(tab.id)) || {};
 
   // Lichess: the content script reports site:"lichess" (or we recognise the URL). Lichess gives us
@@ -165,9 +181,9 @@ async function analyzeTab(tab, username) {
   // Remember the user's OWN handle for next time — but never overwrite it with an opponent's name
   // picked up from someone else's game. Only persist an explicitly typed handle, or seed an empty
   // store with the page's POV player on first run.
-  if (provided) {
+  if (remember && provided) {
     await browserAPI.storage.local.set({ username: provided });
-  } else {
+  } else if (remember) {
     const { username: stored } = await browserAPI.storage.local.get("username");
     if (!stored && detected[0]) await browserAPI.storage.local.set({ username: detected[0] });
   }
@@ -184,7 +200,8 @@ async function analyzeTab(tab, username) {
   // them by username so the right flag lands on the right side (analysis.js resolves id → flag art).
   attachCountries(meta, info && info.countries);
   dbg("detected game", { gameId, site: "chesscom", players: [meta.white?.user, meta.black?.user] });
-  await openAnalysisTab({ pgn: game.pgn, meta, source: "active-tab" });
+  checkImport(signal);
+  return { pgn: game.pgn, meta, source: "active-tab" };
 }
 
 // Stamp the scraped { usernameLower: countryId } map onto meta.white/black by matching usernames.
@@ -232,9 +249,9 @@ async function analyzeLichessTab(info, tabUrl) {
   // orientation-black/-white), falling back to a /black|/white segment in the URL.
   const flip = (info && info.flip != null) ? info.flip : parseLichessFlip(tabUrl);
   dbg("detected game", { gameId, site: "lichess" });
-  await openAnalysisTab({
+  return {
     pgn,
     meta: { url: `https://lichess.org/${gameId}`, gameId, flip },
     source: "active-tab-lichess",
-  });
+  };
 }

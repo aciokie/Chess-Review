@@ -18,6 +18,7 @@ import { panelGroupBounds, scalePanelGroup, movePanelGroup } from '../../lib/pan
 import { createAccuracyNavigation } from '../../lib/accuracy-navigation.js';
 import { PANEL_DESIGNS, panelDesign, normalizePanelDesigns } from '../../lib/panel-designs.js';
 import { UI_SETUPS } from '../../lib/ui-setups.js';
+import { BUTTON_PREVIEW_VERSION } from '../../lib/button-preview.js';
 
 // Execute the real application in a DOM, stubbing only browser/engine boundaries.
 // Automatic startup and imports are omitted; production needs no test exports.
@@ -54,7 +55,7 @@ export function app(t, { url = 'https://extension.test/analysis.html#explore', h
     matedKingSquare, mateMark,
     rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY, libraryFlip,
     fullHdReferenceLayout, panelScale, panelGroupBounds, scalePanelGroup, movePanelGroup, createAccuracyNavigation,
-    PANEL_DESIGNS, panelDesign, normalizePanelDesigns, UI_SETUPS,
+    PANEL_DESIGNS, panelDesign, normalizePanelDesigns, UI_SETUPS, BUTTON_PREVIEW_VERSION,
     Engine: class { constructor() { throw Error('Unexpected real engine'); } },
     fetch: async () => { throw Error('Unexpected network access'); },
     requestAnimationFrame: () => 0, cancelAnimationFrame() {},

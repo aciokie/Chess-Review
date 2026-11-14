@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 // The API facade is captured at import time, just as it is in an extension page.
 globalThis.chrome = {};
-const { analyzeActiveTab, reloadActiveAndAnalyze } = await import('../analyze-flow.js');
+const { analyzeActiveTab, reloadActiveAndAnalyze, loadGameFromTab } = await import('../analyze-flow.js');
 
 function setup(t, url = 'https://www.chess.com/game/live/12345678') {
   const store = {}, opened = [], listeners = new Set();
@@ -58,6 +58,23 @@ for (const url of ['https://www.chess.com/game/live/12345678', 'https://lichess.
 test('missing content script and username produces a recoverable username error', async t => {
   setup(t);
   await assert.rejects(analyzeActiveTab(''), err => err.code === 'NO_USERNAME' && err.tabId === 1);
+});
+
+// The post-game preview imports the same game read-only. Merely visiting a finished game must never
+// turn that page's bottom player into the tracked account (which seats reviews and drives Progress).
+test('the read-only preview import resolves the game without writing the account handle', async t => {
+  const s = setup(t);
+  t.mock.method(chrome.tabs, 'sendMessage', async () => ({
+    ok: true, gameId: '12345678', usernames: ['PagePlayer', 'Opponent'], flip: false,
+  }));
+  const payload = await loadGameFromTab(1);
+  assert.equal(payload.meta.gameId, '12345678');
+  assert.equal(payload.pgn.includes('1. e4 e5'), true);
+  assert.equal('username' in s.store, false, 'a visited page must not become the tracked account');
+
+  // The review flow itself still seeds an empty store from the page on first run.
+  await analyzeActiveTab('');
+  assert.equal(s.store.username, 'PagePlayer');
 });
 
 test('retry retains the original tab before and during the reload', async t => {

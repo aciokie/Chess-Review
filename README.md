@@ -18,6 +18,11 @@ rating. No account, no server, no manual PGN copying.
 - **One-click review** of any Chess.com or Lichess game — or paste a game URL / raw PGN.
 - **Accuracy estimates** for both players, calculated from local Stockfish analysis using the extension's scoring rules. Scores can differ from other review tools.
 - **Accuracy by game phase**: each player's accuracy is also split into Opening (first 10 moves), Middlegame and Endgame (six or fewer knights, bishops, rooks and queens left), shown under the Elo estimate.
+- **Game review preview**: on a finished game's page (Chess.com and Lichess) a card under the
+  extension's button estimates **both players' accuracy and move-quality counts** right away,
+  chess.com-style, with a quick 20,000-node local search. It is clearly labelled as an estimate
+  and never replaces a review; once you have reviewed that game, the same card shows your saved
+  review's exact numbers instead.
 - **Move classifications** from Brilliant to Blunder, with an evaluation graph and best-move arrows.
 - **Forced-move badge**: a position with only one legal move is marked **Forced** rather than
   Best, Great or Brilliant, and it is left out of the accuracy breakdown — a forced move is not
