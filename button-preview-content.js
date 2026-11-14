@@ -14,6 +14,20 @@
     book: "♟", inacc: "?!", mistake: "?", miss: "×", blunder: "??",
   };
   const ORDER = ["brilliant", "great", "best", "forced", "excellent", "good", "book", "inacc", "mistake", "miss", "blunder"];
+  // What the card says when it cannot produce numbers. It never guesses a score: it names the reason
+  // and offers another try, because most of these are transient (an archive lagging behind a game
+  // that just ended, a browser that could not start the bundled engine, a slow machine).
+  const REASONS = {
+    archive: "This game isn't in the public archive yet — it can take a few seconds to appear.",
+    engine: "The preview engine couldn't start in this browser. The full review uses a different engine and still works.",
+    host: "The preview engine didn't come up. Try again, or open the full review.",
+    timeout: "Scoring took too long on this machine. Try again, or open the full review.",
+    changed: "The game changed while the preview was being computed.",
+    unknown: "The preview couldn't be computed for this game. The full review still works.",
+  };
+  const RETRY_DELAYS = [2000, 5000, 10000, 20000, 30000];
+  // Retrying a timeout or a game that changed under the tab only burns CPU; those keep the button.
+  const AUTO_RETRY = { archive: true, engine: true, host: true, unknown: true, timeout: false, changed: false };
 
   const entries = new Set();
   let api = null;
@@ -22,6 +36,7 @@
   let retryTimer = null;
   let storageBound = false;
   const failures = new Map();
+  const logged = new Set();
 
   function h(tag, props = {}, ...children) {
     const node = document.createElement(tag);
@@ -102,6 +117,7 @@
     if (!state || !state.done) {
       card.hidden = false;
       card.dataset.state = "pending";
+      delete card.dataset.reason;
       tag.textContent = "Estimating…";
       tag.dataset.estimate = "true";
       sides.replaceChildren(h("div", { class: "chess-review-preview-wait", text: "Scoring every move at 20,000 nodes…" }));
@@ -110,13 +126,21 @@
     }
     const result = state.result;
     if (!result?.ok) {
+      const reason = REASONS[result?.reason] ? result.reason : "unknown";
+      const retry = h("button", { class: "chess-review-preview-retry", type: "button", text: "Retry" });
+      retry.addEventListener("click", () => retryNow(context.key));
       card.hidden = false;
       card.dataset.state = "unavailable";
+      card.dataset.reason = reason;
       tag.textContent = "Unavailable";
-      sides.replaceChildren(h("div", { class: "chess-review-preview-wait", text: "The preview couldn't be computed for this game. The full review still works." }));
+      sides.replaceChildren(
+        h("div", { class: "chess-review-preview-wait", text: REASONS[reason], title: result?.error || REASONS[reason] }),
+        retry,
+      );
       note.textContent = "";
       return;
     }
+    delete card.dataset.reason;
     card.hidden = false;
     card.dataset.state = "ready";
     tag.textContent = result.estimated ? "Estimate" : "Full review";
@@ -139,6 +163,23 @@
     try { Promise.resolve(api.runtime.sendMessage({ type: "cancelButtonPreview", key })).catch(() => {}); } catch {}
   }
 
+  // One console line per distinct failure, so a user can report what actually went wrong without
+  // the page filling with repeats from the automatic retries.
+  function logFailure(key, reason, message) {
+    const signature = key + "|" + reason + "|" + (message || "");
+    if (logged.has(signature)) return;
+    logged.add(signature);
+    while (logged.size > 16) logged.delete(logged.values().next().value);
+    try { console.warn("[Chess Review] review preview unavailable (" + reason + "):", message || reason); } catch {}
+  }
+
+  function retryNow(key) {
+    if (!key) return;
+    failures.delete(key);
+    clearTimeout(retryTimer); retryTimer = null;
+    request(key);
+  }
+
   function request(key) {
     clearTimeout(retryTimer); retryTimer = null;
     cancelPending();
@@ -155,14 +196,18 @@
         state.result = result?.key === key ? result : null;
         for (const entry of entries) renderEntry(entry);
         if (!state.result?.ok) {
+          const reason = state.result?.reason || "unknown";
+          logFailure(key, reason, state.result?.error);
           const attempt = failures.get(key) || 0;
           failures.set(key, attempt + 1);
           while (failures.size > 8) failures.delete(failures.keys().next().value);
-          if (attempt < 3) {
+          // An archive that has not caught up, or a host that started late, usually settles within
+          // half a minute. After the last automatic try the card keeps its Retry button.
+          if (AUTO_RETRY[reason] !== false && attempt < RETRY_DELAYS.length) {
             retryTimer = setTimeout(() => {
               if (generation !== token || current !== state) return;
               request(key);
-            }, [2000, 5000, 10000][attempt]);
+            }, RETRY_DELAYS[attempt]);
           }
         }
       });

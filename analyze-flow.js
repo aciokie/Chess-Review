@@ -173,9 +173,12 @@ async function loadTabGamePayload(tab, username, signal, { remember = true } = {
     } catch { /* invalid user / network error for this candidate → try the next */ }
   }
   if (!game || !game.pgn) {
-    throw new Error(
+    const e = new Error(
       "Couldn't find this game in either player's public archive (a game that just finished can take a few seconds to appear). Try again, or paste the PGN."
     );
+    // A just-finished game is not published yet; callers can tell that apart from a real failure.
+    e.code = "GAME_NOT_ARCHIVED";
+    throw e;
   }
 
   // Remember the user's OWN handle for next time — but never overwrite it with an opponent's name

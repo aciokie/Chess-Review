@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { previewGameKey, savedButtonSummary } from '../lib/button-preview.js';
 import { analyseButtonPreview, finishedPreviewGame, previewCategory, PREVIEW_NODES } from '../lib/preview-analysis.js';
-import { createButtonPreviewService } from '../lib/button-preview-service.js';
+import { createButtonPreviewService, previewFailureReason } from '../lib/button-preview-service.js';
+import { createPreviewRunner } from '../lib/preview-runner.js';
 import { app, loadGame } from './helpers/app.mjs';
 
 // The public SF18 model the preview scores with (values from data/calibration.json). The preview
@@ -124,6 +125,83 @@ test('without a saved review the estimate is computed once and cached', async ()
   assert.equal(previews, 1, 'the session cache answers the repeat');
 });
 
+test('a failed lookup is labelled with a reason the page can explain', () => {
+  assert.equal(previewFailureReason({ code: 'GAME_NOT_ARCHIVED' }), 'archive');
+  assert.equal(previewFailureReason({ code: 'PREVIEW_ENGINE_UNAVAILABLE' }), 'engine');
+  assert.equal(previewFailureReason({ code: 'PREVIEW_HOST_UNAVAILABLE' }), 'host');
+  assert.equal(previewFailureReason({ code: 'PREVIEW_TIMEOUT' }), 'timeout');
+  assert.equal(previewFailureReason({ code: 'IMPORT_TIMEOUT' }), 'timeout');
+  assert.equal(previewFailureReason({ code: 'PREVIEW_GAME_CHANGED' }), 'changed');
+  assert.equal(previewFailureReason({ code: 'IMPORT_CANCELLED' }), 'unknown');
+  assert.equal(previewFailureReason(Error('boom')), 'unknown', 'no code is still a diagnosable failure');
+});
+
+test('an engine that never starts is an environment failure, not a bad game', async () => {
+  await assert.rejects(
+    () => analyseButtonPreview(PGN, {
+      createEngine: () => { throw Error('wasm blocked'); },
+      loadCalibration: async () => MODEL,
+    }),
+    (error) => error.code === 'PREVIEW_ENGINE_UNAVAILABLE' && /wasm blocked/.test(error.message),
+  );
+  await assert.rejects(
+    () => analyseButtonPreview(PGN, {
+      createEngine: () => ({
+        async setOptions() { throw Error('engine died'); }, terminate() {},
+      }),
+      loadCalibration: async () => MODEL,
+    }),
+    (error) => error.code === 'PREVIEW_ENGINE_UNAVAILABLE',
+  );
+});
+
+test('the reason survives the service and reaches the card', async () => {
+  const archived = Object.assign(Error('not archived yet'), { code: 'GAME_NOT_ARCHIVED' });
+  const service = createButtonPreviewService({
+    api: { storage: { local: { get: async () => ({}) } } },
+    loadGame: async () => { throw archived; },
+    runPreview: async () => { throw Error('must not run'); },
+  });
+  const result = await service.get(7, 'chesscom:12345678');
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'archive');
+  assert.match(result.error, /not archived yet/);
+});
+
+test('a slow preview host is waited for, and re-created mid-way', async () => {
+  let attempts = 0, created = 0;
+  const api = {
+    runtime: {
+      getURL: (path) => 'chrome-extension://test/' + path,
+      getContexts: async () => [],
+      sendMessage: async (message) => {
+        if (message.type !== 'analyse') return undefined;
+        attempts++;
+        return attempts < 5 ? undefined : { ok: true, summary: { estimated: true } };
+      },
+    },
+    offscreen: { createDocument: async () => { created++; }, closeDocument: async () => {} },
+  };
+  const runner = createPreviewRunner(api, async () => { throw Error('unused'); }, { delays: [0, 0, 0, 0, 0, 0, 0] });
+  const summary = await runner(PGN);
+  assert.deepEqual(summary, { estimated: true });
+  assert.equal(attempts, 5);
+  assert.equal(created, 2, 'the document is ensured again when the first attempts go nowhere');
+});
+
+test('a host that never answers reports a host failure, not a silent hang', async () => {
+  const api = {
+    runtime: {
+      getURL: (path) => 'chrome-extension://test/' + path,
+      getContexts: async () => [],
+      sendMessage: async () => undefined,
+    },
+    offscreen: { createDocument: async () => {}, closeDocument: async () => {} },
+  };
+  const runner = createPreviewRunner(api, async () => { throw Error('unused'); }, { delays: [0, 0, 0, 0] });
+  await assert.rejects(() => runner(PGN), (error) => error.code === 'PREVIEW_HOST_UNAVAILABLE');
+});
+
 test('a game that changed under the tab is refused', async () => {
   const service = createButtonPreviewService({
     api: { storage: { local: { get: async () => ({}) } } },
@@ -167,6 +245,48 @@ test('the in-page card renders the estimate with accuracy and badge chips', asyn
   assert.equal(sides[0].querySelectorAll('.chess-review-preview-badge').length, 2);
   assert.equal(sides[1].querySelectorAll('.chess-review-preview-badge').length, 1);
   assert.equal(sides[0].querySelector('[data-cat="best"]').getAttribute('title'), 'Best: 3');
+  dom.window.close();
+});
+
+// "Unavailable" with no explanation and no way back was the worst failure mode: name the reason and
+// let the user ask again.
+test('an unavailable card explains itself and retries on demand', async () => {
+  const dom = new JSDOM('<div class="row"><button id="review">Analyze with Chess Review</button></div>', {
+    url: 'https://www.chess.com/game/live/12345678', runScripts: 'outside-only', pretendToBeVisual: true,
+  });
+  const w = dom.window;
+  const warnings = [];
+  w.console.warn = (...args) => warnings.push(args.join(' '));
+  let answers = 0, requests = 0;
+  w.chrome = { runtime: { sendMessage: async (message) => {
+    if (message.type !== 'buttonPreview') return { ok: true };
+    requests++;
+    if (++answers === 1) return { ok: false, key: 'chesscom:12345678', reason: 'engine', error: 'wasm blocked' };
+    return {
+      ok: true, key: 'chesscom:12345678', estimated: true, players: { w: 'Alice', b: 'Bob' },
+      accuracy: { w: 80, b: 70 }, counts: { w: { best: 1 }, b: { best: 1 } }, me: null,
+    };
+  } } };
+  w.eval(readFileSync(new URL('../button-preview-content.js', import.meta.url), 'utf8'));
+  const button = w.document.getElementById('review');
+  w.ChessReviewButtonPreview.register(button, { getContext: () => ({ key: 'chesscom:12345678' }), api: w.chrome });
+  await new Promise((resolve) => w.setTimeout(resolve, 0));
+
+  const card = button.nextElementSibling;
+  assert.equal(card.dataset.state, 'unavailable');
+  assert.equal(card.dataset.reason, 'engine');
+  assert.match(card.querySelector('.chess-review-preview-wait').textContent, /engine couldn't start/);
+  assert.equal(card.querySelector('.chess-review-preview-wait').getAttribute('title'), 'wasm blocked');
+  assert.equal(warnings.length, 1, 'the raw failure is logged once for a bug report');
+  assert.match(warnings[0], /preview unavailable \(engine\)/);
+
+  const retry = card.querySelector('.chess-review-preview-retry');
+  assert.ok(retry, 'the card offers a way forward');
+  retry.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+  await new Promise((resolve) => w.setTimeout(resolve, 0));
+  assert.equal(requests, 2);
+  assert.equal(card.dataset.state, 'ready');
+  assert.equal(card.querySelector('.chess-review-preview-acc').textContent, '~80.0%');
   dom.window.close();
 });
 

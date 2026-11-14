@@ -17,7 +17,11 @@ browserAPI.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   jobs.set(message.id, request);
   analyseButtonPreview(message.pgn, { signal: request.signal }).then(
     (summary) => { try { sendResponse({ ok: true, summary }); } catch { /* the asker is gone */ } },
-    (error) => { try { sendResponse({ ok: false, error: error?.message || "Preview unavailable" }); } catch { /* gone */ } },
+    (error) => {
+      try {
+        sendResponse({ ok: false, error: error?.message || "Preview unavailable", code: error?.code || null });
+      } catch { /* gone */ }
+    },
   ).finally(() => {
     if (jobs.get(message.id) === request) jobs.delete(message.id);
     request.dispose();

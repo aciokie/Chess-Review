@@ -261,6 +261,29 @@ button.chess-analyzer-free-review > .chess-analyzer-free-review-label {
   animation: chess-review-preview-pulse 1.6s ease-in-out infinite !important;
 }
 
+.chess-review-preview .chess-review-preview-retry {
+  all: initial !important;
+  box-sizing: border-box !important;
+  justify-self: start !important;
+  padding: 4px 12px !important;
+  border: 1px solid rgba(255, 255, 255, .16) !important;
+  border-radius: 999px !important;
+  background: rgba(255, 255, 255, .07) !important;
+  color: #e7e4d9 !important;
+  font: 700 11px/1.2 "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  cursor: pointer !important;
+}
+
+.chess-review-preview .chess-review-preview-retry:hover {
+  background: rgba(255, 255, 255, .13) !important;
+  border-color: rgba(255, 255, 255, .28) !important;
+}
+
+.chess-review-preview .chess-review-preview-retry:focus-visible {
+  outline: 2px solid #81b64c !important;
+  outline-offset: 2px !important;
+}
+
 @keyframes chess-review-preview-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: .45; }
