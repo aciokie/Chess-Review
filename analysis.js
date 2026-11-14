@@ -3053,9 +3053,14 @@ function nativeEngineSupported() {
     && typeof nativeMessagingSupported === "function"
     && nativeMessagingSupported();
 }
-async function createEngine(opts = {}) {
-  const preferred = isKnownEngineBuild(S.settings.enginePath) ? S.settings.enginePath : DEFAULT_SETTINGS.enginePath;
-  const order = [preferred, ...ENGINE_FALLBACK_ORDER.filter(key => key !== preferred)];
+// `pin.build` pins ONE build and never falls back — used to replace an engine that died in the
+// middle of a review. Mixing builds inside one review would silently null that side's accuracy,
+// because calibrated-review refuses to average the evidence of two different builds.
+async function createEngine(opts = {}, pin = null) {
+  const pinned = isKnownEngineBuild(pin?.build) ? pin.build : null;
+  const preferred = pinned
+    || (isKnownEngineBuild(S.settings.enginePath) ? S.settings.enginePath : DEFAULT_SETTINGS.enginePath);
+  const order = pinned ? [pinned] : [preferred, ...ENGINE_FALLBACK_ORDER.filter(key => key !== preferred)];
   let lastErr = null;
   let preferredErr = null; // why the user's chosen build could not start (shown instead of hiding it)
   for (const key of order) {
@@ -8370,40 +8375,86 @@ async function startAnalysis() {
   };
   let nextIdx = 0, contig = -1;
   const stillCurrent = () => gen === S.batchGen && currentGameId() === batchGameId;
-  async function worker(eng) {
+  // One whole position on ONE engine. Separate from the queue so a position whose engine died can be
+  // re-run on a replacement without touching the bookkeeping above. Returns null if this batch (or
+  // game) was superseded while it ran.
+  async function scorePosition(eng, i) {
+    const terminal = terminalScore(S.positions[i].fen, i);
+    let res = terminal ? { score: terminal, bestmove: null, pv: "", lines: [] } : null;
+    if (!res && publicRun) {
+      const next = i < S.total ? S.positions[i + 1] : null;
+      res = await analyseCalibratedPosition(eng, {
+        fen: S.positions[i].fen, history: searchHistory(S.positions, i),
+        played: next ? next.from + next.to + (next.promotion || "") : null,
+        settings: scoringSettings, calibration: PUBLIC_CALIB, needMovesOnly,
+      });
+      if (!stillCurrent()) return null;
+      // "Analysis lines" > 1: search the alternatives once, separately, so Great/Brilliant can compare
+      // the played move with the runner-up. It never replaces the scored best/played pair above.
+      if (next && multipv > 1) {
+        try {
+          // The same depth the scored pair used for SF19 builds (annotationDepth), so the runner-up
+          // comparison is never carried out at a shallower search than the scores beside it.
+          const extra = await eng.analyse(S.positions[i].fen, annotationDepth(), multipv, searchHistory(S.positions, i));
+          if (!stillCurrent()) return null;
+          const search = annotationSearchFor(i, extra, multipv);
+          if (search) res.annotationSearch = search;
+        } catch (error) { if (!stillCurrent()) return null; console.warn("[Chess Review] annotation search failed; categories use the scored line only", error); }
+      }
+    }
+    if (!res && posCache) { try { res = await posCache.get(cacheKey(i)); } catch { res = null; } }
+    if (!res) {
+      res = await eng.analyse(S.positions[i].fen, S.settings.engineDepth, multipv, searchHistory(S.positions, i));
+      if (!stillCurrent()) return null;
+      if (posCache) { try { await posCache.set(cacheKey(i), res); } catch {} }
+    }
+    return { res, terminal };
+  }
+
+  // A native helper can still die mid-review (a killed process, antivirus quarantine, a wedged
+  // engine). The position in flight is then retried on a FRESH engine of the same build, so one bad
+  // moment cannot end an otherwise complete review. Bounded: if the engine cannot be replaced, the
+  // review stops with the honest error instead of retrying for ever.
+  const REVIEW_ENGINE_REBUILDS = 2;
+  let engineRebuilds = 0;
+  async function rebuildEngine(dead) {
+    // Never rebuild onto an unknown build: `reviewBuild` is what every scored position of this review
+    // is tagged with, so continuing on anything else would silently mix two protocols' evidence.
+    if (engineRebuilds >= REVIEW_ENGINE_REBUILDS || !isKnownEngineBuild(reviewBuild)) return null;
+    engineRebuilds++;
+    try { dead.terminate(); } catch {}
+    try {
+      const fresh = await createEngine(
+        { Hash: S.settings.engineHash, "Skill Level": S.settings.engineSkill },
+        { build: reviewBuild },
+      );
+      if (!stillCurrent()) { try { fresh.terminate(); } catch {} return null; }
+      // S.evalEngines IS this array, so teardown (a new game, or this batch giving up) still reaches it.
+      engines.push(fresh);
+      console.warn(`[Chess Review] an engine stopped mid-review; retrying the position on a fresh '${reviewBuild}' engine`);
+      return fresh;
+    } catch (error) {
+      console.warn("[Chess Review] could not restart the engine to continue the review", error);
+      return null;
+    }
+  }
+  async function worker(startEngine) {
+    let eng = startEngine;
     while (stillCurrent()) {
       const i = nextIdx++;
       if (i > S.total) return;
-      const terminal = terminalScore(S.positions[i].fen, i);
-      let res = terminal ? { score: terminal, bestmove: null, pv: "", lines: [] } : null;
-      if (!res && publicRun) {
-        const next = i < S.total ? S.positions[i + 1] : null;
-        res = await analyseCalibratedPosition(eng, {
-          fen: S.positions[i].fen, history: searchHistory(S.positions, i),
-          played: next ? next.from + next.to + (next.promotion || "") : null,
-          settings: scoringSettings, calibration: PUBLIC_CALIB, needMovesOnly,
-        });
-        if (!stillCurrent()) return;
-        // "Analysis lines" > 1: search the alternatives once, separately, so Great/Brilliant can compare
-        // the played move with the runner-up. It never replaces the scored best/played pair above.
-        if (next && multipv > 1) {
-          try {
-            // The same depth the scored pair used for SF19 builds (annotationDepth), so the runner-up
-            // comparison is never carried out at a shallower search than the scores beside it.
-            const extra = await eng.analyse(S.positions[i].fen, annotationDepth(), multipv, searchHistory(S.positions, i));
-            if (!stillCurrent()) return;
-            const search = annotationSearchFor(i, extra, multipv);
-            if (search) res.annotationSearch = search;
-          } catch (error) { if (!stillCurrent()) return; console.warn("[Chess Review] annotation search failed; categories use the scored line only", error); }
+      let scored = null;
+      for (;;) {
+        try { scored = await scorePosition(eng, i); break; }
+        catch (error) {
+          if (!stillCurrent()) return;
+          const fresh = await rebuildEngine(eng);
+          if (!fresh) throw error;   // no rebuild left → the batch reports the failure as before
+          eng = fresh;
         }
       }
-      if (!res && posCache) { try { res = await posCache.get(cacheKey(i)); } catch { res = null; } }
-      if (!res) {
-        res = await eng.analyse(S.positions[i].fen, S.settings.engineDepth, multipv, searchHistory(S.positions, i));
-        if (!stillCurrent()) return;
-        if (posCache) { try { await posCache.set(cacheKey(i), res); } catch {} }
-      }
-      if (!stillCurrent()) return;
+      if (!scored || !stillCurrent()) return;
+      const { res, terminal } = scored;
       S.bests[i] = res;
       // Terminal positions (mate/stalemate) are decided from the board — not from the engine's "mate 0".
       S.evals[i] = terminal || whiteRel(res.score, S.positions[i].fen);

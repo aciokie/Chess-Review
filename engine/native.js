@@ -33,8 +33,18 @@ export const NATIVE_HELLO_TIMEOUT_MS = 15000;
 // repo already allows 60 s for the large WASM build), so each phase gets the same generous budget.
 // A stuck host still rejects, so the review falls back to WASM instead of hanging forever.
 export const NATIVE_INIT_TIMEOUT_MS = 60000;
-// A silent search must not hang the review forever (mirrors engine/uci.js SEARCH_SILENCE_TIMEOUT_MS).
+// A wedged helper must not hang the review forever — but "silence" cannot be measured from search
+// output: the helper reports NOTHING to the browser between `analyse` and `bestmove`, so a plain
+// silence timer would silently cap every search's DURATION, and an SF19 scoring search is an exact
+// depth-22 search that may legitimately run for many minutes (the calibration harness allows 45).
+// The host answers `ping` with `pong` on its stdin thread, even while Stockfish searches, and has
+// done since the first helper build — so the watchdog asks "is the helper still alive?" and a long
+// search stays alive for as long as the helper answers. The helper keeps its OWN, independent
+// engine-silence watchdog (config searchTimeoutMs, default 120 s) and reports a hung Stockfish as a
+// fatal error, which this engine passes straight through.
 export const NATIVE_SEARCH_SILENCE_TIMEOUT_MS = 120000;
+// How often a running search asks the helper whether it is still there.
+export const NATIVE_SEARCH_PING_INTERVAL_MS = 30000;
 // Cap on the payload we will accept from (or send to) the host. Real replies are a few KB; this
 // only exists so a corrupted/buggy host can't wedge the page with an enormous frame.
 export const NATIVE_MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -191,11 +201,13 @@ export class NativeEngine {
     uciOptions = {},
     initTimeoutMs = NATIVE_INIT_TIMEOUT_MS,
     silenceMs = NATIVE_SEARCH_SILENCE_TIMEOUT_MS,
+    pingIntervalMs = NATIVE_SEARCH_PING_INTERVAL_MS,
   } = {}) {
     this.runtime = runtime;
     this.hostName = hostName;
     this.initTimeoutMs = initTimeoutMs;
     this.silenceMs = silenceMs;
+    this.pingIntervalMs = pingIntervalMs;
     this.dead = false;
     this.port = null;
     this.queue = [];
@@ -253,7 +265,7 @@ export class NativeEngine {
   /** Tear down after any fatal condition (timeout, disconnect, crash, explicit terminate). */
   _fail(err) {
     clearTimeout(this._initTimer);
-    clearTimeout(this._searchTimer);
+    this._stopWatching();
     const handshake = this._onFail;
     this.dead = true;
     try { this.port?.disconnect(); } catch {}
@@ -300,9 +312,23 @@ export class NativeEngine {
     while (this.queue.length) { try { this.queue.shift().reject(err); } catch {} }
   }
 
+  // While a search runs, ask the helper whether it is still alive. The `pong` is what resets the
+  // silence timer, so the timer protects against a wedged helper without ever limiting how long a
+  // legitimate depth-22 search may take (the search itself sends nothing to the browser).
   _watchSearch() {
     clearTimeout(this._searchTimer);
     this._searchTimer = setTimeout(() => this._fail(new Error("native engine search timed out")), this.silenceMs);
+    if (this._pingTimer || !(this.pingIntervalMs > 0)) return;
+    this._pingTimer = setInterval(() => {
+      if (this.dead || !this.current) { this._stopWatching(); return; }
+      this._post({ type: "ping" });
+    }, this.pingIntervalMs);
+  }
+
+  _stopWatching() {
+    clearTimeout(this._searchTimer);
+    clearInterval(this._pingTimer);
+    this._pingTimer = null;
   }
 
   _pump() {
@@ -370,7 +396,9 @@ export class NativeEngine {
       );
       return;
     }
-    if (msg.type === "pong") return;
+    // The helper is alive (it answered our ping while Stockfish searches). Only a running search has
+    // a watchdog to reset — an unsolicited pong must never arm one and fail an idle engine.
+    if (msg.type === "pong") { if (this.current) this._watchSearch(); return; }
     if (msg.type === "ready") {
       if (msg.capabilities) this.capabilities = msg.capabilities;
       if (msg.engine) this.engineInfo = msg.engine;
@@ -397,7 +425,7 @@ export class NativeEngine {
       const job = this.current;
       if (!job || msg.id !== job.id) return; // answer for a search we already dropped
       this.current = null;
-      clearTimeout(this._searchTimer);
+      this._stopWatching();
       const lines = Object.keys(job.lines).map(Number).sort((a, b) => a - b).map((k) => job.lines[k]);
       if (job.requireExact) {
         // The helper reports only completed (exact) lines for a scoring search. No PV, or a PV for a
@@ -428,7 +456,7 @@ export class NativeEngine {
       const job = this.current;
       if (job && (msg.id == null || msg.id === job.id)) {
         this.current = null;
-        clearTimeout(this._searchTimer);
+        this._stopWatching();
         try { job.reject(err); } catch {}
         this._pump();
       }

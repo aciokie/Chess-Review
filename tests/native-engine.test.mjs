@@ -392,13 +392,49 @@ test('a fatal error fails the whole engine (and the caller falls back)', async (
 
 test('a silent search trips the watchdog instead of waiting forever', async () => {
   const { runtime, ports } = fakeRuntime();
-  const eng = new NativeEngine({ runtime, silenceMs: 40 });
+  const eng = new NativeEngine({ runtime, silenceMs: 40, pingIntervalMs: 15 });
   handshake(ports[0]);
   await eng.setOptions();
   const pending = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 8, 1, null);
   await settle();
   await assert.rejects(pending, /search timed out/);
   assert.equal(eng.dead, true);
+  // The watchdog is a liveness check, not a stopwatch: it asked, and nothing answered.
+  assert.ok(sentOf(ports[0], 'ping').length >= 1, 'a running search pings the helper');
+});
+
+// The helper sends nothing to the browser while Stockfish searches, so a plain silence timer would
+// cap every search's DURATION — and an SF19 scoring search is an exact depth-22 search that may
+// legitimately take minutes. What must be detected is a WEDGED HELPER, so the search pings it and a
+// `pong` (which the host sends from its stdin thread, mid-search) keeps the search alive.
+test('a long search is kept alive by pings instead of being cut off by its duration', async () => {
+  const { runtime, ports } = fakeRuntime();
+  const eng = new NativeEngine({ runtime, silenceMs: 60, pingIntervalMs: 15 });
+  handshake(ports[0]);
+  await eng.setOptions();
+  const port = ports[0];
+  // A live helper: answer every ping with a pong, exactly as the host does while searching.
+  const answering = setInterval(() => {
+    for (let i = 0; i < sentOf(port, 'ping').length; i++) port.emit({ type: 'pong' });
+  }, 5);
+  try {
+    let settled = null;
+    const pending = eng.analyse('8/8/8/8/8/8/8/K6k w - - 0 1', 22, 1, null).then(
+      (result) => { settled = { result }; },
+      (error) => { settled = { error }; },
+    );
+    await sleep(200);   // three times the silence budget: a duration cap would have failed by now
+    assert.equal(settled, null, 'the search is still running');
+    assert.equal(eng.dead, false);
+    assert.ok(sentOf(port, 'ping').length >= 3, 'the helper is asked repeatedly, not once');
+    // The search ends normally, with a well-formed answer.
+    port.emit({ type: 'bestmove', id: 1, bestmove: 'a1a2', score: { cp: 12 }, pv: 'a1a2', lines: [] });
+    await pending;
+    assert.equal(settled.result.bestmove, 'a1a2');
+    const pingsAfter = sentOf(port, 'ping').length;
+    await sleep(60);
+    assert.equal(sentOf(port, 'ping').length, pingsAfter, 'the pings stop with the search');
+  } finally { clearInterval(answering); }
 });
 
 test('malformed host messages are dropped without breaking the engine', async () => {
