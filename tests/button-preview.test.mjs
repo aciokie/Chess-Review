@@ -234,21 +234,31 @@ test('a game that changed under the tab is refused', async () => {
   assert.equal(result.ok, false);
 });
 
-test('the in-page card renders the estimate with accuracy and badge chips', async () => {
+// Chess.com badges only the moves worth looking at. Listing all ten categories would be noise, so
+// the card shows the review's own NOTEWORTHY set with the extension's real badge artwork — and a
+// category it does not show must be absent, not a zero.
+test('the in-page card renders the estimate with accuracy and only the notable badges', async () => {
   const dom = new JSDOM('<div class="row"><button id="review">Analyze with Chess Review</button></div>', {
     url: 'https://www.chess.com/game/live/12345678', runScripts: 'outside-only', pretendToBeVisual: true,
   });
   const w = dom.window;
   const sent = [];
-  w.chrome = { runtime: { sendMessage: async (message) => {
-    sent.push(message);
-    if (message.type !== 'buttonPreview') return { ok: true };
-    return {
-      ok: true, key: 'chesscom:12345678', estimated: true,
-      players: { w: 'Alice', b: 'Bob' }, accuracy: { w: 88.8, b: 77.7 },
-      counts: { w: { best: 3, blunder: 1 }, b: { mistake: 2 } }, me: 'w',
-    };
-  } } };
+  w.chrome = { runtime: {
+    getURL: (path) => 'chrome-extension://test/' + path,
+    sendMessage: async (message) => {
+      sent.push(message);
+      if (message.type !== 'buttonPreview') return { ok: true };
+      return {
+        ok: true, key: 'chesscom:12345678', estimated: true,
+        players: { w: 'Alice', b: 'Bob' }, accuracy: { w: 88.8, b: 77.7 },
+        counts: {
+          w: { brilliant: 1, best: 3, excellent: 2, blunder: 1 },
+          b: { inacc: 2, excellent: 4, forced: 1 },
+        },
+        me: 'w',
+      };
+    },
+  } };
   w.eval(readFileSync(new URL('../button-preview-content.js', import.meta.url), 'utf8'));
   const button = w.document.getElementById('review');
   w.ChessReviewButtonPreview.register(button, { getContext: () => ({ key: 'chesscom:12345678' }), api: w.chrome });
@@ -264,9 +274,16 @@ test('the in-page card renders the estimate with accuracy and badge chips', asyn
   assert.deepEqual(sides.map((side) => side.dataset.side), ['w', 'b'], 'the open seat is listed first');
   assert.equal(sides[0].dataset.self, 'true');
   assert.equal(sides[0].querySelector('.chess-review-preview-acc').textContent, '~88.8%');
-  assert.equal(sides[0].querySelectorAll('.chess-review-preview-badge').length, 2);
-  assert.equal(sides[1].querySelectorAll('.chess-review-preview-badge').length, 1);
-  assert.equal(sides[0].querySelector('[data-cat="best"]').getAttribute('title'), 'Best: 3');
+
+  const cats = (side) => [...side.querySelectorAll('.chess-review-preview-badge')].map((chip) => chip.dataset.cat);
+  assert.deepEqual(cats(sides[0]), ['brilliant', 'blunder'], 'only the notable categories are badged');
+  assert.deepEqual(cats(sides[1]), ['inacc'], 'Best/Excellent/Good/Forced never earn a badge');
+
+  // The artwork is the extension's own SVG badge, not a text glyph standing in for it.
+  assert.match(sides[0].querySelector('[data-cat="brilliant"] img').src, /icons\/brilliant\.svg$/);
+  assert.match(sides[1].querySelector('[data-cat="inacc"] img').src, /icons\/inaccuracy\.svg$/);
+  assert.equal(sides[0].querySelector('[data-cat="brilliant"] .chess-review-preview-badge-count').textContent, '1');
+  assert.equal(sides[0].querySelector('[data-cat="brilliant"]').getAttribute('title'), 'Brilliant: 1');
   dom.window.close();
 });
 

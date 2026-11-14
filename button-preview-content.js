@@ -13,7 +13,12 @@
     brilliant: "!!", great: "!", best: "★", forced: "→", excellent: "✓", good: "✓",
     book: "♟", inacc: "?!", mistake: "?", miss: "×", blunder: "??",
   };
-  const ORDER = ["brilliant", "great", "best", "forced", "excellent", "good", "book", "inacc", "mistake", "miss", "blunder"];
+  // Chess.com does not badge every move: only the ones worth looking at get a badge. This is the
+  // review's own NOTEWORTHY set (analysis.js) — the categories that earn a board and move-list
+  // badge. Best/Excellent/Good/Book/Forced are volume, not story, and stay off the card.
+  const BADGES = ["brilliant", "great", "inacc", "mistake", "miss", "blunder"];
+  // The extension's actual badge icons (icons/<name>.svg, listed in web_accessible_resources).
+  const ICON_FILES = { inacc: "inaccuracy" };
   // What the card says when it cannot produce numbers. It never guesses a score: it names the reason
   // and offers another try, because most of these are transient (an archive lagging behind a game
   // that just ended, a browser that could not start the bundled engine, a slow machine).
@@ -87,11 +92,26 @@
     return true;
   }
 
+  function iconUrl(category) {
+    try { return api.runtime.getURL("icons/" + (ICON_FILES[category] || category) + ".svg"); }
+    catch { return ""; }
+  }
+
   function badge(category, count) {
-    return h("span", {
+    const chip = h("span", {
       class: "chess-review-preview-badge", "data-cat": category,
       title: CATEGORY_LABELS[category] + ": " + count,
-    }, h("b", { text: CATEGORY_SYMBOLS[category] || "•" }), h("span", { text: String(count) }));
+    });
+    const src = iconUrl(category);
+    const icon = h("img", {
+      class: "chess-review-preview-badge-icon", src, alt: CATEGORY_LABELS[category], draggable: "false",
+    });
+    // If a packaged icon is ever missing, fall back to the plain glyph rather than a broken image.
+    icon.addEventListener("error", () => {
+      icon.replaceWith(h("b", { text: CATEGORY_SYMBOLS[category] || "•" }));
+    });
+    chip.append(icon, h("span", { class: "chess-review-preview-badge-count", text: String(count) }));
+    return chip;
   }
 
   function sideRow(side, result) {
@@ -102,7 +122,7 @@
         h("span", { class: "chess-review-preview-name", text: name }),
         h("span", { class: "chess-review-preview-acc", text: accuracy ? (result.estimated ? "~" : "") + accuracy : "—" })));
     const counts = result.counts?.[side];
-    const chips = ORDER
+    const chips = BADGES
       .filter((category) => Number.isFinite(counts?.[category]) && counts[category] > 0)
       .map((category) => badge(category, counts[category]));
     if (chips.length) row.append(h("div", { class: "chess-review-preview-badges" }, chips));

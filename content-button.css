@@ -213,12 +213,23 @@ button.chess-analyzer-free-review > .chess-analyzer-free-review-label {
   all: initial !important;
   display: inline-flex !important;
   align-items: center !important;
-  gap: 3px !important;
-  padding: 1px 6px !important;
-  border-radius: 999px !important;
-  background: rgba(255, 255, 255, .07) !important;
+  gap: 4px !important;
   color: #d8d4c7 !important;
-  font: 700 10px/1.5 "Hanken Grotesk", -apple-system, "Segoe UI", sans-serif !important;
+  font: 700 11px/1.2 "Hanken Grotesk", -apple-system, "Segoe UI", sans-serif !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+.chess-review-preview .chess-review-preview-badge-icon {
+  all: initial !important;
+  display: block !important;
+  width: 15px !important;
+  height: 15px !important;
+}
+
+.chess-review-preview .chess-review-preview-badge-count {
+  all: initial !important;
+  color: #d8d4c7 !important;
+  font: 700 11px/1.2 "Hanken Grotesk", -apple-system, "Segoe UI", sans-serif !important;
   font-variant-numeric: tabular-nums !important;
 }
 
