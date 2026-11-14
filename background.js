@@ -31,7 +31,12 @@ browserAPI.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (sender.frameId !== 0 || !sender.tab) return;
     if (!isSupportedChessUrl(sender.url || sender.tab.url)) return;
     if (msg.type === "cancelButtonPreview") { buttonPreviews.cancel(sender.tab.id, msg.key); return; }
-    buttonPreviews.get(sender.tab.id, msg.key).then((result) => { try { sendResponse(result); } catch {} });
+    // Always answer, even if the lookup itself throws: an unanswered message shows up in the page
+    // as an unexplained failure.
+    buttonPreviews.get(sender.tab.id, msg.key).then(
+      (result) => { try { sendResponse(result); } catch {} },
+      (error) => { try { sendResponse({ ok: false, key: msg.key, reason: "unknown", error: error?.message || "Preview unavailable" }); } catch {} },
+    );
     return true; // keep the message channel open for the async answer
   }
   if (msg && msg.type === "openShared" && msg.payload && msg.payload.pgn) {

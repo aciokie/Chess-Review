@@ -189,6 +189,28 @@ test('a slow preview host is waited for, and re-created mid-way', async () => {
   assert.equal(created, 2, 'the document is ensured again when the first attempts go nowhere');
 });
 
+test('a host that dies before scoring is rebuilt and the job is retried once', async () => {
+  let attempts = 0, closed = 0, created = 0;
+  const api = {
+    runtime: {
+      getURL: (path) => 'chrome-extension://test/' + path,
+      getContexts: async () => [],
+      sendMessage: async (message) => {
+        if (message.type !== 'analyse') return undefined;
+        attempts++;
+        return attempts <= 4 ? undefined : { ok: true, summary: { estimated: true, budget: PREVIEW_NODES } };
+      },
+    },
+    offscreen: { createDocument: async () => { created++; }, closeDocument: async () => { closed++; } },
+  };
+  const runner = createPreviewRunner(api, async () => { throw Error('unused'); }, { delays: [0, 0, 0, 0] });
+  const summary = await runner(PGN);
+  assert.equal(summary.estimated, true);
+  assert.equal(attempts, 5, 'the dead host is dropped and one fresh attempt is made');
+  assert.ok(closed >= 1, 'the dead document is closed before the retry');
+  assert.ok(created >= 2);
+});
+
 test('a host that never answers reports a host failure, not a silent hang', async () => {
   const api = {
     runtime: {
@@ -287,6 +309,94 @@ test('an unavailable card explains itself and retries on demand', async () => {
   assert.equal(requests, 2);
   assert.equal(card.dataset.state, 'ready');
   assert.equal(card.querySelector('.chess-review-preview-acc').textContent, '~80.0%');
+  dom.window.close();
+});
+
+// After an extension update the old content script can never talk to the new background. Saying so
+// beats a Retry button that is guaranteed to fail, and it must not keep retrying in the background.
+test('a dead extension context asks for a reload instead of retrying', async () => {
+  const dom = new JSDOM('<div class="row"><button id="review">Analyze</button></div>', {
+    url: 'https://www.chess.com/game/live/12345678', runScripts: 'outside-only', pretendToBeVisual: true,
+  });
+  const w = dom.window;
+  w.console.warn = () => {};
+  let requests = 0;
+  w.chrome = { runtime: { sendMessage: async (message) => {
+    if (message.type !== 'buttonPreview') return { ok: true };
+    requests++;
+    throw Error('Extension context invalidated.');
+  } } };
+  w.eval(readFileSync(new URL('../button-preview-content.js', import.meta.url), 'utf8'));
+  const button = w.document.getElementById('review');
+  w.ChessReviewButtonPreview.register(button, { getContext: () => ({ key: 'chesscom:12345678' }), api: w.chrome });
+  await new Promise((resolve) => w.setTimeout(resolve, 0));
+
+  const card = button.nextElementSibling;
+  assert.equal(card.dataset.state, 'unavailable');
+  assert.equal(card.dataset.reason, 'reload');
+  assert.match(card.querySelector('.chess-review-preview-wait').textContent, /reload this page/);
+  assert.equal(card.querySelector('.chess-review-preview-retry'), null, 'nothing on this page can reconnect');
+
+  w.ChessReviewButtonPreview.refresh(true);
+  w.dispatchEvent(new w.Event('online'));
+  await new Promise((resolve) => w.setTimeout(resolve, 30));
+  assert.equal(requests, 1, 'a dead context is not re-asked');
+  dom.window.close();
+});
+
+test('coming back online retries a failed preview', async () => {
+  const dom = new JSDOM('<div class="row"><button id="review">Analyze</button></div>', {
+    url: 'https://www.chess.com/game/live/12345678', runScripts: 'outside-only', pretendToBeVisual: true,
+  });
+  const w = dom.window;
+  w.console.warn = () => {};
+  let requests = 0;
+  w.chrome = { runtime: { sendMessage: async (message) => {
+    if (message.type !== 'buttonPreview') return { ok: true };
+    requests++;
+    if (requests === 1) return { ok: false, key: 'chesscom:12345678', reason: 'archive', error: 'not archived yet' };
+    return { ok: true, key: 'chesscom:12345678', estimated: true, players: { w: 'Alice', b: 'Bob' },
+      accuracy: { w: 80, b: 70 }, counts: { w: { best: 1 }, b: { best: 1 } }, me: null };
+  } } };
+  w.eval(readFileSync(new URL('../button-preview-content.js', import.meta.url), 'utf8'));
+  const button = w.document.getElementById('review');
+  w.ChessReviewButtonPreview.register(button, { getContext: () => ({ key: 'chesscom:12345678' }), api: w.chrome });
+  await new Promise((resolve) => w.setTimeout(resolve, 0));
+  assert.equal(button.nextElementSibling.dataset.state, 'unavailable');
+
+  w.dispatchEvent(new w.Event('online'));
+  await new Promise((resolve) => w.setTimeout(resolve, 0));
+  assert.equal(requests, 2);
+  assert.equal(button.nextElementSibling.dataset.state, 'ready');
+  dom.window.close();
+});
+
+// chess.com can drop our card without touching our button (a partial re-render). The card must come
+// back on its own, and a refresh that changes nothing must not churn the DOM.
+test('a dropped card is re-mounted, and a no-op refresh leaves the DOM alone', async () => {
+  const dom = new JSDOM('<div class="row"><button id="review">Analyze</button></div>', {
+    url: 'https://www.chess.com/game/live/12345678', runScripts: 'outside-only', pretendToBeVisual: true,
+  });
+  const w = dom.window;
+  w.chrome = { runtime: { sendMessage: async () => ({ ok: true, key: 'chesscom:12345678', estimated: true,
+    players: { w: 'Alice', b: 'Bob' }, accuracy: { w: 80, b: 70 }, counts: { w: { best: 1 }, b: { best: 1 } }, me: null }) } };
+  w.eval(readFileSync(new URL('../button-preview-content.js', import.meta.url), 'utf8'));
+  const button = w.document.getElementById('review');
+  w.ChessReviewButtonPreview.register(button, { getContext: () => ({ key: 'chesscom:12345678' }), api: w.chrome });
+  await new Promise((resolve) => w.setTimeout(resolve, 0));
+
+  const card = button.nextElementSibling;
+  const sides = card.querySelector('.chess-review-preview-sides');
+  const firstRow = sides.firstChild;
+  w.ChessReviewButtonPreview.refresh();
+  assert.equal(button.nextElementSibling, card);
+  assert.equal(card.querySelector('.chess-review-preview-sides').firstChild, firstRow, 'no repaint for an unchanged view');
+
+  card.remove();
+  w.document.body.append(w.document.createElement('div'));
+  await new Promise((resolve) => w.setTimeout(resolve, 300));
+  assert.equal(button.nextElementSibling, card, 'the observer puts the same card back');
+  assert.equal(card.dataset.state, 'ready');
   dom.window.close();
 });
 
