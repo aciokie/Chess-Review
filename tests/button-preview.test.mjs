@@ -125,6 +125,42 @@ test('without a saved review the estimate is computed once and cached', async ()
   assert.equal(previews, 1, 'the session cache answers the repeat');
 });
 
+// The card highlights "you" on both rows. The service resolves that from layered evidence, the same
+// way the review does, and it must be attached to a fresh estimate, a cached one and a saved review.
+test('the resolved identity marks its own side on fresh, cached and saved previews', async () => {
+  // Alice faced three different opponents: she is the learned account for Chess.com.
+  const history = { 'playerHistory:v1': { chesscom: ['Bob', 'Carol', 'Dave'].map((opponent, i) => ({
+    site: 'chesscom', id: String(i + 1), white: 'Alice', black: opponent })) } };
+  const payload = { pgn: PGN, meta: { url: 'https://www.chess.com/game/live/12345678' } };
+  let library = [];
+  const service = createButtonPreviewService({
+    api: { storage: { local: { get: async () => ({ ...history, library }) } } },
+    loadGame: async () => payload,
+    runPreview: async () => ({ estimated: true, accuracy: { w: 70.5, b: 65.1 }, counts: { w: { best: 4 }, b: { blunder: 2 } } }),
+  });
+  const fresh = await service.get(1, 'chesscom:12345678');
+  assert.deepEqual([fresh.me, fresh.meSource], ['w', 'history'], 'learned from reviewed games');
+  assert.equal((await service.get(1, 'chesscom:12345678')).me, 'w', 'the cached answer still carries identity');
+  library = [{ url: 'https://www.chess.com/game/live/12345678', pgn: PGN,
+    buttonSummary: { version: 1, accuracy: fresh.accuracy } }];
+  assert.equal((await service.get(2, 'chesscom:12345678')).me, 'w', 'a saved summary carries identity too');
+});
+
+test('the page-reported signed-in account outranks game history in the preview', async () => {
+  const history = { 'playerHistory:v1': { chesscom: ['Bob', 'Carol', 'Dave'].map((opponent, i) => ({
+    site: 'chesscom', id: String(i + 1), white: 'Alice', black: opponent })) } };
+  const payload = { pgn: PGN, meta: { url: 'https://www.chess.com/game/live/12345678',
+    perspective: { account: 'Bob' } } };
+  const service = createButtonPreviewService({
+    api: { storage: { local: { get: async () => history } } },
+    loadGame: async () => payload,
+    runPreview: async () => ({ estimated: true, accuracy: { w: 70.5, b: 65.1 }, counts: null }),
+  });
+  const result = await service.get(1, 'chesscom:12345678');
+  assert.equal(result.me, 'b');
+  assert.equal(result.meSource, 'account');
+});
+
 test('a failed lookup is labelled with a reason the page can explain', () => {
   assert.equal(previewFailureReason({ code: 'GAME_NOT_ARCHIVED' }), 'archive');
   assert.equal(previewFailureReason({ code: 'GAME_NOT_FINISHED' }), 'unfinished');

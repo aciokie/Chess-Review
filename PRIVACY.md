@@ -1,6 +1,6 @@
 # Privacy Policy — Chess Review
 
-_Last updated: 2026-11-14_
+_Last updated: 2026-11-17_
 
 Chess Review is a browser extension that reviews the chess games you play on
 **Chess.com** and **Lichess**. This policy explains exactly what the extension
@@ -39,6 +39,10 @@ browser's `chrome.storage.local`:
 - Your preferences (board/piece theme, chosen coach, engine settings).
 - The chess username you enter or that is detected from the page, used to seat
   you on the correct side of the board.
+- The username you are signed in with on Chess.com or Lichess, read from those
+  sites' pages while you browse them (up to 5 per platform, each kept for 90 days
+  after it was last seen). It is used only to recognise your own games and is never
+  sent anywhere. A saved review also keeps the account whose game it was.
 - A cache of public game/API responses, PGNs, and computed analysis, so
   re-opening a game does not require re-downloading or re-analyzing it.
 - Chess.com monthly archive responses can contain other games and optional
@@ -56,8 +60,10 @@ its storage in your browser.
 
 Choosing **Share game** copies a link to your clipboard. Its URL fragment contains
 the PGN and game metadata, including player information and your selected player
-name/perspective. The payload is encoded, **not encrypted**. Anyone you give the
-complete link to can decode it. Review the information before sharing private PGNs.
+name/perspective. It never contains the account you are signed in with: the
+recipient's copy of the extension works out its own. The payload is encoded,
+**not encrypted**. Anyone you give the complete link to can decode it. Review the
+information before sharing private PGNs.
 
 The extension does not upload that payload to a developer server. URL fragments
 are normally not included in HTTP requests, but the complete link is visible to

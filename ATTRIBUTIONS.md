@@ -61,6 +61,24 @@ Distributed by Lichess (lila); high-quality vector SVGs.
   "Copyright 2000, Sounddogs.com" (commercial royalty-free library, as redistributed
   by Lichess). Retained here for transparency.
 
+## Check and castling sound contenders
+- **Files:** `sounds/check/*.wav` (30 candidates) and `sounds/castle/*.wav`
+  (15 candidates).
+- **Source:** edited derivatives of the bundled Lichess `move-self.mp3` and
+  `capture.mp3` recordings credited above; the underlying sample license applies.
+- **Processing:** modest playback-rate changes, filtering, envelope edits and
+  layered placement rhythms. Checks 16–30 mix all layers at the same onset for
+  one impact, without delayed taps or trailing ticks. No new recordings,
+  musical tones or reverb.
+- **Reproduce:** `node scripts/generate-move-event-sounds.mjs` (requires FFmpeg on
+  `PATH` or `FFMPEG_PATH`). Add `--verify-page` for an isolated Chrome browser check
+  (`CHROME_PATH` can override the default Windows Chrome path).
+- **Audition:** `docs/move-event-sounds.html` compares all 45 candidates with the
+  original move and capture recordings. All candidates are selectable in Sound
+  settings; the existing move-event defaults (the Lichess recordings) are unchanged.
+- **Details:** `sounds/move-event-candidates.json` records the source hashes,
+  processing parameters, durations and levels for each generated file.
+
 ## "Wrong answer" practice sound
 - **File:** `sounds/Wrong/Incorrect.mp3`
 - **Source:** [Pixabay](https://pixabay.com/sound-effects/) — used under the
@@ -72,6 +90,17 @@ Distributed by Lichess (lila); high-quality vector SVGs.
   ([Freesound profile](https://freesound.org/people/timgormly/)) — originally a
   CC0 Freesound upload, mirrored to Pixabay via the `freesound_community` account.
   Source: https://pixabay.com/sound-effects/film-special-effects-training-program-incorrect2-88735/
+
+## Brilliant move sound contenders
+- **Files:** `sounds/brilliant/*.wav` — Crystal Revelation, Golden Insight,
+  Celestial Bloom, Royal Flourish, Neon Spark, Harp Turn, Breathed Wonder,
+  Silver Seal, Orbit Rise, and Velvet Impact.
+- **Source:** original deterministic synthesis for Chess Review with
+  `scripts/generate-brilliant-sounds.mjs`; no external samples.
+- **Audition:** open `docs/brilliant-sounds.html` locally to compare the ten
+  candidates. All ten are selectable under Brilliant move in Sound settings;
+  Crystal Revelation is the default for forward navigation to brilliant moves,
+  and Off restores the move's usual SAN cue.
 
 ## Chess engine
 - **Files:** `engine/stockfish*.js`, `engine/stockfish*.wasm`

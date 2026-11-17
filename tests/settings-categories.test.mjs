@@ -42,7 +42,7 @@ test('each category renders its own sections and a reset', (t) => {
   assert.deepEqual(heads(a), ['Coach', 'Insights']);
   assert.match(a.dom.window.document.querySelector('.set-category .lib-dd-btn').textContent, /Review & Coach/);
   a.call('selectSettingsCategory', 'sound');
-  assert.deepEqual(heads(a), ['General', 'Move', 'Capture', 'Check', 'Castle']);
+  assert.deepEqual(heads(a), ['General', 'Move', 'Capture', 'Check', 'Castle', 'Brilliant move']);
   a.call('selectSettingsCategory', 'engine');
   assert.deepEqual(heads(a), ['Search', 'Move classification', 'Accuracy points', 'Engine']);
   a.call('selectSettingsCategory', 'developer');

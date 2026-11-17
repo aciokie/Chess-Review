@@ -12,6 +12,7 @@ import { isSf19Build, SF19_DEPTH } from '../../lib/scoring-builds.js';
 import { NATIVE_SCORING_CAPABILITY } from '../../engine/native.js';
 import { matedKingSquare, mateMark } from '../../lib/mate-mark.js';
 import { rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY } from '../../lib/player-history.js';
+import { identityForGame } from '../../lib/identity.js';
 import { libraryFlip } from '../../lib/library-seat.js';
 import { fullHdReferenceLayout, panelScale } from '../../lib/full-hd-layout.js';
 import { panelGroupBounds, scalePanelGroup, movePanelGroup } from '../../lib/panel-layout.js';
@@ -53,7 +54,7 @@ export function app(t, { url = 'https://extension.test/analysis.html#explore', h
     publicGameAccuracy, sf19GameAccuracy, calibratedReview, scoringEvidenceComplete, analyseCalibratedPosition,
     isSf19Build, SF19_DEPTH, NATIVE_SCORING_CAPABILITY, expectedPoints, SF19_OUTCOME, moveGrade,
     matedKingSquare, mateMark,
-    rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY, libraryFlip,
+    rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY, identityForGame, libraryFlip,
     fullHdReferenceLayout, panelScale, panelGroupBounds, scalePanelGroup, movePanelGroup, createAccuracyNavigation,
     PANEL_DESIGNS, panelDesign, normalizePanelDesigns, UI_SETUPS, BUTTON_PREVIEW_VERSION,
     Engine: class { constructor() { throw Error('Unexpected real engine'); } },

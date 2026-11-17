@@ -111,3 +111,45 @@ test('a stored popup handle still seats the game, not the inferred fallback',asy
   assert.equal(a.state.meSide,'w','the stored handle (Friend, White here) is authoritative');
   await settle();
 });
+
+// Identity and orientation are independent. The page's flip hint shows the board the way the site
+// displayed it; it must never overrule a confirmed identity when deciding whose game this is (or the
+// accuracy column, saved review and Progress page would all describe the wrong player).
+test('a confirmed identity keeps the seat when the page orientation says otherwise',async t=>{
+  const a=app(t);a.replace('startAnalysis',()=>{});a.call('buildUI');
+  const base=game(4,'Owner','Opponent4');
+  await a.call('applyGame',{...base,meta:{...base.meta,flip:true,myName:'Owner',playerKnown:true},analysis:null});
+  assert.equal(a.state.meSide,'w','the resolver, not the flip hint, knows whose game this is');
+  assert.equal(a.state.flipped,true,'the hint still decides which way up the board is shown');
+  await settle();
+});
+
+test('an empty resolved identity keeps the orientation seat but marks the game as not yours',async t=>{
+  const a=app(t);a.replace('startAnalysis',()=>{});a.call('buildUI');
+  a.state.username='Owner';   // a stale handle must not re-seat a game the resolver placed nobody in
+  const base=game(4,'Owner','Opponent4');
+  await a.call('applyGame',{...base,meta:{...base.meta,flip:true,myName:'',playerKnown:false},analysis:null});
+  assert.equal(a.state.playerKnown,false,'the resolver found nobody');
+  assert.equal(a.state.meSide,'b','the board is still shown from the page orientation');
+  await settle();
+});
+
+// A share link is a game, not a browser: the recipient must resolve their OWN identity, so the
+// sender's signed-in account (and the evidence layer that produced it) is never exported.
+test('a share link never carries the sender\'s viewing identity',async t=>{
+  const a=app(t);a.replace('toast',()=>{});
+  let copied='';
+  Object.defineProperty(a.dom.window.navigator,'clipboard',{configurable:true,
+    value:{writeText:async text=>{copied=text;}}});
+  a.state.pgn='1. e4 e5 1-0';
+  a.state.players={w:{name:'Owner'},b:{name:'Opponent4'}};
+  a.state.meSide='w';a.state.playerKnown=true;a.state.flipped=false;
+  a.state.meta={url:'https://www.chess.com/game/live/4',gameId:'4',perspective:{account:'Owner'},identitySource:'account'};
+  a.call('shareGame');
+  await settle();
+  const meta=JSON.parse(Buffer.from(decodeURIComponent(copied.split('#gambit=')[1]),'base64').toString()).meta;
+  assert.equal(meta.myName,'Owner','the sender\'s seat for THIS game is still exported');
+  assert.equal(meta.flip,false);
+  assert.equal('perspective' in meta,false,'the recipient must resolve their own signed-in account');
+  assert.equal('identitySource' in meta,false);
+});

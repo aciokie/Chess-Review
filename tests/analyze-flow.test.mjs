@@ -138,3 +138,32 @@ test('Lichess replay recovery prefers the full PGN so ratings, result and setup 
   assert.equal(s.payload().pgn, pgn);
   assert.equal(s.payload().meta.flip, true);
 });
+
+// The page's signed-in account and bottom player travel with the launch so the review can resolve
+// whose game it is. They are reduced to validated fields on the way in, and a shared link never
+// carries them (background strips them) — so nothing here can label a stranger's game as ours.
+test('a Chess.com launch carries the page identity, reduced to validated fields', async t => {
+  const s = setup(t);
+  t.mock.method(chrome.tabs, 'sendMessage', async () => ({
+    ok: true, gameId: '12345678',
+    perspective: { account: 'Hero', bottom: 'Hero', signedIn: true, boardFlip: false, junk: 'ignored' },
+  }));
+  await analyzeActiveTab('saved-user');
+  assert.deepEqual(s.payload().meta.perspective, { account: 'Hero', bottom: 'Hero', signedIn: true, boardFlip: false });
+});
+
+test('a Lichess launch carries the page identity too, and unreadable identity is dropped', async t => {
+  const s = setup(t, 'https://lichess.org/game/9pnmvxvA');
+  t.mock.method(chrome.tabs, 'sendMessage', async () => ({
+    site: 'lichess', gameId: '9pnmvxvA', flip: false, perspective: { account: 'Hero', boardFlip: true },
+  }));
+  await analyzeActiveTab('');
+  assert.deepEqual(s.payload().meta.perspective, { account: 'Hero', bottom: '', signedIn: null, boardFlip: true });
+
+  const junk = setup(t, 'https://lichess.org/game/9pnmvxvA');
+  t.mock.method(chrome.tabs, 'sendMessage', async () => ({
+    site: 'lichess', gameId: '9pnmvxvA', perspective: { account: 'not a name!', signedIn: 'yes' },
+  }));
+  await analyzeActiveTab('');
+  assert.equal(Object.hasOwn(junk.payload().meta, 'perspective'), false, 'a broken read never reaches the review');
+});

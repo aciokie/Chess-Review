@@ -11,6 +11,7 @@ import { analyzeActiveTab, openAnalysisTab, reloadActiveAndAnalyze, loadGameFrom
 import { browserAPI } from "./browser-compat.js";
 import { createButtonPreviewService } from "./lib/button-preview-service.js";
 import { createPreviewRunner } from "./lib/preview-runner.js";
+import { rememberAccount, siteForUrl } from "./lib/identity.js";
 
 // The post-game preview: a bounded local estimate of a finished game's accuracy and badge tally,
 // shown under the in-page review button. It is never review evidence and never touches saved reviews.
@@ -39,8 +40,20 @@ browserAPI.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     );
     return true; // keep the message channel open for the async answer
   }
+  // A content script saw who is signed in. Only the site's own top frame may report its account.
+  if (msg?.type === "accountSeen") {
+    const site = siteForUrl(sender.url || sender.tab?.url);
+    if (sender.frameId === 0 && sender.tab && site && site === msg.site) {
+      rememberAccount(browserAPI.storage.local, site, msg.name, msg.via).catch(() => {});
+    }
+    return;
+  }
   if (msg && msg.type === "openShared" && msg.payload && msg.payload.pgn) {
-    openAnalysisTab(msg.payload);
+    // A shared link carries the sender's game, never the sender's viewing identity.
+    const payload = { ...msg.payload, meta: { ...(msg.payload.meta || {}) } };
+    delete payload.meta.perspective;
+    delete payload.meta.identitySource;
+    openAnalysisTab(payload);
   }
   if (msg && msg.type === "freeGameReview") {
     // The review supersedes the preview (and a hidden estimate must never outlive it).

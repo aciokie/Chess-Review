@@ -17,6 +17,7 @@ import { isSf19Build, SF19_DEPTH } from "./lib/scoring-builds.js";
 import { moveGrade } from "./lib/move-grades.js";
 import { gameStatistics } from "./lib/game-statistics.js";
 import { rememberAnalyzedGame, historyGame, inferredPlayer, PLAYER_HISTORY_KEY } from "./lib/player-history.js";
+import { identityForGame } from "./lib/identity.js";
 import { libraryFlip } from "./lib/library-seat.js";
 import { fullHdReferenceLayout, panelScale } from "./lib/full-hd-layout.js";
 import { panelGroupBounds, scalePanelGroup, movePanelGroup } from "./lib/panel-layout.js";
@@ -418,14 +419,16 @@ const DEFAULT_SETTINGS = {
   soundVolume: 50,
   // Custom board colours (used when boardTheme === "custom" — the colour-picker chip, shown first).
   boardCustomLight: "#f9f9f9", boardCustomDark: "#e1a652",
-  // Per-event sound mapping + knobs (see FX_SOUNDS / SOUND_EVENTS). snd = an FX_SOUNDS id, "default"
-  // (the original cue) or "none" (event silent); pitch in semitones; speed is a duration multiplier
-  // (1 = unchanged); volume is this event's share of the master volume (0–100).
+  // Per-event sound mapping + knobs (see FX_SOUNDS / EVENT_SOUNDS / SOUND_EVENTS). snd = a choice id
+  // (an FX_SOUNDS id, or one of the event's own candidates), "default" (the original cue) or "none"
+  // (event silent); pitch in semitones; speed is a duration multiplier (1 = unchanged); volume is
+  // this event's share of the master volume (0–100).
   soundFx: {
     move:    { snd: "default", pitch: 0, speed: 1, volume: 100 },
     capture: { snd: "default", pitch: 0, speed: 1, volume: 100 },
     check:   { snd: "default", pitch: 0, speed: 1, volume: 100 },
     castle:  { snd: "default", pitch: 0, speed: 1, volume: 100 },
+    brilliant: { snd: "default", pitch: 0, speed: 1, volume: 100 },
   },
   // Best-move arrow (the engine's recommendation in the current position)
   bestArrow: true, bestArrowColor: "#85ae4a", arrowOpacity: 0.65, arrowShaft: 0.2, arrowHead: 0.4,
@@ -642,7 +645,9 @@ function shareGame(ev) {
     // PC whose stored handle doesn't match either player — the username stays the safety net, the
     // flip is the certainty. (flip = is the user Black / sitting after a board flip.) A flipped
     // anonymous import must stay anonymous when reopened, so only an identified side is exported.
-    const meta = { ...S.meta, flip: S.flipped, myName: S.playerKnown === false ? "" : (S.players?.[S.meSide]?.name) || S.username || "" };
+    // The recipient resolves their own identity: never forward the sender's signed-in account.
+    const { perspective: _viewer, identitySource: _source, ...shared } = S.meta || {};
+    const meta = { ...shared, flip: S.flipped, myName: S.playerKnown === false ? "" : (S.players?.[S.meSide]?.name) || S.username || "" };
     let pgn = S.pgn;
     if (S.meta?.explore && S.variation) {
       const chess = new Chess(S.variation.positions[0].fen);
@@ -665,9 +670,10 @@ function shareGame(ev) {
 
 /* ---------------- Sound ---------------- */
 const _url = (p) => (browserAPI?.runtime?.getURL ? browserAPI.runtime.getURL(p) : p);
-// The 9 base effects (test bank under sounds/fx). [id, label, file]. Each board event picks one of
-// these (or the extension's original cue) and shapes it live with pitch + speed knobs — so the old
-// sped-up duplicate files are gone: one source per sound, tuned per event. See SOUND_EVENTS / fxConfig.
+// The 9 shared effects (test bank under sounds/fx). [id, label, file]. They stay available alongside
+// each event's own candidates; every choice is shaped live with the pitch + speed knobs, so the old
+// sped-up duplicate files are gone: one source per sound, tuned per event. See EVENT_SOUNDS /
+// SOUND_EVENTS / fxConfig.
 const FX_SOUNDS = [
   ["01", "Sound 01", "sounds/fx/chess_sound_01.wav"],
   ["02", "Sound 02", "sounds/fx/chess_sound_02.wav"],
@@ -679,21 +685,51 @@ const FX_SOUNDS = [
   ["08", "Sound 08", "sounds/fx/chess_sound_08.wav"],
   ["09", "Sound 09", "sounds/fx/chess_sound_09.wav"],
 ];
-// Board events that get their own sound + knobs. [key, label, lichessFile]. "default" maps the event
-// to lichessFile (the stock Lichess cue, shown as "Lichess"), still pitch/speed-tunable so you can A/B it.
+// Dedicated candidate cues per event (packaged under sounds/<event>/). Castle and check are edited
+// derivatives of the Lichess recordings credited in ATTRIBUTIONS.md; brilliant is original synthesis.
+const EVENT_SOUND_FILES = {
+  check: [
+    "01-firm-tap", "02-bright-tap", "03-deep-tap", "04-dry-snap", "05-weighted-snap",
+    "06-tight-double", "07-rising-double", "08-heavy-answer", "09-clipped-double", "10-wide-warning",
+    "11-snap-and-tick", "12-body-and-tick", "13-close-tick", "14-low-knock-tick", "15-capture-tick",
+    "16-firm-alert", "17-bright-clack", "18-solid-strike", "19-dry-crack", "20-dense-snap",
+    "21-warm-knock", "22-deep-clack", "23-muted-thump", "24-heavy-tap", "25-rounded-strike",
+    "26-clear-accent", "27-sharp-knock", "28-crisp-impact", "29-light-snap", "30-bold-clack",
+  ],
+  castle: [
+    "01-classic-pair", "02-quick-pair", "03-weighted-rook", "04-soft-pair", "05-long-step",
+    "06-close-lock", "07-capture-lock", "08-low-lock", "09-dry-lock", "10-reverse-weight",
+    "11-settle-pair", "12-brushed-pair", "13-compact-settle", "14-deep-settle", "15-firm-settle",
+  ],
+  brilliant: [
+    "01-crystal-revelation", "02-golden-insight", "03-celestial-bloom", "04-royal-flourish", "05-neon-spark",
+    "06-harp-turn", "07-breathed-wonder", "08-silver-seal", "09-orbit-rise", "10-velvet-impact",
+  ],
+};
+// [id, label, file] per candidate. The brilliant cue's first candidate is the event's "default", so an
+// untouched brilliant event resolves to Crystal Revelation instead of a Lichess move cue.
+const EVENT_SOUNDS = Object.fromEntries(Object.entries(EVENT_SOUND_FILES).map(([event, names]) => [event,
+  names.map((name, index) => [event === "brilliant" && index === 0 ? "default" : event + "-" + name,
+    name.slice(0, 2) + " · " + name.slice(3).split("-").map(word => word[0].toUpperCase() + word.slice(1)).join(" "),
+    `sounds/${event}/${name}.wav`]),
+]));
+// Board events that get their own sound + knobs. [key, label, defaultFile]. "default" maps the event
+// to defaultFile — the stock Lichess cue for move/capture/check/castle (shown as "Lichess"), Crystal
+// Revelation for the brilliant cue — and stays pitch/speed-tunable so you can A/B it.
 const SOUND_EVENTS = [
   ["move", "Move", "sounds/move-self.mp3"],
   ["capture", "Capture", "sounds/capture.mp3"],
   ["check", "Check", "sounds/Check.mp3"],
   ["castle", "Castle", "sounds/Castling.mp3"],
+  ["brilliant", "Brilliant move", "sounds/brilliant/01-crystal-revelation.wav"],
 ];
-const _fxFileById = (id) => (FX_SOUNDS.find(([x]) => x === id) || [])[2] || null;
+const _fxFileById = (id, ev) => ([...(EVENT_SOUNDS[ev] || []), ...FX_SOUNDS].find(([x]) => x === id) || [])[2] || null;
 const _eventDef = (ev) => SOUND_EVENTS.find(([k]) => k === ev) || SOUND_EVENTS[0];
 // Per-event config { snd, pitch, speed, volume }, with safe fallbacks for old/missing stored
 // settings. "none" is a valid choice: the event is silent.
 function fxConfig(ev) {
   const c = (S.settings.soundFx && S.settings.soundFx[ev]) || {};
-  const snd = c.snd === "default" || c.snd === "none" || _fxFileById(c.snd) ? c.snd : "default";
+  const snd = c.snd === "default" || c.snd === "none" || _fxFileById(c.snd, ev) ? c.snd : "default";
   return { snd, pitch: Number.isFinite(+c.pitch) ? +c.pitch : 0, speed: +c.speed > 0 ? +c.speed : 1,
     volume: Number.isFinite(+c.volume) ? Math.max(0, Math.min(100, +c.volume)) : 100 };
 }
@@ -710,7 +746,7 @@ function fxUrl(ev) {
   const cfg = fxConfig(ev);
   if (cfg.snd === "none") return null;
   if (cfg.snd === "default") return _url(_eventDef(ev)[2]);
-  return _url(_fxFileById(cfg.snd) || _eventDef(ev)[2]);
+  return _url(_fxFileById(cfg.snd, ev) || _eventDef(ev)[2]);
 }
 // Master volume (0–1) for every sound the extension plays — driven by the "Volume" slider.
 function masterVol() {
@@ -833,9 +869,13 @@ function sanSound(san) {
   return "move";
 }
 // Play the move sound for the position you land on (capture/check/castle/move, from its SAN).
-function playMoveSound(ply) {
+// Navigating FORWARD to a move already classified brilliant plays the brilliant cue instead of the
+// SAN cue (unless that event is Off); undoing a move never celebrates it, and practice keeps its own
+// cues (the category there is not a review verdict yet).
+function playMoveSound(ply, forward = true) {
   if (!S.settings.sound || ply < 1 || !S.positions[ply]) return;
-  playEvent(sanSound(S.positions[ply].san));
+  const brilliant = forward && !S.practice && S.classif?.[ply] === "brilliant" && fxConfig("brilliant").snd !== "none";
+  playEvent(brilliant ? "brilliant" : sanSound(S.positions[ply].san));
 }
 // The practice mistake cue is fixed to Incorrect.
 let _wrongAudio = null;
@@ -1117,7 +1157,8 @@ function deriveOpening(h) {
 }
 function derivePlayers(h, meta, username) {
   const res = h.Result || meta.result || "";
-  const me = (meta.myName || username || "").toLowerCase();
+  // An identity resolver that positively found nobody must not be overridden by a stored handle.
+  const me = meta.playerKnown === false ? "" : (meta.myName || username || "").toLowerCase();
   // country = flag basename ("US", "GB_ENG") resolved from the chess.com country id the page
   // scraped, or null when we have no flag for it → the avatar falls back to the username initial.
   // countryName labels the flag's hover tooltip.
@@ -6527,7 +6568,7 @@ function soundSettings() {
       el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "Pick a sound for each board event, then shape it with the volume, pitch and speed knobs. Changes preview as you make them.")),
     ),
     ...SOUND_EVENTS.map(([key, label]) => section(label, fxEventControls(key, label))),
-    el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "A missed practice move plays the Incorrect cue.")),
+    el("div", { class: "set-row hint" }, el("span", { class: "set-note" }, "The brilliant cue plays when you navigate forward to a move classified brilliant; Off uses its usual move sound. A missed practice move plays the Incorrect cue.")),
     el("button", { class: "set-reset", onclick: resetSoundSettings }, "Reset all sound settings"),
   );
 }
@@ -6737,19 +6778,31 @@ function coachPicker() {
   return el("div", { class: "set-row" }, el("span", { class: "set-lbl" }, "Personality"),
     ddField(cur, opts, (v) => setCoach(v)));
 }
-// Controls for one board event: a sound dropdown (the 9 base sounds, the original cue or Off) plus
-// volume, pitch and speed knobs. Everything previews on change. The dropdown re-renders the panel so
-// its label updates; the sliders save + preview live without a rebuild (so the drag isn't interrupted).
+// Controls for one board event: a sound dropdown (the event's own candidates, the 9 shared effects,
+// the original cue or Off) plus volume, pitch and speed knobs. Everything previews on change. The
+// dropdown re-renders the panel so its label updates (and keeps the keyboard focus on the same
+// control); the sliders save + preview live without a rebuild (so the drag isn't interrupted).
 function fxEventControls(ev, label) {
   const cfg = fxConfig(ev);
-  const opts = [["default", "Lichess"], ...FX_SOUNDS.map(([id, l]) => [id, l]), ["none", "Off"]];
-  return el("div", { class: "set-fx" },
-    el("div", { class: "set-row" }, el("span", { class: "set-lbl" }, "Sound"),
-      ddField(cfg.snd, opts, (v) => {
-        setFx(ev, "snd", v);
-        triggerFx(ev);
-        if (UI.settings && !UI.settings.hidden) renderSettings();
-      })),
+  const dedicated = EVENT_SOUNDS[ev] || [];
+  const opts = [["default", ev === "brilliant" ? dedicated[0][1] : "Lichess"],
+    ...dedicated.filter(([id]) => id !== "default").map(([id, l]) => [id, l]),
+    ...FX_SOUNDS.map(([id, l]) => [id, l]), ["none", "Off"]];
+  const dropdown = ddField(cfg.snd, opts, (v) => {
+    setFx(ev, "snd", v);
+    triggerFx(ev);
+    if (UI.settings && !UI.settings.hidden) {
+      renderSettings();
+      UI.settings.querySelector(`[data-sound-event="${ev}"] .lib-dd-btn`)?.focus({ preventScroll: true });
+    }
+  });
+  // The candidate lists are long, so the menu gets its own scroll box; the button names the event
+  // instead of reading as a bare "Sound".
+  dropdown.classList.add("set-dropdown");
+  dropdown.querySelector(".lib-dd-btn")?.setAttribute("aria-label", label + " sound");
+  dropdown.querySelector(".lib-dd-menu")?.setAttribute("aria-label", label + " sound");
+  return el("div", { class: "set-fx", "data-sound-event": ev },
+    el("div", { class: "set-row" }, el("span", { class: "set-lbl" }, "Sound"), dropdown),
     fxSlider(ev, "volume", "Volume", 0, 100, 1, (v) => v + " %"),
     fxSlider(ev, "pitch", "Pitch", -12, 12, 1, (v) => (v > 0 ? "+" : "") + v + " st"),
     fxSlider(ev, "speed", "Speed", 0.5, 2, 0.05, (v) => (+v).toFixed(2) + "×"),
@@ -8179,7 +8232,7 @@ function go(to) {
   // stepping BACK = the move being UNDONE (the one that left `prev`). Keying both on idx made
   // stepping back onto a quiet move play the capture sound of whatever move had created that
   // position (e.g. back off g5 onto fxe5 buzzed a capture though only a pawn slid back).
-  if (S.idx !== prev) { S.userArrows = []; S.userMarks = []; S.selectedSq = null; playMoveSound(S.idx > prev ? S.idx : prev); }
+  if (S.idx !== prev) { S.userArrows = []; S.userMarks = []; S.selectedSq = null; playMoveSound(S.idx > prev ? S.idx : prev, S.idx > prev); }
   paintBoard();
   // Smooth animation on single-step navigation (forward OR backward) — but snap instead of sliding
   // when the user is scrubbing fast, so the board keeps up with the keys instead of lagging behind.
@@ -8657,7 +8710,9 @@ async function applyGame(payload) {
   S.players = players;
   const flip = S.meta && S.meta.flip;
   const side = flip === true ? "b" : flip === false ? "w" : meSide;
-  S.meSide = side; S.playerKnown = playerKnown; S.flipped = side === "b";
+  // Identity and orientation are independent: when we know whose game this is, that side is "you"
+  // whatever the page hinted; the hint still decides which way up the board is shown.
+  S.meSide = playerKnown ? meSide : side; S.playerKnown = playerKnown; S.flipped = side === "b";
   S.idx = clampPly(S.meta.startPly, S.total);
   if (S.meta.startPly != null) { S.meta = { ...S.meta }; delete S.meta.startPly; }
 
@@ -8848,7 +8903,9 @@ async function resetLegacyZoom() {
     // them in parallel and don't block the first paint on them — buildUI() can run as soon as the
     // job and settings are in, while the book is still downloading.
     const dataReady = Promise.all([loadBook(), loadCalibration()]);
-    const [payload, store] = await Promise.all([loadJob(), browserAPI.storage.local.get(["settings", "username", "layout", "layoutMode", "layoutVersion", "library", PLAYER_HISTORY_KEY])]);
+    const [loadedPayload, store] = await Promise.all([loadJob(), browserAPI.storage.local.get(["settings", "username", "layout", "layoutMode", "layoutVersion", "library", PLAYER_HISTORY_KEY])]);
+    // The identity resolver below may stamp the payload, so it is reassignable.
+    let payload = loadedPayload;
     S.library = cleanLibrary(store.library);
     S.settings = { ...DEFAULT_SETTINGS, ...(store.settings || {}) };
     delete S.settings.learningTransition;
@@ -8908,6 +8965,25 @@ async function resetLegacyZoom() {
     if (!useStored) saveLayout();
     if (store.layoutVersion != null && store.layoutVersion !== LAYOUT_VERSION) await resetLegacyZoom();
     S.username = store.username || inferUsername(store, payload);
+    // Platform games resolve whose game this is from layered evidence (signed-in account → typed
+    // handle → remembered sign-in → reviewed-game history → verified bottom player). This replaces
+    // the single history guess above, and it must settle BEFORE buildUI() so applyGame() still runs
+    // with no await between it and buildUI() (see below). A payload that already carries an
+    // explicit identity (a share link, a saved review) keeps it, exactly as inferUsername() does.
+    const platformGame = payload.meta?.myName == null && payload.meta?.playerKnown == null ? historyGame(payload) : null;
+    if (platformGame) {
+      const identity = await identityForGame(browserAPI.storage.local, {
+        site: platformGame.site,
+        players: { w: platformGame.white, b: platformGame.black },
+        perspective: payload.meta && payload.meta.perspective,
+      }, { extraNames: store.username ? [store.username] : [] });
+      payload = { ...payload, meta: { ...payload.meta, myName: identity.name, playerKnown: !!identity.name,
+        identitySource: identity.source } };
+      // Without a typed handle the resolver is the only identity evidence, so its "not your game"
+      // verdict must not be replaced by the history guess in S.username (saveToLibrary names the
+      // analysed seat from it and the Progress page would claim a stranger's game).
+      if (!store.username) S.username = identity.name || "";
+    }
 
     // Everything the first render needs must be resolved BEFORE buildUI(), so that buildUI() and
     // applyGame() run back-to-back with no await between them — i.e. the browser paints the whole
