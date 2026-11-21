@@ -1542,7 +1542,9 @@ function isSacrifice(move) {
 }
 
 // Independent annotation policy, deliberately not coefficients fitted to recorded ratings.
-const BRILLIANT_POLICY = { minAfterPawns: -0.5, clearlyWinningPawns: 5 };
+// clearlyWinningPawns was 5; +5.6 exchange sacrifices in a won-but-unfinished game (e.g. 38. Rxd4 in
+// the 2026-11-21 Chess.com game) were rejected as "already won". A little looser at 6.
+const BRILLIANT_POLICY = { minAfterPawns: -0.5, clearlyWinningPawns: 6 };
 function brilliantEligible(i, mover, std, wpDrop, state) {
   if (std[i] !== "excellent" || !Number.isFinite(wpDrop?.[i])) return false;
   const root = annotationRoot(i - 1, state), topLine = root?.lines?.[0];

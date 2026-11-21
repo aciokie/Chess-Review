@@ -346,3 +346,28 @@ test('brilliant annotations preserve evaluation-based accuracy and rating predic
   assert.equal(S.acc.w, before.accuracy);
   assert.equal(rating(), before.rating);
 });
+
+// Real game (Chess.com, 2026-11-21): 38. Rxd4 gives up a rook for a bishop (exd4 follows) while the
+// engine has it as the best move at about +5.6. That is a winning position, not a finished one, so
+// the sound exchange sacrifice must be Brilliant. The earlier +5 cutoff rejected it.
+const exchangeSacFen = '2r4k/1pr3p1/5p1p/pP1Pp3/2Pb2PP/B4K2/3R1P2/2R5 w - - 3 38';
+function exchangeSacGame(a, bestCp, runnerUpCp) {
+  const S = loadGame(a, pgn(exchangeSacFen, '1. Rxd4'), [{ cp: bestCp }, { cp: bestCp }]);
+  const line = (cp, pv, multipv) => ({ score: { cp }, pv, depth: 22, bound: 'exact', multipv });
+  S.bests[0] = { bestmove: 'd2d4', lines: [line(bestCp, 'd2d4 e5d4 c4c5', 1), line(runnerUpCp, 'c4c5 d4c5 a3c5', 2)] };
+  return S;
+}
+
+test('a sound exchange sacrifice at about +5.6 is Brilliant even when another move also wins', t => {
+  const a = app(t), S = exchangeSacGame(a, 560, 540);
+  a.call('computeDerived');
+  assert.equal(a.call('_sacAt', 1), true);
+  assert.equal(S.classif[1], 'brilliant');
+});
+
+test('the winning-position limit is only slightly looser: a near +6.5 position still needs a non-winning alternative', t => {
+  const a = app(t), S = exchangeSacGame(a, 650, 640);
+  a.call('computeDerived'); assert.equal(S.classif[1], 'best');
+  S.bests[0].lines[1].score = { cp: 300 };
+  a.call('computeDerived'); assert.equal(S.classif[1], 'brilliant');
+});

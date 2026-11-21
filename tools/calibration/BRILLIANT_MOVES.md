@@ -60,10 +60,10 @@ A material heuristic cannot establish human difficulty or aesthetic merit.
    expected-points-loss bucket, with existing evaluations available. Its resulting
    mover-relative score must be at least -0.5 pawn, or a winning mate. A delayed
    known mate does not qualify. A preceding opponent error is not required.
-5. **Competitive relevance.** Below +5 pawns, without a pre-existing mate score,
+5. **Competitive relevance.** Below +6 pawns, without a pre-existing mate score,
    the position passes this gate. Escaping a negative mate score is also eligible.
-   At +5 or more, or with a pre-existing winning mate,
-   the highest-ranked scored root alternative must fall below +5 and must not
+   At +6 or more, or with a pre-existing winning mate,
+   the highest-ranked scored root alternative must fall below +6 and must not
    retain a winning mate. With MultiPV=1, alternative evidence is missing and the
    detector keeps the ordinary category. A high root score alone is not proof that
    the sacrifice was unnecessary: it may be the only winning move.
@@ -87,7 +87,7 @@ legal MultiPV lines. Every new top line starts a group, including repeated tops
 at the same depth. Updates retain the 120 ms throttle; completed engine results
 are kept separately and are never replaced with an older coherent preview.
 
-The -0.5/+5 policy thresholds are conservative, independently chosen annotation
+The -0.5/+6 policy thresholds (the upper limit was +5 before 2026-11-21) are conservative, independently chosen annotation
 rules. They are not estimates of a published service's hidden thresholds. Root
 MultiPV scores use the mover's perspective; stored position evaluations use White's
 perspective. Tests cover Black's sign convention explicitly.

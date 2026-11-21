@@ -73,9 +73,10 @@ A sound, voluntary piece offer with strict board and engine evidence. All of the
   each exchange) must not simply win the material back.
 - **Sound.** The move is in the Excellent bucket, is evaluated at least -0.5 pawns for the mover (or a
   winning mate), and does not delay a known mate.
-- **Not already won.** In an undecided position (below +5 pawns) the sound offer qualifies. In a clearly
+- **Not already won.** In an undecided position (below +6 pawns) the sound offer qualifies. In a clearly
   winning position it also needs a second exact MultiPV line at the same depth showing the best
-  alternative is below +5 pawns. With a single line this is unknown, so the move stays Best/Excellent.
+  alternative is below +6 pawns. With a single line this is unknown, so the move stays Best/Excellent.
+  (The limit was +5 until 2026-11-21; a +5.6 exchange sacrifice in a real game was being rejected.)
 
 A preceding opponent error is not required.
 
