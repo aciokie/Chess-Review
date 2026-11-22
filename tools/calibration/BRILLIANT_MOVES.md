@@ -60,10 +60,13 @@ A material heuristic cannot establish human difficulty or aesthetic merit.
    expected-points-loss bucket, with existing evaluations available. Its resulting
    mover-relative score must be at least -0.5 pawn, or a winning mate. A delayed
    known mate does not qualify. A preceding opponent error is not required.
+   Exception (2026-11-22), with no mate on either side: a Good or Inaccuracy move
+   that keeps at least +3 pawns and gives up at most 1.75 pawns against the best
+   move also qualifies, because engines disagree on how a won position is scored.
 5. **Competitive relevance.** Below +6 pawns, without a pre-existing mate score,
    the position passes this gate. Escaping a negative mate score is also eligible.
    At +6 or more, or with a pre-existing winning mate,
-   the highest-ranked scored root alternative must fall below +6 and must not
+   the highest-ranked scored root alternative must fall below +7 and must not
    retain a winning mate. With MultiPV=1, alternative evidence is missing and the
    detector keeps the ordinary category. A high root score alone is not proof that
    the sacrifice was unnecessary: it may be the only winning move.

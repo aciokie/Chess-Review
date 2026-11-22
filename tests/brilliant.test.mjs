@@ -365,9 +365,53 @@ test('a sound exchange sacrifice at about +5.6 is Brilliant even when another mo
   assert.equal(S.classif[1], 'brilliant');
 });
 
-test('the winning-position limit is only slightly looser: a near +6.5 position still needs a non-winning alternative', t => {
-  const a = app(t), S = exchangeSacGame(a, 650, 640);
+test('the winning-position limits are only slightly looser: near +7.5 the alternative still has to be non-winning', t => {
+  const a = app(t), S = exchangeSacGame(a, 750, 740);
   a.call('computeDerived'); assert.equal(S.classif[1], 'best');
   S.bests[0].lines[1].score = { cp: 300 };
   a.call('computeDerived'); assert.equal(S.classif[1], 'brilliant');
+});
+
+// Stockfish 19 at depth 22 (real searches of the same position): it plays c4-c5 first and rates
+// 38. Rxd4 an Inaccuracy, with c4-c5 itself already above +6. The sacrifice still keeps a clear win.
+const sf19Roots = {
+  sf19full: { best: 665, played: 506 },   // SF19 Full d22
+  sf19lite: { best: 542, played: 383 },   // SF19 Lite d22
+};
+function sf19SacGame(a, build, { best, played }) {
+  a.context.__pc = JSON.parse(fs.readFileSync(new URL('../data/calibration.json', import.meta.url)));
+  a.run('PUBLIC_CALIB = __pc');
+  const S = loadGame(a, pgn(exchangeSacFen, '1. Rxd4'), [{ cp: best }, { cp: played }]);
+  const line = (cp, pv, multipv) => ({ score: { cp }, pv, depth: 22, bound: 'exact', multipv });
+  S.bests[0] = { bestmove: 'c4c5', score: { cp: best }, playedScore: { cp: played }, calibration: { build },
+    lines: [line(best, 'c4c5 d4c5 a3c5', 1), line(played, 'd2d4 e5d4 c4c5', 2)] };
+  return S;
+}
+for (const [build, scores] of Object.entries(sf19Roots)) {
+  test(`${build} at depth 22: a sound sacrifice that keeps a clear win is Brilliant even though it is rated an inaccuracy`, t => {
+    const a = app(t), S = sf19SacGame(a, build, scores);
+    // With the tolerance switched off the engine's own bucket (not Excellent) keeps it out of Brilliant,
+    // so the pass below is the tolerance doing the work.
+    a.run('BRILLIANT_POLICY.winningLossPawns = 0');
+    a.call('computeDerived');
+    assert.notEqual(S.classif[1], 'brilliant', 'without the tolerance this is not Brilliant');
+    a.run('BRILLIANT_POLICY.winningLossPawns = 1.75');
+    a.call('computeDerived');
+    assert.equal(a.call('_sacAt', 1), true);
+    assert.equal(S.classif[1], 'brilliant');
+  });
+}
+
+test('the tolerance has limits: giving up more than 1.75 pawns, or dropping under +3, is not Brilliant', t => {
+  const a = app(t);
+  let S = sf19SacGame(a, 'sf19full', { best: 665, played: 450 });           // -2.15 pawns, still +4.5
+  a.call('computeDerived'); assert.notEqual(S.classif[1], 'brilliant');
+  const b = app(t); S = sf19SacGame(b, 'sf19full', { best: 400, played: 280 }); // -1.2 pawns, but only +2.8
+  b.call('computeDerived'); assert.notEqual(S.classif[1], 'brilliant');
+});
+
+test('the tolerance never applies to a mate: delaying or losing a mate is not Brilliant', t => {
+  const a = app(t), S = sf19SacGame(a, 'sf19full', { best: 665, played: 506 });
+  S.bests[0].score = { mate: 5 }; S.bests[0].lines[0].score = { mate: 5 };
+  a.call('computeDerived'); assert.notEqual(S.classif[1], 'brilliant');
 });

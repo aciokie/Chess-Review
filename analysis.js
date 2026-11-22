@@ -1544,9 +1544,16 @@ function isSacrifice(move) {
 // Independent annotation policy, deliberately not coefficients fitted to recorded ratings.
 // clearlyWinningPawns was 5; +5.6 exchange sacrifices in a won-but-unfinished game (e.g. 38. Rxd4 in
 // the 2026-11-21 Chess.com game) were rejected as "already won". A little looser at 6.
-const BRILLIANT_POLICY = { minAfterPawns: -0.5, clearlyWinningPawns: 6 };
+// 2026-11-22: Stockfish 19 scores the same won position about a pawn higher than Stockfish 18 (the
+// 38. Rxd4 game: c4-c5 is +4.2 on SF18 but +5.4..+6.7 on SF19 at depth 22), so on SF19 the runner-up
+// was always "also clearly winning" and the sacrifice could not be Brilliant. The runner-up test now
+// uses its own, one-pawn-looser limit (alternativeWinningPawns), and a sound sacrifice that keeps a
+// clear win (winningKeepPawns) and costs at most winningLossPawns against the best move counts even
+// when the engine files it as Good or an Inaccuracy (a different engine rates the same move Excellent).
+const BRILLIANT_POLICY = { minAfterPawns: -0.5, clearlyWinningPawns: 6, alternativeWinningPawns: 7,
+  winningKeepPawns: 3, winningLossPawns: 1.75 };
 function brilliantEligible(i, mover, std, wpDrop, state) {
-  if (std[i] !== "excellent" || !Number.isFinite(wpDrop?.[i])) return false;
+  if (!Number.isFinite(wpDrop?.[i])) return false;
   const root = annotationRoot(i - 1, state), topLine = root?.lines?.[0];
   const afterLine = state.bests[i]?.lines?.[0];
   if ([topLine, ...(state.annotationEvidence[i]?.paired ? [] : [afterLine])].some(l => l?.bound && l.bound !== "exact")) return false;
@@ -1554,6 +1561,13 @@ function brilliantEligible(i, mover, std, wpDrop, state) {
   const mateAfter = decisionMate(i, "played", mover, state), mateBefore = decisionMate(i, "best", mover, state);
   if (!Number.isFinite(after) || !Number.isFinite(before)
     || (mateAfter != null ? mateAfter <= 0 : after < BRILLIANT_POLICY.minAfterPawns)) return false;
+  // Excellent is the normal gate. In a position that stays clearly won (no mate on either side), a
+  // Good/Inaccuracy sacrifice that gives up only a little of the advantage also passes.
+  if (std[i] !== "excellent") {
+    const stillWinning = mateAfter == null && mateBefore == null
+      && after >= BRILLIANT_POLICY.winningKeepPawns && before - after <= BRILLIANT_POLICY.winningLossPawns;
+    if (!stillWinning || (std[i] !== "good" && std[i] !== "inacc")) return false;
+  }
   // A sound offer in an undecided position does not depend on a preceding opponent error.
   if (!(mateBefore > 0) && before < BRILLIANT_POLICY.clearlyWinningPawns) return true;
   // Root MultiPV scores are already from the mover's perspective, unlike state.evals. The
@@ -1569,7 +1583,7 @@ function brilliantEligible(i, mover, std, wpDrop, state) {
   const alternative = line.score;
   if (!alternative) return false;
   if (alternative.mate != null) return alternative.mate < 0;
-  return Number.isFinite(alternative.cp) && alternative.cp / 100 < BRILLIANT_POLICY.clearlyWinningPawns;
+  return Number.isFinite(alternative.cp) && alternative.cp / 100 < BRILLIANT_POLICY.alternativeWinningPawns;
 }
 // Identifies a search context (position, history, build and search settings) so an extra annotation
 // search is only ever used for exactly the review it was made for.
@@ -7777,7 +7791,9 @@ function currentGameId() {
 // that old save is restored. Bumping the key makes those saves analyse once more instead of being
 // shown without the categories.
 // 3: SF19 reviews score at depth 22 and annotate at that depth (was 20,000 nodes + depth 16).
-const ANNOTATION_VERSION = 3;
+// 4: a Good/Inaccuracy sacrifice in a won position can now be Brilliant, so those plies now want a
+//    runner-up search that older saves never stored.
+const ANNOTATION_VERSION = 4;
 function analysisSettingsKey() {
   // Stockfish 19 builds are scored by one fixed-node protocol, so depth, hash and strength do not
   // change a finished review's scores (they only matter for the extra annotation lines, i.e. when
