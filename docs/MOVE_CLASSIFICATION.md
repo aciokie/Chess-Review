@@ -74,13 +74,13 @@ A sound, voluntary piece offer with strict board and engine evidence. All of the
 - **Sound.** The move is in the Excellent bucket, is evaluated at least -0.5 pawns for the mover (or a
   winning mate), and does not delay a known mate. *Winning-position tolerance (2026-11-22):* with no mate
   on either side, a sacrifice rated Good or Inaccuracy still counts when it keeps at least +3 pawns and
-  costs at most 1.75 pawns against the best move (`winningKeepPawns`, `winningLossPawns`) — engines
+  costs at most 2.5 pawns against the best move (`winningKeepPawns`, `winningLossPawns`) — engines
   differ on how they score the same won position, and a sound sacrifice that stays clearly won should not
   lose its badge to that.
 - **Not already won.** In an undecided position (below +6 pawns) the sound offer qualifies. In a clearly
   winning position it also needs a second exact MultiPV line at the same depth showing the best
-  alternative is below +7 pawns (`alternativeWinningPawns`). With a single line this is unknown, so the
-  move stays Best/Excellent. (Both limits were +5 until 2026-11-21; Stockfish 19 scores a won position
+  alternative is below +8 pawns (`alternativeWinningPawns`). With a single line this is unknown, so the
+  move stays Best/Excellent. (Both limits were +5 until 2026-11-21, the runner-up limit was +7 until 2026-11-22 evening; Stockfish 19 scores a won position
   about a pawn higher than Stockfish 18, so the alternative test got its own, higher limit.)
 
 A preceding opponent error is not required.

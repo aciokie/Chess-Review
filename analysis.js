@@ -1547,11 +1547,12 @@ function isSacrifice(move) {
 // 2026-11-22: Stockfish 19 scores the same won position about a pawn higher than Stockfish 18 (the
 // 38. Rxd4 game: c4-c5 is +4.2 on SF18 but +5.4..+6.7 on SF19 at depth 22), so on SF19 the runner-up
 // was always "also clearly winning" and the sacrifice could not be Brilliant. The runner-up test now
-// uses its own, one-pawn-looser limit (alternativeWinningPawns), and a sound sacrifice that keeps a
+// uses its own, looser limit (alternativeWinningPawns, +8 after the Native engine scored the best
+// alternative above +7), and a sound sacrifice that keeps a
 // clear win (winningKeepPawns) and costs at most winningLossPawns against the best move counts even
 // when the engine files it as Good or an Inaccuracy (a different engine rates the same move Excellent).
-const BRILLIANT_POLICY = { minAfterPawns: -0.5, clearlyWinningPawns: 6, alternativeWinningPawns: 7,
-  winningKeepPawns: 3, winningLossPawns: 1.75 };
+const BRILLIANT_POLICY = { minAfterPawns: -0.5, clearlyWinningPawns: 6, alternativeWinningPawns: 8,
+  winningKeepPawns: 3, winningLossPawns: 2.5 };
 function brilliantEligible(i, mover, std, wpDrop, state) {
   if (!Number.isFinite(wpDrop?.[i])) return false;
   const root = annotationRoot(i - 1, state), topLine = root?.lines?.[0];
@@ -7793,7 +7794,9 @@ function currentGameId() {
 // 3: SF19 reviews score at depth 22 and annotate at that depth (was 20,000 nodes + depth 16).
 // 4: a Good/Inaccuracy sacrifice in a won position can now be Brilliant, so those plies now want a
 //    runner-up search that older saves never stored.
-const ANNOTATION_VERSION = 4;
+// 5: looser won-position limits (runner-up under +8, up to 2.5 pawns lost against the best move), so
+//    more plies want a runner-up search; Stockfish 19 Native ranks c4-c5 higher than the WASM builds do.
+const ANNOTATION_VERSION = 5;
 function analysisSettingsKey() {
   // Stockfish 19 builds are scored by one fixed-node protocol, so depth, hash and strength do not
   // change a finished review's scores (they only matter for the extra annotation lines, i.e. when

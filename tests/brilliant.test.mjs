@@ -365,8 +365,8 @@ test('a sound exchange sacrifice at about +5.6 is Brilliant even when another mo
   assert.equal(S.classif[1], 'brilliant');
 });
 
-test('the winning-position limits are only slightly looser: near +7.5 the alternative still has to be non-winning', t => {
-  const a = app(t), S = exchangeSacGame(a, 750, 740);
+test('the winning-position limits are only slightly looser: near +8.5 the alternative still has to be non-winning', t => {
+  const a = app(t), S = exchangeSacGame(a, 850, 840);
   a.call('computeDerived'); assert.equal(S.classif[1], 'best');
   S.bests[0].lines[1].score = { cp: 300 };
   a.call('computeDerived'); assert.equal(S.classif[1], 'brilliant');
@@ -395,16 +395,23 @@ for (const [build, scores] of Object.entries(sf19Roots)) {
     a.run('BRILLIANT_POLICY.winningLossPawns = 0');
     a.call('computeDerived');
     assert.notEqual(S.classif[1], 'brilliant', 'without the tolerance this is not Brilliant');
-    a.run('BRILLIANT_POLICY.winningLossPawns = 1.75');
+    a.run('BRILLIANT_POLICY.winningLossPawns = 2.5');
     a.call('computeDerived');
     assert.equal(a.call('_sacAt', 1), true);
     assert.equal(S.classif[1], 'brilliant');
   });
 }
 
-test('the tolerance has limits: giving up more than 1.75 pawns, or dropping under +3, is not Brilliant', t => {
+test('a stronger SF19 reading (c4-c5 at +7.4, Rxd4 at +5.3) is still Brilliant', t => {
+  const a = app(t), S = sf19SacGame(a, 'native19', { best: 740, played: 530 });   // -2.1 pawns, still +5.3
+  a.call('computeDerived');
+  assert.equal(a.call('_sacAt', 1), true);
+  assert.equal(S.classif[1], 'brilliant');
+});
+
+test('the tolerance has limits: giving up more than 2.5 pawns, or dropping under +3, is not Brilliant', t => {
   const a = app(t);
-  let S = sf19SacGame(a, 'sf19full', { best: 665, played: 450 });           // -2.15 pawns, still +4.5
+  let S = sf19SacGame(a, 'sf19full', { best: 665, played: 380 });           // -2.85 pawns, still +3.8
   a.call('computeDerived'); assert.notEqual(S.classif[1], 'brilliant');
   const b = app(t); S = sf19SacGame(b, 'sf19full', { best: 400, played: 280 }); // -1.2 pawns, but only +2.8
   b.call('computeDerived'); assert.notEqual(S.classif[1], 'brilliant');
