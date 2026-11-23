@@ -68,9 +68,10 @@ function cleanUsername(text) {
   // Remove any trailing rating in parentheses ("name (1500)") and whitespace.
   const t = String(text).replace(/\s*\(\d+\)\s*$/, "").trim();
   if (!t) return null;
-  // Filter out obvious non-usernames (anonymous/guests/computer). Chess.com shows "Player" and
-  // "Opponent" placeholders in the player blocks until the real names load.
-  if (/^(player|opponent|anonymous|guest|computer|stockfish)$/i.test(t)) return null;
+  // Filter out obvious non-usernames (anonymous/computer). "guest" is intentionally allowed:
+  // guest accounts have no public archive, but their names are still valid player labels for
+  // seating and for the callback import path (lib/tcn.js).
+  if (/^(player|opponent|anonymous|computer|stockfish)$/i.test(t)) return null;
   return t;
 }
 function usernameFromContainer(root) {

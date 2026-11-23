@@ -8,6 +8,7 @@ import { canonicalGameId } from "./gameid.js";
 import { archivePlayers } from "./lib/player-history.js";
 import { cleanPerspective } from "./lib/identity.js";
 import { checkImport, waitImport } from "./lib/import-request.js";
+import { tcnToPgn } from "./lib/tcn.js";
 
 // Dev-only diagnostics; set globalThis.CHESS_REVIEW_DEBUG = true to see game-identity resolution.
 function dbg(...args) { if (globalThis.CHESS_REVIEW_DEBUG === true) console.log("[Chess Review]", ...args); }
@@ -174,6 +175,26 @@ async function loadTabGamePayload(tab, username, signal, { remember = true } = {
     } catch { /* invalid user / network error for this candidate → try the next */ }
   }
   if (!game || !game.pgn) {
+    // Guest games (and any game missing from public archives) can still be imported from the page:
+    // Chess.com's /callback/live/game/{id} returns moveList in TCN encoding plus pgnHeaders — no
+    // PGN field — so we decode it via lib/tcn.js. Works for guest accounts which have no archive.
+    try {
+      const cb = await fetchCallbackGame(gameId);
+      if (cb?.game?.moveList) {
+        const pgn = tcnToPgn(cb);
+        game = {
+          pgn,
+          url: `https://www.chess.com/game/live/${cb.game.id}`,
+          gameId: String(cb.game.id),
+          timeClass: "",
+          endTime: cb.game.endTime ? cb.game.endTime * 1000 : null,
+          white: { user: String(cb.game.pgnHeaders?.White || ""), result: "" },
+          black: { user: String(cb.game.pgnHeaders?.Black || ""), result: "" },
+        };
+      }
+    } catch { /* fall through to the error below — archive and callback both failed */ }
+  }
+  if (!game || !game.pgn) {
     const e = new Error(
       "Couldn't find this game in either player's public archive (a game that just finished can take a few seconds to appear). Try again, or paste the PGN."
     );
@@ -181,7 +202,6 @@ async function loadTabGamePayload(tab, username, signal, { remember = true } = {
     e.code = "GAME_NOT_ARCHIVED";
     throw e;
   }
-
   // Remember the user's OWN handle for next time — but never overwrite it with an opponent's name
   // picked up from someone else's game. Only persist an explicitly typed handle, or seed an empty
   // store with the page's POV player on first run.
@@ -189,7 +209,7 @@ async function loadTabGamePayload(tab, username, signal, { remember = true } = {
     await browserAPI.storage.local.set({ username: provided });
   } else if (remember) {
     const { username: stored } = await browserAPI.storage.local.get("username");
-    if (!stored && detected[0]) await browserAPI.storage.local.set({ username: detected[0] });
+    if (!stored && detected[0] && !/^guest/i.test(detected[0])) await browserAPI.storage.local.set({ username: detected[0] });
   }
 
   // Board perspective: the page's own ?flip= hint is the user's actual POV, so it's the primary
@@ -209,6 +229,16 @@ async function loadTabGamePayload(tab, username, signal, { remember = true } = {
   dbg("detected game", { gameId, site: "chesscom", players: [meta.white?.user, meta.black?.user] });
   checkImport(signal);
   return { pgn: game.pgn, meta, source: "active-tab" };
+}
+
+// Fetch a single game from Chess.com's own /callback/live/game/{id} JSON endpoint. Works for any
+// game, including guest accounts that have no public archive. Returns the parsed JSON or null.
+async function fetchCallbackGame(gameId) {
+  const res = await fetch(`https://www.chess.com/callback/live/game/${gameId}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) return null;
+  return res.json();
 }
 
 // Stamp the scraped { usernameLower: countryId } map onto meta.white/black by matching usernames.

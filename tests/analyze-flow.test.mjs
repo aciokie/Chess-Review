@@ -167,3 +167,53 @@ test('a Lichess launch carries the page identity too, and unreadable identity is
   await analyzeActiveTab('');
   assert.equal(Object.hasOwn(junk.payload().meta, 'perspective'), false, 'a broken read never reaches the review');
 });
+
+// Guest accounts have no public archive, so the archive sweep always misses. The callback endpoint
+// /callback/live/game/{id} returns moveList in TCN plus pgnHeaders — decode it to a PGN and import.
+test('a guest game with no archive imports via the callback endpoint', async t => {
+  const s = setup(t);
+  t.mock.method(chrome.tabs, 'sendMessage', async () => ({
+    ok: true, gameId: '12345678',
+    usernames: ['Guest2278703354', 'Guest318362458'],
+  }));
+  t.mock.method(globalThis, 'fetch', async url => {
+    if (String(url).includes('/callback/live/game/')) {
+      return {
+        ok: true,
+        json: async () => ({
+          game: {
+            id: 12345678,
+            plyCount: 61,
+            moveList: 'gv2UmC92lBZRbs!Tpx8!cu5QfH6ZegWOHA0KBKRKuI98vMZSMS1SnvQBsmTZIBKBmBZPAS!?SJPJCJ7Jks47BrJAdc8mfnOGcf78rGAIGrIPad2VrBVufmunmn',
+            pgnHeaders: {
+              White: 'Guest2278703354',
+              Black: 'Guest318362458',
+              Result: '1-0',
+              Event: 'Live Chess',
+              Site: 'Chess.com',
+              Date: '2017.12.12',
+              ECO: 'B06',
+              WhiteElo: '1500',
+              BlackElo: '1500',
+              TimeControl: '180+2',
+              Termination: 'Guest2278703354 won by resignation',
+              SetUp: '1',
+              FEN: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+            },
+          },
+        }),
+      };
+    }
+    // Archive lookups miss — guests have no archive.
+    return { ok: true, json: async () => ({ games: [] }) };
+  });
+  await analyzeActiveTab('');
+  assert.equal(s.opened.length, 1);
+  const p = s.payload();
+  assert.equal(p.meta.gameId, '12345678');
+  assert.equal(p.pgn.includes('[White "Guest2278703354"]'), true);
+  assert.equal(p.pgn.includes('[Black "Guest318362458"]'), true);
+  assert.equal(p.pgn.includes('[Result "1-0"]'), true);
+  assert.equal(p.pgn.includes('1. Nf3'), true);
+  assert.equal('username' in s.store, false, 'a guest name must not be stored as the username');
+});
