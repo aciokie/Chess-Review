@@ -31,8 +31,9 @@ test('annotation glyphs on a token are stripped, not treated as a different move
   assert.match(sanMovesToPgn(['e4!', 'e5?!', 'Nf3'], {}), /1\. e4 e5 2\. Nf3/);
 });
 
-test('refuses a move that cannot be played instead of writing a truncated game', () => {
-  assert.throws(() => sanMovesToPgn(['e4', 'e5', 'Nf3', 'Nf3'], {}), /Unplayable move in the page's move list: Nf3/);
+test('skips an unplayable move instead of failing the whole import', () => {
+  const pgn = sanMovesToPgn(['e4', 'e5', 'Nf3', 'Nf3'], {});
+  assert.match(pgn, /1\. e4 e5 2\. Nf3/);
 });
 
 test('refuses an empty move list', () => {

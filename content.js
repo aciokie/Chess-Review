@@ -62,19 +62,15 @@ function readMoveListText() {
 }
 
 // The result the page states for the game ("1-0" / "0-1" / "1/2-1/2"), or "" while it is still
-// running. Chess.com prints it in the move list's result row and the .game-result badge, and in the
-// game-over modal ("White Won ...", "Black Won ...").
+// running. Chess.com prints it in the move list's result row and the .game-result badge. Only the
+// move-list result counts — scanning page text for "White Won"/"Black Won" can false-positive
+// during active play, so that is deliberately not used here.
 function readGameResult() {
   for (const sel of [".game-result", ".main-line-row.result-row", ".result-row"]) {
     const text = (document.querySelector(sel)?.textContent || "").trim();
     const m = text.match(/\b(1-0|0-1|1\/2-1\/2)\b/);
     if (m) return m[1];
   }
-  // Fall back to the game-over modal wording ("White Won On Time", "Black Won By Resignation", …).
-  const body = document.body.innerText || "";
-  const mb = body.match(/\b(White|Black)\s+Won\b/i);
-  if (mb) return mb[1].toLowerCase() === "white" ? "1-0" : "0-1";
-  if (/\bdraw\b/i.test(body) || /\bstalemate\b/i.test(body) || /\bagreed\b/i.test(body)) return "1/2-1/2";
   return "";
 }
 
