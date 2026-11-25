@@ -33,29 +33,32 @@ function detectFlip() {
   return detectBoardFlip();
 }
 
-// Best-effort: try to collect SAN moves from the DOM move list if the API
-// doesn't have the game yet. Returns a string of move text or null.
+// Best-effort: the game's moves in SAN order, read from the page's own move list. Chess.com renders
+// the main line as `.node.main-line-ply` nodes whose text is the SAN ("Nf3", "exd5", "O-O"); the same
+// tree also holds variations, so a plain ".node" sweep would splice those into the game. This is the
+// last import fallback: guest games have no public archive and the /callback/live/game/{id} endpoint
+// answers 404 for them, but the page itself always shows the moves.
 // The selectors are heuristic and may change — hence fallback only.
 function readMoveListText() {
-  const selectors = [
-    "[data-ply] .node-highlight-content",
-    ".main-line-row .node",
-    ".move-list-component .node",
-    "wc-simple-move-list .node",
-    ".node",
-  ];
-  for (const sel of selectors) {
-    const nodes = document.querySelectorAll(sel);
-    if (nodes.length >= 2) {
-      const tokens = [];
-      nodes.forEach((n) => {
-        const t = (n.textContent || "").trim();
-        if (t) tokens.push(t);
-      });
-      if (tokens.length >= 2) return tokens.join(" ");
-    }
+  const mainline = document.querySelectorAll(".node.main-line-ply");
+  const nodes = mainline.length ? mainline : document.querySelectorAll(".node");
+  const tokens = [];
+  nodes.forEach((n) => {
+    const t = (n.textContent || "").trim();
+    if (t) tokens.push(t);
+  });
+  return tokens.length ? tokens.join(" ") : null;
+}
+
+// The result the page states for the game ("1-0" / "0-1" / "1/2-1/2"), or "" while it is still
+// running. Chess.com prints it in the move list's result row and the .game-result badge.
+function readGameResult() {
+  for (const sel of [".game-result", ".main-line-row.result-row", ".result-row"]) {
+    const text = (document.querySelector(sel)?.textContent || "").trim();
+    const m = text.match(/\b(1-0|0-1|1\/2-1\/2)\b/);
+    if (m) return m[1];
   }
-  return null;
+  return "";
 }
 
 // ---- Username detection: find whose perspective the board is shown from (POV).
@@ -330,6 +333,9 @@ const CC = {
   sidebarReviewButtons: [".game-review-buttons-component", "[class*='game-review-buttons']"],
   // The Game Review CTA inside the sidebar buttons container. href first: durable + locale-proof.
   sidebarCta: ['a[href*="tab=review"]', 'a[aria-label="Game Review"]', "a.cc-button-component", "button.cc-button-component"],
+  // Guest games: Chess.com gives guests no Game Review at all, so neither anchor above is ever
+  // rendered. The play sidebar itself is always there — our button goes below the move list.
+  panelContainer: [".sidebar-content", "#board-layout-sidebar", ".board-layout-sidebar"],
 };
 
 // First element matching any selector in the list (ordered most-specific/most-stable → loosest).
@@ -466,6 +472,19 @@ function injectSidebarReviewButton(emphasisContent) {
   console.log("[Chess Analyzer] injected review button (sidebar)");
 }
 
+// (3) Guest games: Chess.com offers guests no Game Review at all, so neither anchor above is ever
+// rendered — and guests are exactly the players with no other way to review. The play sidebar is
+// always present, so once the game is over (its move list states a result) our button goes at its
+// foot, below the moves.
+function injectPanelReviewButton(container) {
+  if (container.querySelector(".chess-analyzer-free-review")) return;
+  // Only when Chess.com offers no review of its own (otherwise that row already has our button).
+  if (firstEl(document, CC.sidebarEmphasis) || firstEl(document, CC.modalContext)) return;
+  if (!readGameResult()) return;
+  container.appendChild(buildReviewButton("panel", 10, 10));
+  console.log("[Chess Analyzer] injected review button (panel)");
+}
+
 (function watchForReviewSpots() {
   let modalTimer = null, sidebarTimer = null;
   let modalRoot = null, sidebarRoot = null, scheduled = false;
@@ -500,13 +519,20 @@ function injectSidebarReviewButton(emphasisContent) {
         }, 6000);
       }
     }
+    // (3) Play sidebar — a guest game has no review UI of its own to anchor to.
+    if (!firstEl(document, CC.sidebarEmphasis) && !firstEl(document, CC.modalContext)) {
+      const panel = firstEl(document, CC.panelContainer);
+      if (panel) injectPanelReviewButton(panel);
+    }
     // The preview card lives beside our button; chess.com re-renders these rows, so a dropped card
     // is re-mounted (and a page that moved to another game re-asks) by the same scan.
     globalThis.ChessReviewButtonPreview?.refresh();
   };
   // The page mutates constantly (clocks, tallies, animated coach speech). Only work that can affect
   // our injection point is worth a scan, and several such changes in one frame are one scan.
-  const relevantSelector = [...CC.modalContainer, ...CC.modalContext, ...CC.sidebarEmphasis].join(",");
+  // The result row is included because it is what makes a guest game's button appear.
+  const relevantSelector = [...CC.modalContainer, ...CC.modalContext, ...CC.sidebarEmphasis,
+    ".game-result", ".main-line-row.result-row"].join(",");
   const schedule = () => {
     if (scheduled) return;
     scheduled = true;
@@ -544,7 +570,10 @@ browserAPI.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       countries: detectCountries(), // { usernameLower: countryId } scraped from the player flags
       flip: detectFlip(),         // user's board perspective from ?flip= or the board (true=Black at bottom)
       perspective: detectPerspective(), // signed-in account + bottom player, for identity
-      moveListText: parsed ? null : null, // only filled on explicit fallback below
+      // The page's own move list + result. The last import fallback: a guest game has no public
+      // archive and /callback/live/game/{id} 404s for it, so these are the only copy of the game.
+      movetext: readMoveListText(),
+      result: readGameResult(),
     });
     return true;
   }

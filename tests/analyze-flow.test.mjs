@@ -217,3 +217,49 @@ test('a guest game with no archive imports via the callback endpoint', async t =
   assert.equal(p.pgn.includes('1. Nf3'), true);
   assert.equal('username' in s.store, false, 'a guest name must not be stored as the username');
 });
+
+// The callback endpoint does NOT serve guest games: for a real guest game Chess.com answers
+// 404 {"message":"Game is not found."} (the game arrived over the live socket and was never
+// archived). The page itself always renders the game, so the import must fall back to its move list.
+test('a guest game imports from the page move list when the callback answers 404', async t => {
+  const s = setup(t, 'https://www.chess.com/game/187970608596');
+  t.mock.method(chrome.tabs, 'sendMessage', async () => ({
+    ok: true, gameId: '187970608596',
+    usernames: ['Guest0400982242', 'Guest9400511873'], flip: false,
+    movetext: 'd4 g5 Nf3 Bg7 e4 d6', result: '1-0',
+  }));
+  t.mock.method(globalThis, 'fetch', async url => {
+    if (String(url).includes('/callback/live/game/')) {
+      return { ok: false, status: 404, json: async () => ({ message: 'Game is not found.' }) };
+    }
+    return { ok: true, json: async () => ({ games: [] }) }; // no archive for a guest
+  });
+  await analyzeActiveTab('');
+  assert.equal(s.opened.length, 1);
+  const p = s.payload();
+  assert.equal(p.meta.gameId, '187970608596');
+  // Both players keep their names (the API-shaped record gameMeta reads must use `username`).
+  assert.equal(p.meta.white.user, 'Guest0400982242');
+  assert.equal(p.meta.black.user, 'Guest9400511873');
+  assert.equal(p.pgn.includes('[White "Guest0400982242"]'), true);
+  assert.equal(p.pgn.includes('[Black "Guest9400511873"]'), true);
+  assert.equal(p.pgn.includes('[Result "1-0"]'), true);
+  assert.equal(p.pgn.includes('1. d4 g5 2. Nf3 Bg7 3. e4 d6'), true);
+  assert.equal('username' in s.store, false, 'a guest name must not be stored as the username');
+});
+
+// A flipped board means the bottom player is Black, so the seats must not be swapped.
+test('the page move list seats the players by board orientation', async t => {
+  const s = setup(t, 'https://www.chess.com/game/187971780462');
+  t.mock.method(chrome.tabs, 'sendMessage', async () => ({
+    ok: true, gameId: '187971780462',
+    usernames: ['Guest3423701053', 'Guest7324745241'], flip: true,
+    movetext: 'e4 e5 Nf3 Nc6', result: '0-1',
+  }));
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: false, status: 404, json: async () => ({}) }));
+  await analyzeActiveTab('');
+  const p = s.payload();
+  assert.equal(p.meta.white.user, 'Guest7324745241', 'the top player is White when Black is at the bottom');
+  assert.equal(p.meta.black.user, 'Guest3423701053');
+  assert.equal(p.pgn.includes('[Result "0-1"]'), true);
+});

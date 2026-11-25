@@ -9,6 +9,7 @@ import { archivePlayers } from "./lib/player-history.js";
 import { cleanPerspective } from "./lib/identity.js";
 import { checkImport, waitImport } from "./lib/import-request.js";
 import { tcnToPgn } from "./lib/tcn.js";
+import { sanMovesToPgn } from "./lib/page-moves.js";
 
 // Dev-only diagnostics; set globalThis.CHESS_REVIEW_DEBUG = true to see game-identity resolution.
 function dbg(...args) { if (globalThis.CHESS_REVIEW_DEBUG === true) console.log("[Chess Review]", ...args); }
@@ -156,11 +157,6 @@ async function loadTabGamePayload(tab, username, signal, { remember = true } = {
   // Bound the archive lookups: on a busy page the sweep may surface a few extra handles, but the
   // two players + the stored handle are always at the front, so 4 candidates is plenty.
   candidates.length = Math.min(candidates.length, 4);
-  if (!candidates.length) {
-    const e = new Error("Couldn't detect a username automatically — enter it below.");
-    e.code = "NO_USERNAME"; // the popup uses this code to open the manual section
-    throw e;
-  }
 
   // Try each candidate's archive; the first one that actually contains the game wins. A bad handle
   // (404) or transient network error on one candidate just falls through to the next. findGameById is
@@ -175,26 +171,37 @@ async function loadTabGamePayload(tab, username, signal, { remember = true } = {
     } catch { /* invalid user / network error for this candidate → try the next */ }
   }
   if (!game || !game.pgn) {
-    // Guest games (and any game missing from public archives) can still be imported from the page:
-    // Chess.com's /callback/live/game/{id} returns moveList in TCN encoding plus pgnHeaders — no
-    // PGN field — so we decode it via lib/tcn.js. Works for guest accounts which have no archive.
+    // A game whose archive hasn't published yet (it just finished) is still served live: Chess.com's
+    // /callback/live/game/{id} returns moveList in TCN encoding plus pgnHeaders — no PGN field — so we
+    // decode it via lib/tcn.js. Guest games are NOT served here (the endpoint answers 404 "Game is not
+    // found." for them), which is what the page fallback below is for.
     try {
       const cb = await fetchCallbackGame(gameId);
       if (cb?.game?.moveList) {
-        const pgn = tcnToPgn(cb);
         game = {
-          pgn,
+          pgn: tcnToPgn(cb),
           url: `https://www.chess.com/game/live/${cb.game.id}`,
-          gameId: String(cb.game.id),
-          timeClass: "",
-          endTime: cb.game.endTime ? cb.game.endTime * 1000 : null,
-          white: { user: String(cb.game.pgnHeaders?.White || ""), result: "" },
-          black: { user: String(cb.game.pgnHeaders?.Black || ""), result: "" },
+          time_class: cb.game.timeClass || "",
+          end_time: cb.game.endTime || null,
+          white: { username: String(cb.game.pgnHeaders?.White || ""), result: "" },
+          black: { username: String(cb.game.pgnHeaders?.Black || ""), result: "" },
         };
       }
-    } catch { /* fall through to the error below — archive and callback both failed */ }
+    } catch { /* fall through to the page's own move list */ }
   }
   if (!game || !game.pgn) {
+    // Guest games have no public archive and the callback endpoint refuses them, so the page the user
+    // is looking at is the only source left: its move list (SAN) and result. The content script reads
+    // them; lib/page-moves.js validates the moves and rebuilds the PGN.
+    const fromPage = gameFromPageMoves(info, gameId);
+    if (fromPage) game = fromPage;
+  }
+  if (!game || !game.pgn) {
+    if (!candidates.length) {
+      const e = new Error("Couldn't detect a username automatically — enter it below.");
+      e.code = "NO_USERNAME"; // the popup uses this code to open the manual section
+      throw e;
+    }
     const e = new Error(
       "Couldn't find this game in either player's public archive (a game that just finished can take a few seconds to appear). Try again, or paste the PGN."
     );
@@ -239,6 +246,55 @@ async function fetchCallbackGame(gameId) {
   });
   if (!res.ok) return null;
   return res.json();
+}
+
+/**
+ * Build an API-shaped game record from the moves and result the page itself shows.
+ *
+ * This is the only source for a guest game: the players have no public archive, and
+ * /callback/live/game/{id} answers 404 {"message":"Game is not found."} for them (verified against a
+ * real guest game — the page's own request 404s too, because the game arrived over Chess.com's live
+ * socket and was never archived). The page does render the game, so the content script reads its move
+ * list and result and lib/page-moves.js rebuilds the PGN. Returns null when nothing readable is there.
+ */
+function gameFromPageMoves(info, gameId) {
+  const movetext = (info?.movetext || "").trim();
+  if (!movetext) return null;
+  // detectUsernames() is ordered bottom → top, and flip=true means Black sits at the bottom.
+  const names = (Array.isArray(info?.usernames) ? info.usernames : []).filter(Boolean);
+  const bottom = names[0] || "";
+  const top = names[1] || "";
+  const flip = info?.flip === true;
+  const white = (flip ? top : bottom) || "White";
+  const black = (flip ? bottom : top) || "Black";
+  const result = /^(1-0|0-1|1\/2-1\/2)$/.test(info?.result || "") ? info.result : "*";
+  const sideResult = (colour) => {
+    if (result === "*") return "";
+    if (result === "1/2-1/2") return "draw";
+    return (colour === "w" ? "1-0" : "0-1") === result ? "win" : "loss";
+  };
+  try {
+    const pgn = sanMovesToPgn(movetext.split(/\s+/), {
+      White: white,
+      Black: black,
+      Result: result,
+      Site: "Chess.com",
+      Event: "Live Chess",
+    });
+    return {
+      pgn,
+      url: `https://www.chess.com/game/${gameId}`,
+      time_class: "",
+      end_time: null,
+      white: { username: white, result: sideResult("w") },
+      black: { username: black, result: sideResult("b") },
+    };
+  } catch (err) {
+    // A half-rendered or variation-spliced move list must fail loudly here, not become a review of
+    // the wrong game — the caller then reports the archive miss instead.
+    dbg("the page's move list could not be read", err?.message);
+    return null;
+  }
 }
 
 // Stamp the scraped { usernameLower: countryId } map onto meta.white/black by matching usernames.

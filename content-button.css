@@ -34,6 +34,13 @@ button.chess-analyzer-free-review--modal {
   width: var(--chess-review-modal-width, calc(100% - 32px)) !important;
 }
 
+/* Guest games have no "Game Review" row to sit under, so the button lives at the foot of the play
+   sidebar (which may be a padded flex column): keep a gutter on both sides. */
+button.chess-analyzer-free-review--panel {
+  width: calc(100% - 16px) !important;
+  margin: 10px 8px !important;
+}
+
 button.chess-analyzer-free-review:hover:not(:disabled) {
   background: linear-gradient(160deg, #383a2f, #262a22) !important;
   border-color: #7fb45f !important;

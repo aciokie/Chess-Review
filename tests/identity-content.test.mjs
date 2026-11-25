@@ -103,3 +103,30 @@ test('Chess.com bottom player ignores the loading placeholder', t => {
   const hinted = page(t, {site:'chess', path:'/game/live/12345678?flip=true', html:'<wc-chess-board class="board"></wc-chess-board>'}).info();
   assert.equal(hinted.flip, true); assert.equal(hinted.perspective.boardFlip, false, 'URL hint is not the rendered board');
 });
+
+// Guest games have no archive and Chess.com's callback endpoint 404s for them, so the page's own
+// move list is the only copy of the game. The content script must hand it over (main line only —
+// the same tree holds variations) along with the result.
+test('Chess.com hands over the main-line moves and result a guest game has no other copy of', t => {
+  const block = (side, name) => `<div class="board-layout-player board-layout-${side}">`
+    + `<div class="player-component player-${side}"><span class="cc-user-username-component">${name}</span></div></div>`;
+  const html = '<wc-chess-board class="board flipped"></wc-chess-board>'
+    + block('top', 'Guest7324745241') + block('bottom', 'Guest3423701053')
+    + '<wc-simple-move-list>'
+    + '<div class="main-line-row move-list-row">'
+    + '<div class="node white-move main-line-ply">d4</div>'
+    + '<div class="node black-move main-line-ply">g5</div>'
+    + '<div class="node variation-ply">Qd8</div>'
+    + '<div class="node white-move main-line-ply">Nf3</div>'
+    + '<div class="node black-move main-line-ply">Bg7</div>'
+    + '</div>'
+    + '<div class="main-line-row move-list-row result-row"><span class="game-result">1-0</span></div>'
+    + '</wc-simple-move-list>';
+  const info = page(t, {site:'chess', path:'/game/187971780462', html}).info();
+  assert.equal(info.gameId, '187971780462');
+  // order: bottom (POV) first, then top; deduped case-insensitively.
+  assert.equal(JSON.stringify(info.usernames), JSON.stringify(['Guest3423701053', 'Guest7324745241']));
+  assert.equal(info.flip, true, 'the board is drawn from Black at the bottom');
+  assert.equal(info.movetext, 'd4 g5 Nf3 Bg7', 'variations are never spliced into the game');
+  assert.equal(info.result, '1-0');
+});
