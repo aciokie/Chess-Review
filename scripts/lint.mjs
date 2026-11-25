@@ -41,6 +41,12 @@ try {
   const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8'));
   delete manifest.background?.service_worker;
   delete manifest.minimum_chrome_version;
+  // Firefox's background page needs `scripts` (lint strips `service_worker` above); Chrome's MV3
+  // uses `service_worker` and rejects `scripts`, so the source manifest keeps only `service_worker`
+  // and the lint stage reinstates `scripts` for Firefox validation.
+  if (!manifest.background.scripts && !manifest.background.page) {
+    manifest.background.scripts = ["background.js"];
+  }
   await writeFile(path.join(stage, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   try {
     execFileSync(process.execPath, [webExt, 'lint', `--source-dir=${stage}`], { stdio: 'inherit' });

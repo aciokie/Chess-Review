@@ -181,6 +181,7 @@ async function loadTabGamePayload(tab, username, signal, { remember = true } = {
       if (hit && hit.pgn) { game = hit; break; }
     } catch { /* invalid user / network error for this candidate → try the next */ }
   }
+  dbg("archive sweep done", { gameId, found: !!game, candidates });
   if (!game || !game.pgn) {
     // A game whose archive hasn't published yet (it just finished) is still served live: Chess.com's
     // /callback/live/game/{id} returns moveList in TCN encoding plus pgnHeaders — no PGN field — so we
@@ -188,6 +189,7 @@ async function loadTabGamePayload(tab, username, signal, { remember = true } = {
     // found." for them), which is what the page fallback below is for.
     try {
       const cb = await fetchCallbackGame(gameId);
+      dbg("callback answered", { gameId, ok: !!cb, hasMoveList: !!cb?.game?.moveList });
       if (cb?.game?.moveList) {
         game = {
           pgn: tcnToPgn(cb),
@@ -198,7 +200,7 @@ async function loadTabGamePayload(tab, username, signal, { remember = true } = {
           black: { username: String(cb.game.pgnHeaders?.Black || ""), result: "" },
         };
       }
-    } catch { /* fall through to the page's own move list */ }
+    } catch (e) { dbg("callback threw", { gameId, message: e?.message }); /* fall through to the page's own move list */ }
   }
   if (!game || !game.pgn) {
     // Guest games have no public archive and the callback endpoint refuses them, so the page the user
@@ -208,9 +210,12 @@ async function loadTabGamePayload(tab, username, signal, { remember = true } = {
     let pageInfo = info;
     if (!(pageInfo?.movetext || pageInfo?.result)) {
       const domMoves = await getDomMovesFromTab(tab.id);
+      dbg("dom moves re-read", { gameId, domMoves: domMoves ? domMoves.slice(0, 80) : null });
       if (domMoves) pageInfo = { ...info, movetext: domMoves };
     }
+    dbg("page info for page-moves fallback", { gameId, movetext: pageInfo?.movetext, result: pageInfo?.result, usernames: pageInfo?.usernames });
     const fromPage = gameFromPageMoves(pageInfo, gameId);
+    dbg("page-moves fallback", { gameId, ok: !!fromPage });
     if (fromPage) game = fromPage;
   }
   if (!game || !game.pgn) {

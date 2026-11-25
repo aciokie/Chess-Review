@@ -46,10 +46,11 @@ function readMoveListText() {
     ".main-line-row .node",         // alternative row layout
     ".move-list-component .node",   // component layout
     "wc-simple-move-list .node",    // web-component layout
+    ".node",                        // absolute last resort (may include variations)
   ];
   for (const sel of selectors) {
     const nodes = document.querySelectorAll(sel);
-    if (nodes.length >= 2) {
+    if (nodes.length >= 1) {
       const tokens = [];
       nodes.forEach((n) => {
         const t = (n.textContent || "").trim();
@@ -62,15 +63,24 @@ function readMoveListText() {
 }
 
 // The result the page states for the game ("1-0" / "0-1" / "1/2-1/2"), or "" while it is still
-// running. Chess.com prints it in the move list's result row and the .game-result badge. Only the
-// move-list result counts — scanning page text for "White Won"/"Black Won" can false-positive
-// during active play, so that is deliberately not used here.
+// running. Chess.com prints it in the move list's result row and the .game-result badge. A finished
+// game that ends on time (or by other termination with no move-list token) states it in the
+// game-over modal ("White Won On Time", "Black Won By Resignation", "Draw"), so read that as a
+// fallback — but only when a game-over modal is actually on screen, to avoid false positives
+// during active play.
 function readGameResult() {
   for (const sel of [".game-result", ".main-line-row.result-row", ".result-row"]) {
     const text = (document.querySelector(sel)?.textContent || "").trim();
     const m = text.match(/\b(1-0|0-1|1\/2-1\/2)\b/);
     if (m) return m[1];
   }
+  // Game-over modal present: the game is definitively over, so its wording is safe to read.
+  const modal = firstEl(document, CC.modalContext);
+  if (!modal) return "";
+  const body = modal.textContent || "";
+  const mb = body.match(/\b(White|Black)\s+Won\b/i);
+  if (mb) return mb[1].toLowerCase() === "white" ? "1-0" : "0-1";
+  if (/\bdraw\b/i.test(body) || /\bstalemate\b/i.test(body) || /\bagreed\b/i.test(body)) return "1/2-1/2";
   return "";
 }
 

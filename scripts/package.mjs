@@ -80,6 +80,11 @@ for (const browser of ['chrome', 'firefox']) {
   } else {
     delete target.minimum_chrome_version;
     delete target.background.service_worker;
+    // Firefox's background page runs via `scripts`; reinstate it if the source manifest only
+    // carries `service_worker` (which Chrome MV3 requires and Firefox doesn't use).
+    if (!target.background.scripts && !target.background.page) {
+      target.background.scripts = ["background.js"];
+    }
     // Firefox has no offscreen documents; its module background page runs the preview engine
     // directly (see lib/preview-runner.js), so the Chrome-only permission is not requested there.
     target.permissions = (target.permissions || []).filter((permission) => permission !== "offscreen");
