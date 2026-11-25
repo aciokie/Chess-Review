@@ -40,24 +40,41 @@ function detectFlip() {
 // answers 404 for them, but the page itself always shows the moves.
 // The selectors are heuristic and may change — hence fallback only.
 function readMoveListText() {
-  const mainline = document.querySelectorAll(".node.main-line-ply");
-  const nodes = mainline.length ? mainline : document.querySelectorAll(".node");
-  const tokens = [];
-  nodes.forEach((n) => {
-    const t = (n.textContent || "").trim();
-    if (t) tokens.push(t);
-  });
-  return tokens.length ? tokens.join(" ") : null;
+  const selectors = [
+    ".node.main-line-ply",          // live game move list (current markup)
+    "[data-ply] .node-highlight-content", // older markup
+    ".main-line-row .node",         // alternative row layout
+    ".move-list-component .node",   // component layout
+    "wc-simple-move-list .node",    // web-component layout
+  ];
+  for (const sel of selectors) {
+    const nodes = document.querySelectorAll(sel);
+    if (nodes.length >= 2) {
+      const tokens = [];
+      nodes.forEach((n) => {
+        const t = (n.textContent || "").trim();
+        if (t) tokens.push(t);
+      });
+      if (tokens.length >= 2) return tokens.join(" ");
+    }
+  }
+  return null;
 }
 
 // The result the page states for the game ("1-0" / "0-1" / "1/2-1/2"), or "" while it is still
-// running. Chess.com prints it in the move list's result row and the .game-result badge.
+// running. Chess.com prints it in the move list's result row and the .game-result badge, and in the
+// game-over modal ("White Won ...", "Black Won ...").
 function readGameResult() {
   for (const sel of [".game-result", ".main-line-row.result-row", ".result-row"]) {
     const text = (document.querySelector(sel)?.textContent || "").trim();
     const m = text.match(/\b(1-0|0-1|1\/2-1\/2)\b/);
     if (m) return m[1];
   }
+  // Fall back to the game-over modal wording ("White Won On Time", "Black Won By Resignation", …).
+  const body = document.body.innerText || "";
+  const mb = body.match(/\b(White|Black)\s+Won\b/i);
+  if (mb) return mb[1].toLowerCase() === "white" ? "1-0" : "0-1";
+  if (/\bdraw\b/i.test(body) || /\bstalemate\b/i.test(body) || /\bagreed\b/i.test(body)) return "1/2-1/2";
   return "";
 }
 
@@ -575,6 +592,13 @@ browserAPI.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       movetext: readMoveListText(),
       result: readGameResult(),
     });
+    if (globalThis.CHESS_REVIEW_DEBUG === true) {
+      const mt = readMoveListText() || "";
+      console.log("[Chess Analyzer] getGameInfo →", {
+        gameId, flip, movetextLen: mt.length, result,
+        usernames: detectUsernames(),
+      });
+    }
     return true;
   }
   if (msg && msg.type === "getDomMoves") {

@@ -73,6 +73,17 @@ async function getGameInfoFromTab(tabId) {
   }
 }
 
+/** Fresh read of the page's own move list (SAN), in case getGameInfo's movetext is
+ *  not yet populated when the button is clicked (game-over DOM state). */
+async function getDomMovesFromTab(tabId) {
+  try {
+    const reply = await browserAPI.tabs.sendMessage(tabId, { type: "getDomMoves" });
+    return (reply && reply.moveListText) || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Primary flow: use the active tab's game ID, fetch the PGN from the API, and open
  * the analysis. Throws an error with a user-friendly message if something is missing.
@@ -192,8 +203,14 @@ async function loadTabGamePayload(tab, username, signal, { remember = true } = {
   if (!game || !game.pgn) {
     // Guest games have no public archive and the callback endpoint refuses them, so the page the user
     // is looking at is the only source left: its move list (SAN) and result. The content script reads
-    // them; lib/page-moves.js validates the moves and rebuilds the PGN.
-    const fromPage = gameFromPageMoves(info, gameId);
+    // them; lib/page-moves.js validates the moves and rebuilds the PGN. getGameInfo carries movetext
+    // and result, but they may not be populated yet on a just-finished page, so re-read the DOM once.
+    let pageInfo = info;
+    if (!(pageInfo?.movetext || pageInfo?.result)) {
+      const domMoves = await getDomMovesFromTab(tab.id);
+      if (domMoves) pageInfo = { ...info, movetext: domMoves };
+    }
+    const fromPage = gameFromPageMoves(pageInfo, gameId);
     if (fromPage) game = fromPage;
   }
   if (!game || !game.pgn) {
