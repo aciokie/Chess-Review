@@ -2019,8 +2019,128 @@ function publicPhaseAccuracy(state = S) {
   }
   return out;
 }
-// Estimated rating shown beside the accuracy: the public model's rating (rounded to 50) for builds
-// that have one, otherwise the earlier accuracy-anchored estimate.
+// ---- Phases-modern accuracy report (ported from upstream) -------------------------
+// Splits each side's scored decisions by the nature of the position and the moment, rather than
+// just opening/middlegame/endgame: balanced (position within ±1 pawn), defending (1+ pawn behind),
+// winning (1+ pawn ahead), punish (accuracy punishing opponent mistakes), bounce-back (accuracy
+// after own errors), only-moves (found the move when the engine's first choice was 1+ pawn clearer
+// than its second), plus clock-based metrics. All inputs are already on the state (evals, bests,
+// clocks, classif), so nothing here affects scoring — it is display-only, exactly like the classic
+// phase accuracy.
+const MODERN_PHASE_THRESHOLD_CP = 100;   // within ±1 pawn = balanced
+const MODERN_ONLY_MOVE_GAP_CP = 100;     // engine 1st choice 1+ pawn clearer than 2nd = only-move
+const MODERN_MATE_CP = 1000;             // stand-in cp for a mate score
+
+// Eval in the mover's perspective (cp) for the position just before ply i, or null.
+function moverEvalCpBefore(i, state = S) {
+  const e = state.evals && state.evals[i - 1];
+  if (!e) return null;
+  const sign = state.positions[i] && state.positions[i].color === "w" ? 1 : -1;
+  if (e.mate != null) return e.mate * sign * MODERN_MATE_CP;
+  return (e.cp != null ? e.cp : null) * sign;
+}
+// Accuracy (0-100) for a classification, or null when unscorable.
+function modernAccFor(cls) { return catAcc(cls); }
+// Did the opponent's immediately previous move deserve punishment (a mistake-grade error)?
+function prevWasBlunder(i, state = S) {
+  const prev = state.classif && state.classif[i - 1];
+  return prev === "miss" || prev === "mistake" || prev === "blunder";
+}
+// Did our immediately previous move deserve a bounce-back chance (an error-grade error)?
+function prevWasError(i, state = S) {
+  const prev = state.classif && state.classif[i - 1];
+  return prev === "inacc" || prev === "mistake" || prev === "blunder";
+}
+// Aggregate a list of (accuracy, count) into a single accuracy, or null.
+function modernAvg(pairs) {
+  let sum = 0, n = 0;
+  for (const [a, c] of pairs) { if (a != null) { sum += a * c; n += c; } }
+  return n ? sum / n : null;
+}
+// Compute every modern phase stat for one side.
+function phaseModernStats(side, state = S) {
+  const phases = state.phaseByPly ? state.phaseByPly(state) : phaseByPly(state);
+  const buckets = {
+    balanced: [], defending: [], winning: [], punish: [], bounceBack: [], onlyMove: [],
+  };
+  let thinkSum = 0, thinkN = 0, thinkMax = 0;
+  let clockMy = 0, clockOp = 0, pressureN = 0, quickN = 0, deepN = 0, clockN = 0;
+  const startTime = initialClockSeconds(state);
+  const prevClock = {};
+  for (let i = 1; i <= (state.total || 0); i++) {
+    const p = state.positions[i];
+    if (!p || p.color !== side) continue;
+    const cls = state.classif && state.classif[i];
+    const a = modernAccFor(cls);
+    if (a == null) continue; // not a scored decision
+    const evalCp = moverEvalCpBefore(i, state);
+    const beforeAbs = evalCp == null ? null : Math.abs(evalCp);
+    if (beforeAbs != null && beforeAbs <= MODERN_PHASE_THRESHOLD_CP) buckets.balanced.push([a, 1]);
+    else if (evalCp != null && evalCp <= -MODERN_PHASE_THRESHOLD_CP) buckets.defending.push([a, 1]);
+    else if (evalCp != null && evalCp >= MODERN_PHASE_THRESHOLD_CP) buckets.winning.push([a, 1]);
+    if (i > 1 && prevWasBlunder(i - 1, state) && isPunishGrade(cls)) buckets.punish.push([a, 1]);
+    if (i > 1 && prevWasError(i - 1, state)) buckets.bounceBack.push([a, 1]);
+    // Only-move: engine's first choice was 1+ pawn clearer than its second, and we played best.
+    const best = state.bests && state.bests[i];
+    const lines = best && best.lines;
+    const top = lines && lines.find(l => l.multipv === 1);
+    const second = lines && lines.find(l => l.multipv === 2);
+    const topCp = top && top.score && top.score.cp != null ? top.score.cp
+      : (top && top.score && top.score.mate != null ? (top.score.mate > 0 ? MODERN_MATE_CP : -MODERN_MATE_CP) : null);
+    const secondCp = second && second.score && second.score.cp != null ? second.score.cp
+      : (second && second.score && second.score.mate != null ? (second.score.mate > 0 ? MODERN_MATE_CP : -MODERN_MATE_CP) : null);
+    const gap = topCp != null && secondCp != null ? topCp - secondCp : null;
+    const playedBest = best && best.bestmove && (p.from + p.to + (p.promotion || "")) === best.bestmove;
+    if (gap != null && gap >= MODERN_ONLY_MOVE_GAP_CP && playedBest) buckets.onlyMove.push([a, 1]);
+    // Clock metrics.
+    const ck = state.clocks && state.clocks[i];
+    if (ck != null) {
+      const prev = prevClock[side];
+      const think = prev != null ? Math.max(0, prev - ck) : null;
+      if (think != null) { thinkSum += think; thinkN++; if (think > thinkMax) thinkMax = think; }
+      if (startTime) {
+        const share = ck / startTime;
+        if (share < 0.10) pressureN++;
+      }
+      if (think != null) {
+        if (think < 5) quickN++;
+        if (thinkN > 1 && think > 2 * (thinkSum / thinkN)) deepN++;
+      }
+      clockN++;
+      if (side === "w") clockMy = ck; else clockOp = ck;
+      prevClock[side] = ck;
+    }
+  }
+  const clockAdv = clockN && startTime ? ((clockMy - clockOp) / (2 * startTime) * 100) : null;
+  return {
+    balanced: modernAvg(buckets.balanced),
+    defending: modernAvg(buckets.defending),
+    winning: modernAvg(buckets.winning),
+    punish: modernAvg(buckets.punish),
+    bounceBack: modernAvg(buckets.bounceBack),
+    onlyMove: modernAvg(buckets.onlyMove),
+    clock: {
+      advantage: clockAdv,
+      thinkAvg: thinkN ? thinkSum / thinkN : null,
+      thinkLongest: thinkMax || null,
+      pressure: clockN ? pressureN / clockN * 100 : null,
+      quick: clockN ? quickN / clockN * 100 : null,
+      deep: clockN ? deepN / clockN * 100 : null,
+    },
+    n: buckets.balanced.length + buckets.defending.length + buckets.winning.length,
+  };
+}
+// A move grade that counts as "punishing" the opponent (Excellent or better).
+function isPunishGrade(cls) {
+  return cls === "brilliant" || cls === "great" || cls === "best" || cls === "excellent";
+}
+// Initial clock seconds from the TimeControl header, or null when there is no clock data.
+function initialClockSeconds(state = S) {
+  const tc = (state.headers && state.headers.TimeControl) || "";
+  const m = tc.match(/^(\d+)(?:\+(\d+))?$/);
+  if (!m) return null;
+  return +m[1];
+}
 function ratingEstimate(side) {
   if (S.publicScoring) {
     const rating = S.calibrated?.[side]?.rating;
@@ -5046,6 +5166,8 @@ function renderStats() {
   }
   const opSide = S.meSide === "w" ? "b" : "w";
   const sides = [S.meSide, opSide];
+  const design = panelDesign("accuracy", S.settings);
+  const phaseModern = design === "phases-modern" || design === "phases-modern-v2";
   const meAcc = S.acc[S.meSide], opAcc = S.acc[opSide];
   // The Elo model is fit to reference accuracy values, so feed it our best estimate of that number:
   // the accBias-corrected win%-based accuracy (same quantity the displayed accuracy uses in
@@ -5133,7 +5255,7 @@ function renderStats() {
       el("span", { class: "acc-side " + side, "aria-label": side === "w" ? "White" : "Black" }),
       el("span", { class: "acc-name" }, S.players[side].name))));
   let content;
-  if (page === 0) {
+  if (page === 0 && !phaseModern) {
     content = el("div", { class: "acc-row" },
       el("div", { class: "acc-cell" },
         el("span", { class: "acc-name" }, S.players[S.meSide].name),
@@ -5153,6 +5275,8 @@ function renderStats() {
         el("span", { class: "est-rating", onmouseenter: (e) => showInfoTip(e.currentTarget, "Estimated Elo", eloInfoText()), onmouseleave: hideQTip }, S.analyzing ? "≈ ··· elo" : "≈ " + (ratingEstimate(opSide) ?? "—") + " elo"),
         phaseLine(opSide)),
     );
+  } else if (page === 0 && phaseModern) {
+    content = renderPhaseModernOverview(sides, S.analyzing);
   } else if (page === 1) {
     content = quality;
   } else {
@@ -5168,11 +5292,55 @@ function renderStats() {
       el("button", { class: "practice-btn", disabled: S.analyzing || !!S.practice, title: "Replay the game and re-solve every mistake you made", onclick: startPractice }, "Practice your mistakes")),
     accuracyPager(),
     el("div", { class: "panel-body acc-page", id: "accuracy-page", role: "tabpanel", tabindex: 0 },
-      page === 0 ? null : players,
+      page === 0 && !phaseModern ? null : players,
       content),
   ));
   statsRefs = S.analyzing ? { expanded: S.qbreakExpanded, page, rows } : null;
   accuracyNavigation?.sync(page);
+// Phases-modern accuracy overview (ported from upstream): a row per modern phase — balanced,
+// defending, winning, punish, bounce-back, only-moves — each showing the side's accuracy and move
+// count, plus clock-based metrics below (think average/longest, pressure, quick, deep). Display-only;
+// never affects scoring or classification.
+function renderPhaseModernOverview(sides, analyzing) {
+  const rows = [];
+  for (const side of sides) {
+    const st = phaseModernStats(side);
+    const accCell = (label, value, note) => el("div", { class: "acc-modern-row" },
+      el("span", { class: "acc-modern-label", title: note }, label),
+      el("span", { class: "acc-modern-value", title: note },
+        analyzing ? "·" : (value == null ? "–" : value.toFixed(0) + "%")),
+      el("span", { class: "acc-modern-count", title: note }, st.n != null ? String(st.n) : "–"));
+    rows.push(el("div", { class: "acc-modern-side" },
+      el("div", { class: "acc-modern-head" },
+        el("span", { class: "acc-side " + side }),
+        el("span", { class: "acc-modern-side-name" }, S.players[side].name)),
+      el("div", { class: "acc-modern-grid" },
+        accCell("Balanced", st.balanced, "Position within ±1 pawn — neither side clearly ahead."),
+        accCell("Defending", st.defending, "Starting the move at least 1 pawn behind."),
+        accCell("Winning", st.winning, "Starting the move at least 1 pawn ahead."),
+        accCell("Punish", st.punish, "Replying well right after the opponent made a mistake."),
+        accCell("Bounce-back", st.bounceBack, "Playing well right after making an error yourself."),
+        accCell("Only move", st.onlyMove, "Found the move when the engine's first choice was 1+ pawn clearer than its second."))));
+  }
+  const clk = sides.map(s => phaseModernStats(s).clock);
+  const clockRow = (label, fn) => el("div", { class: "acc-modern-row" },
+    el("span", { class: "acc-modern-label", title: "" }, label),
+    el("span", { class: "acc-modern-value" },
+      analyzing ? "·" : (fn(clk[0]) == null ? "–" : fn(clk[0]).toFixed(1))),
+    el("span", { class: "acc-modern-value" },
+      analyzing ? "·" : (fn(clk[1]) == null ? "–" : fn(clk[1]).toFixed(1))));
+  const clockSection = el("div", { class: "acc-modern-clock" },
+    el("div", { class: "acc-modern-head" }, el("span", { class: "acc-modern-side-name" }, "On the clock")),
+    el("div", { class: "acc-modern-grid" },
+      clockRow("Think avg", c => c.thinkAvg),
+      clockRow("Think longest", c => c.thinkLongest),
+      clockRow("Pressure <10s", c => c.pressure),
+      clockRow("Quick <5s", c => c.quick),
+      clockRow("Deep >2× avg", c => c.deep)));
+  return el("div", { class: "acc-modern" },
+    ...rows,
+    clockSection);
+}
 }
 
 /* ---------------- Eval graph ---------------- */

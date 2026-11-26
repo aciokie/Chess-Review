@@ -873,6 +873,20 @@ button { font-family: inherit; cursor: pointer; }
 .phase-cell.none b { color: var(--ink-3); opacity: .6; }
 .phase-cell.none .phase-elo { opacity: .6; }
 .acc-cell.right .phase-cell b { color: var(--ink-2); }
+/* Phases-modern accuracy overview: rows of balanced/defending/winning/punish/bounce-back/only-moves
+   plus clock-based metrics, scoped to .acc-modern so the classic page design is untouched. */
+.acc-modern { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.acc-modern-side { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.acc-modern-head { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 6px 10px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
+.acc-modern-side-name { font-size: 12px; font-weight: 700; color: var(--ink-2); text-align: right; }
+.acc-modern-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 8px 10px; }
+.acc-modern-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; font-size: 12px; border-bottom: 1px solid color-mix(in srgb, var(--line) 40%, transparent); padding: 4px 10px; }
+.acc-modern-row:last-child { border-bottom: 0; }
+.acc-modern-label { color: var(--ink-3); font-family: var(--font-ui); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acc-modern-value { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); text-align: center; }
+.acc-modern-count { font-size: 11px; color: var(--ink-3); text-align: right; font-family: var(--font-mono); }
+.acc-modern-clock { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-top: 6px; }
+.acc-q-dials, .acc-dials { display: grid; gap: 10px; }
 .qbreak-toggle {
   margin-top: 4px; width: 100%; display: grid; place-items: center;
   background: none; border: 0; cursor: pointer; color: var(--ink-3);
