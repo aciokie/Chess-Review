@@ -3804,10 +3804,18 @@ async function requestLiveEval() {
       const node = v.positions[i];
       const terminal = variationTerminal(v, i);
       const res = terminal ? { score: terminal, bestmove: null, pv: "", lines: [] }
-        : await eng.analyse(node.fen, S.settings.engineDepth, S.settings.engineLines);
+        : await eng.analyse(node.fen, S.settings.engineDepth, S.settings.engineLines,
+          // Upstream's analyse() preview callback: provisional search snapshots paint the
+          // variation in real time while the search runs, instead of waiting for the final result.
+          preview => {
+            if (!valid()) return;
+            node.searchPreview = preview; node.searchPreviewToken = token;
+            refreshVariation();
+          });
       if (!valid()) return;
       node.eval = terminal || whiteRel(res.score, node.fen);
       node.best = res;
+      node.searchPreview = null;
       refreshVariation();
     }
   } catch (e) {
@@ -3815,6 +3823,12 @@ async function requestLiveEval() {
     S.liveError = "Stockfish stopped before this position was ready.";
     if (S.liveEngine?.dead) { S.liveEngine.terminate(); S.liveEngine = null; }
     refreshVariation();
+  } finally {
+    // Drop any provisional previews this token started so a stale search can't leave a ghost line.
+    for (const node of v.positions) {
+      if (node.searchPreviewToken === token) node.searchPreview = null;
+    }
+    if (valid()) refreshVariation();
   }
 }
 
